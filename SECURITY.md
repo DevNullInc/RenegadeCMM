@@ -14,7 +14,7 @@
 Instead, report security concerns privately to the maintainers:
 
 - **Security Email**: <contact-us@renegadeinc.net> (CC: <bug-report@renegadeinc.net>) with subject line `[SECURITY] CMM Vulnerability Report`
-- **GitHub**: Submit via [GitHub Private Vulnerability Reporting](https://github.com/DevNullInc/Civitai-manager-ComfyUI/security/advisories/new)
+- **GitHub**: Submit via [GitHub Private Vulnerability Reporting](https://github.com/DevNullInc/RenegadeCMM/security/advisories/new)
 
 ### What to Include
 

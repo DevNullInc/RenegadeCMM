@@ -3,7 +3,7 @@
 **Project:** Renegade Core Model Manager (RenegadeCMM)  
 **Maintainer:** TheStygianRenegade / /dev/null Inc  
 **Legal Contact:** <legal@renegadeinc.net> (CC: <contact-us@renegadeinc.net>)  
-**Source Repository:** <https://github.com/DevNullInc/Civitai-manager-ComfyUI>  
+**Source Repository:** <https://github.com/DevNullInc/RenegadeCMM>  
 
 ---
 
@@ -19,8 +19,8 @@ The full license text is provided in the root [LICENSE](LICENSE) file and at <ht
 
 In compliance with Section 6 of the GNU General Public License v3.0 (Conveying Non-Source Forms), complete Corresponding Source Code for all distributed binaries (Windows NSIS installers, Windows portable executables, Linux AppImages, Linux archives, and macOS DMGs) is freely and publicly accessible at:
 
-- **Primary Repository:** <https://github.com/DevNullInc/Civitai-manager-ComfyUI>
-- **Project Mirror:** <https://github.com/DevNullInc/RenegadeCMM>
+- **Primary Repository:** <https://github.com/DevNullInc/RenegadeCMM>
+- **Legacy Repository / Mirror:** <https://github.com/DevNullInc/Civitai-manager-ComfyUI>
 
 Anyone receiving distributed binaries of this software has the right to access, inspect, modify, and recompile the Corresponding Source Code under the terms of GPL-3.0.
 
