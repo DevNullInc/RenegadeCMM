@@ -66,4 +66,34 @@ describe('FolderRouter', () => {
       } catch {}
     }
   });
+
+  it('should prevent path traversal when fileName or creator contains directory traversal markers', () => {
+    const router = new FolderRouter({ rootPath: '/tmp/comfy_models' });
+
+    // fileName with traversal attempts
+    const result1 = router.computePath({
+      fileName: '../../etc/passwd',
+      modelType: 'Checkpoint',
+    });
+    expect(result1.fullPath.startsWith('/tmp/comfy_models')).toBe(true);
+    expect(result1.fullPath).not.toContain('..');
+
+    // dot-dot as fileName
+    const result2 = router.computePath({
+      fileName: '..',
+      modelType: 'Checkpoint',
+    });
+    expect(result2.fullPath.startsWith('/tmp/comfy_models')).toBe(true);
+    expect(result2.fullPath).not.toContain('/../');
+
+    // creator with traversal
+    router.updateConfig({ separateByCreator: true });
+    const result3 = router.computePath({
+      fileName: 'model.safetensors',
+      modelType: 'Checkpoint',
+      creator: '../../../malicious_creator',
+    });
+    expect(result3.fullPath.startsWith('/tmp/comfy_models')).toBe(true);
+    expect(result3.fullPath).not.toContain('..');
+  });
 });

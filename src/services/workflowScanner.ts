@@ -558,7 +558,7 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
             let uncompressedText = '';
             if (compFlag === 1) {
               try {
-                uncompressedText = zlib.inflateSync(textBuffer).toString('utf-8');
+                uncompressedText = zlib.inflateSync(textBuffer, { maxOutputLength: 20 * 1024 * 1024 }).toString('utf-8');
               } catch {}
             } else {
               uncompressedText = textBuffer.toString('utf-8');

@@ -22,8 +22,17 @@ export function joinPaths(...parts: string[]): string {
 }
 
 export function sanitizeFileName(name: string): string {
-  // Remove problematic characters for OS filenames (\ / : * ? " < > |)
-  return name.replace(/[/\\?%*:|"<>]/g, '_').trim();
+  if (!name || typeof name !== 'string') return '';
+  // Strip control characters (0-31, 127) and OS invalid filename characters
+  let clean = name.replace(/[\x00-\x1f\x7f/\\?%*:|"<>]/g, '_').trim();
+  // Strip relative traversal sequences (two or more dots)
+  clean = clean.replace(/\.{2,}/g, '_');
+  if (clean === '.' || clean === '_') {
+    clean = '_';
+  }
+  // Strip trailing periods or spaces which cause issues on Windows
+  clean = clean.replace(/[. ]+$/, '');
+  return clean || '_';
 }
 
 export function getFileExtension(filePath: string): string {

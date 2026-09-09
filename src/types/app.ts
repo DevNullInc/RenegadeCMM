@@ -112,8 +112,10 @@ export interface AppConfig {
   comfyui_install_dir?: string; // Root ComfyUI application directory (where main.py and custom_nodes reside)
   comfyui_custom_nodes_dir?: string; // Optional custom_nodes path override
   civitai_api_key?: string;
+  has_civitai_api_key?: boolean;
   mirror_url?: string;
   huggingface_token?: string;
+  has_huggingface_token?: boolean;
   webhooks?: WebhookConfig;
   folder_mappings: Record<string, string>;
   advanced_mappings: {

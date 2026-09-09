@@ -45,7 +45,11 @@ export class BackupService {
    */
   async createBackupZip(): Promise<Buffer> {
     try {
-      const configRows = (await dbManager.all('SELECT * FROM app_config;')) || [];
+      const rawConfigRows = (await dbManager.all('SELECT * FROM app_config;')) || [];
+      // Security: Strip private API keys and tokens from exported backup archives
+      const configRows = rawConfigRows.filter(
+        (r: any) => r && r.key !== 'civitai_api_key' && r.key !== 'huggingface_token'
+      );
       const modelRows = (await dbManager.all('SELECT * FROM local_models;')) || [];
       const downloadRows = (await dbManager.all('SELECT * FROM downloads;')) || [];
       
@@ -77,27 +81,12 @@ export class BackupService {
       // 1. Manifest
       zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
 
-      // 2. Structured JSON snapshots
+      // 2. Structured JSON snapshots (sanitized)
       zip.addFile('config.json', Buffer.from(JSON.stringify(configRows, null, 2), 'utf8'));
       zip.addFile('models.json', Buffer.from(JSON.stringify(modelRows, null, 2), 'utf8'));
       zip.addFile('downloads.json', Buffer.from(JSON.stringify(downloadRows, null, 2), 'utf8'));
       zip.addFile('ignored_updates.json', Buffer.from(JSON.stringify(ignoredUpdatesRows, null, 2), 'utf8'));
       zip.addFile('ignored_duplicates.json', Buffer.from(JSON.stringify(ignoredDuplicatesRows, null, 2), 'utf8'));
-
-      // 3. Raw SQLite DB snapshot if file exists
-      const dbPath = path.join(process.cwd(), 'renegadecmm.sqlite');
-      const legacyDbPath = path.join(process.cwd(), 'civitai_manager.sqlite');
-      const targetDbPath = fs.existsSync(dbPath) ? dbPath : (fs.existsSync(legacyDbPath) ? legacyDbPath : null);
-      if (targetDbPath) {
-        try {
-          // Checkpoint WAL to flush to main DB before reading
-          await dbManager.exec('PRAGMA wal_checkpoint(TRUNCATE);').catch(() => {});
-          const dbBuffer = fs.readFileSync(targetDbPath);
-          zip.addFile('database.sqlite', dbBuffer);
-        } catch (dbReadErr) {
-          logger.warn('Could not attach raw SQLite file to zip, JSON tables will be used:', dbReadErr);
-        }
-      }
 
       const zipBuffer = zip.toBuffer();
       logger.info(`Backup zip generated successfully (${zipBuffer.length} bytes, ${modelRows.length} models)`);

@@ -957,7 +957,10 @@ export class NodeResolverService {
       folderName = path.basename(trimmedUrl).replace(/\.git$/i, '');
     }
     // Sanitize folder name to prevent path traversal or flag injection
-    folderName = folderName.replace(/[/\\?%*:|"<>]/g, '_').trim();
+    folderName = folderName.replace(/[\x00-\x1f\x7f/\\?%*:|"<>]/g, '_').trim();
+    if (folderName === '.' || folderName === '..' || folderName.replace(/\./g, '') === '') {
+      folderName = 'custom_node';
+    }
     if (folderName.startsWith('-')) {
       folderName = '_' + folderName.substring(1);
     }
@@ -968,7 +971,8 @@ export class NodeResolverService {
     const targetPath = path.resolve(path.join(resolvedNodesDir, folderName));
 
     // Ensure targetPath stays strictly inside resolvedNodesDir
-    if (!targetPath.startsWith(resolvedNodesDir)) {
+    const relFromNodesDir = path.relative(resolvedNodesDir, targetPath);
+    if (relFromNodesDir.startsWith('..') || path.isAbsolute(relFromNodesDir) || relFromNodesDir === '') {
       return {
         success: false,
         folderName,

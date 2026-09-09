@@ -27,7 +27,7 @@ import { webhookService } from '../services/webhookService';
 import { huggingfaceClient } from '../services/huggingfaceClient';
 import { workflowScanner } from '../services/workflowScanner';
 import { nodeResolverService } from '../services/nodeResolverService';
-import { encryptKey, decryptKey } from '../utils/secureStorage';
+import { encryptKey, decryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
 import { AppConfig, AppUpdateCheckResult } from '../types/app';
 import { APP_VERSION, BUILD_CONFIG } from '../version';
@@ -157,6 +157,34 @@ async function createWindow() {
   mainWindow.removeMenu();
   mainWindow.setMenuBarVisibility(false);
 
+  // Security: Prevent untrusted window creation and redirect external links to default OS browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // Security: Guard against unexpected top-level navigation away from the local application
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const parsed = new URL(navigationUrl);
+      const isLocalApp =
+        parsed.protocol === 'file:' ||
+        parsed.protocol === 'app:' ||
+        ((parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+          (parsed.port === '5173' || parsed.port === '5174' || parsed.port === String(process.env.PORT || '')));
+      if (!isLocalApp) {
+        event.preventDefault();
+        if (navigationUrl.startsWith('http://') || navigationUrl.startsWith('https://')) {
+          shell.openExternal(navigationUrl);
+        }
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
+
   const indexPath = path.join(__dirname, '../index.html');
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:5173');
   const fs = require('fs');
@@ -179,6 +207,9 @@ async function createWindow() {
     }
   }
 }
+
+import { getSanitizedConfig } from '../utils/configSanitizer';
+export { getSanitizedConfig };
 
 async function loadConfigFromDb() {
   try {
@@ -215,6 +246,15 @@ async function loadConfigFromDb() {
       const decrypted = decryptKey(cfgObj.civitai_api_key);
       currentConfig.civitai_api_key = decrypted;
       civitaiClient.setApiKey(decrypted);
+      downloadManager.setApiKey(decrypted);
+      if (isLegacyEncrypted(cfgObj.civitai_api_key) && decrypted) {
+        const reEncrypted = encryptKey(decrypted);
+        await dbManager.run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);', [
+          'civitai_api_key',
+          JSON.stringify(reEncrypted),
+        ]);
+        logger.info('[Security] Seamlessly upgraded CivitAI API key to machine-bound encryption at rest.');
+      }
     }
     if (cfgObj.mirror_url !== undefined) {
       currentConfig.mirror_url = cfgObj.mirror_url;
@@ -225,6 +265,14 @@ async function loadConfigFromDb() {
       const decryptedHf = decryptKey(cfgObj.huggingface_token);
       currentConfig.huggingface_token = decryptedHf;
       huggingfaceClient.setToken(decryptedHf);
+      if (isLegacyEncrypted(cfgObj.huggingface_token) && decryptedHf) {
+        const reEncryptedHf = encryptKey(decryptedHf);
+        await dbManager.run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);', [
+          'huggingface_token',
+          JSON.stringify(reEncryptedHf),
+        ]);
+        logger.info('[Security] Seamlessly upgraded Hugging Face token to machine-bound encryption at rest.');
+      }
     }
     if (cfgObj.webhooks) {
       currentConfig.webhooks = cfgObj.webhooks;
@@ -815,11 +863,6 @@ async function pullMissingModel(modelData: any, targetRoot?: string) {
     downloadUrl = civitaiClient.getDownloadUrl(versionId);
   }
 
-  if (currentConfig.civitai_api_key && downloadUrl && !downloadUrl.includes('token=')) {
-    const sep = downloadUrl.includes('?') ? '&' : '?';
-    downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(currentConfig.civitai_api_key)}`;
-  }
-
   const effectiveRoot =
     targetRoot ||
     currentConfig.default_download_folder ||
@@ -1229,16 +1272,56 @@ function startHttpBridgeServer() {
       return;
     }
 
-    // Origin header verification to guard against DNS rebinding & browser CSRF
-    const origin = req.headers.origin;
-    if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1') && !origin.startsWith('app://') && !origin.startsWith('file://')) {
-      logger.warn(`Security: Blocked untrusted Origin header in HTTP bridge: ${origin}`);
+    // Host header verification to protect against DNS rebinding attacks
+    const rawHost = req.headers.host || '';
+    const hostHeader = rawHost.split(':')[0].toLowerCase();
+    const isAllowedHost =
+      hostHeader === 'localhost' ||
+      hostHeader === '127.0.0.1' ||
+      hostHeader === '::1' ||
+      hostHeader === '[::1]' ||
+      !hostHeader;
+
+    if (!isAllowedHost) {
+      logger.warn(`Security: Blocked invalid Host header in HTTP bridge: ${rawHost}`);
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Access forbidden: Untrusted Origin' }));
+      res.end(JSON.stringify({ error: 'Access forbidden: Invalid Host header' }));
       return;
     }
 
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    // Origin header verification to guard against DNS rebinding & browser CSRF
+    const origin = req.headers.origin;
+    let isOriginAllowed = false;
+    if (origin) {
+      try {
+        const parsedOrigin = new URL(origin);
+        if (
+          parsedOrigin.protocol === 'app:' ||
+          parsedOrigin.protocol === 'file:' ||
+          parsedOrigin.protocol === 'vscode-webview:'
+        ) {
+          isOriginAllowed = true;
+        } else if (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') {
+          const h = parsedOrigin.hostname.toLowerCase();
+          if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]') {
+            isOriginAllowed = true;
+          }
+        }
+      } catch {
+        isOriginAllowed = false;
+      }
+
+      if (!isOriginAllowed) {
+        logger.warn(`Security: Blocked untrusted Origin header in HTTP bridge: ${origin}`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Access forbidden: Untrusted Origin' }));
+        return;
+      }
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:5173');
+    }
+
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
@@ -1294,7 +1377,7 @@ function startHttpBridgeServer() {
 
       if (url === '/api/config' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(currentConfig));
+        res.end(JSON.stringify(getSanitizedConfig(currentConfig, false)));
       } else if (url === '/api/save-config' && req.method === 'POST') {
         const body = await getBody();
         // Sanitize folder paths server-side — never trust client-supplied paths
@@ -1328,7 +1411,15 @@ function startHttpBridgeServer() {
           }
           body.comfyui_custom_nodes_dir = s || '';
         }
-        currentConfig = { ...currentConfig, ...body };
+
+        const configToMerge = { ...body };
+        if (configToMerge.civitai_api_key !== undefined && String(configToMerge.civitai_api_key).startsWith('•')) {
+          delete configToMerge.civitai_api_key;
+        }
+        if (configToMerge.huggingface_token !== undefined && String(configToMerge.huggingface_token).startsWith('•')) {
+          delete configToMerge.huggingface_token;
+        }
+        currentConfig = { ...currentConfig, ...configToMerge };
 
         if (body.comfyui_root !== undefined) {
           await dbManager.run(
@@ -1355,12 +1446,24 @@ function startHttpBridgeServer() {
           );
         }
         if (body.civitai_api_key !== undefined) {
-          const encrypted = encryptKey(body.civitai_api_key);
-          await dbManager.run(
-            'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
-            ['civitai_api_key', JSON.stringify(encrypted)]
-          );
-          civitaiClient.setApiKey(body.civitai_api_key);
+          const keyVal = String(body.civitai_api_key).trim();
+          if (!keyVal.startsWith('•')) {
+            if (keyVal === '') {
+              currentConfig.civitai_api_key = '';
+              await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['civitai_api_key']);
+              civitaiClient.setApiKey('');
+              downloadManager.setApiKey('');
+            } else {
+              currentConfig.civitai_api_key = keyVal;
+              const encrypted = encryptKey(keyVal);
+              await dbManager.run(
+                'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+                ['civitai_api_key', JSON.stringify(encrypted)]
+              );
+              civitaiClient.setApiKey(keyVal);
+              downloadManager.setApiKey(keyVal);
+            }
+          }
         }
         if (body.mirror_url !== undefined) {
           const baseApiUrl = (body.mirror_url && body.mirror_url.trim()) ? body.mirror_url.trim() : 'https://civitai.com/api/v1';
@@ -1371,12 +1474,22 @@ function startHttpBridgeServer() {
           );
         }
         if (body.huggingface_token !== undefined) {
-          const encryptedHf = encryptKey(body.huggingface_token);
-          await dbManager.run(
-            'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
-            ['huggingface_token', JSON.stringify(encryptedHf)]
-          );
-          huggingfaceClient.setToken(body.huggingface_token);
+          const tokenVal = String(body.huggingface_token).trim();
+          if (!tokenVal.startsWith('•')) {
+            if (tokenVal === '') {
+              currentConfig.huggingface_token = '';
+              await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['huggingface_token']);
+              huggingfaceClient.setToken('');
+            } else {
+              currentConfig.huggingface_token = tokenVal;
+              const encryptedHf = encryptKey(tokenVal);
+              await dbManager.run(
+                'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+                ['huggingface_token', JSON.stringify(encryptedHf)]
+              );
+              huggingfaceClient.setToken(tokenVal);
+            }
+          }
         }
         if (body.webhooks !== undefined) {
           await dbManager.run(
@@ -1685,10 +1798,6 @@ function startHttpBridgeServer() {
         let downloadUrl = body.downloadUrl || body.download_url;
         if (!downloadUrl && modelVersionId) {
           downloadUrl = civitaiClient.getDownloadUrl(modelVersionId);
-        }
-        if (currentConfig.civitai_api_key && downloadUrl && !downloadUrl.includes('token=')) {
-          const sep = downloadUrl.includes('?') ? '&' : '?';
-          downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(currentConfig.civitai_api_key)}`;
         }
         const effectiveRoot = body.targetRoot || body.target_root || currentConfig.default_download_folder || currentConfig.comfyui_root || (currentConfig.comfyui_folders && currentConfig.comfyui_folders[0]);
         const computed = folderRouter.computePath({
@@ -1999,7 +2108,7 @@ function startHttpBridgeServer() {
 }
 
 function registerIpcHandlers() {
-  ipcMain.handle('get-config', () => currentConfig);
+  ipcMain.handle('get-config', () => getSanitizedConfig(currentConfig, true));
 
   // Clear library cache from SQLite
   ipcMain.handle('clear-library', async () => {
@@ -2034,15 +2143,35 @@ function registerIpcHandlers() {
       if (newConfig.comfyui_custom_nodes_dir && !s) throw new Error('Invalid comfyui_custom_nodes_dir path');
       newConfig.comfyui_custom_nodes_dir = s || '';
     }
-    currentConfig = { ...currentConfig, ...newConfig };
+
+    const configToMerge = { ...newConfig };
+    if (configToMerge.civitai_api_key !== undefined && String(configToMerge.civitai_api_key).startsWith('•')) {
+      delete configToMerge.civitai_api_key;
+    }
+    if (configToMerge.huggingface_token !== undefined && String(configToMerge.huggingface_token).startsWith('•')) {
+      delete configToMerge.huggingface_token;
+    }
+    currentConfig = { ...currentConfig, ...configToMerge };
 
     if (newConfig.civitai_api_key !== undefined) {
-      const encrypted = encryptKey(newConfig.civitai_api_key);
-      await dbManager.run(
-        'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
-        ['civitai_api_key', JSON.stringify(encrypted)]
-      );
-      civitaiClient.setApiKey(newConfig.civitai_api_key);
+      const keyVal = String(newConfig.civitai_api_key).trim();
+      if (!keyVal.startsWith('•')) {
+        if (keyVal === '') {
+          currentConfig.civitai_api_key = '';
+          await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['civitai_api_key']);
+          civitaiClient.setApiKey('');
+          downloadManager.setApiKey('');
+        } else {
+          currentConfig.civitai_api_key = keyVal;
+          const encrypted = encryptKey(keyVal);
+          await dbManager.run(
+            'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+            ['civitai_api_key', JSON.stringify(encrypted)]
+          );
+          civitaiClient.setApiKey(keyVal);
+          downloadManager.setApiKey(keyVal);
+        }
+      }
     }
 
     if (newConfig.comfyui_root !== undefined) {
@@ -2083,12 +2212,22 @@ function registerIpcHandlers() {
     }
 
     if (newConfig.huggingface_token !== undefined) {
-      const encryptedHf = encryptKey(newConfig.huggingface_token);
-      await dbManager.run(
-        'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
-        ['huggingface_token', JSON.stringify(encryptedHf)]
-      );
-      huggingfaceClient.setToken(newConfig.huggingface_token);
+      const tokenVal = String(newConfig.huggingface_token).trim();
+      if (!tokenVal.startsWith('•')) {
+        if (tokenVal === '') {
+          currentConfig.huggingface_token = '';
+          await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['huggingface_token']);
+          huggingfaceClient.setToken('');
+        } else {
+          currentConfig.huggingface_token = tokenVal;
+          const encryptedHf = encryptKey(tokenVal);
+          await dbManager.run(
+            'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+            ['huggingface_token', JSON.stringify(encryptedHf)]
+          );
+          huggingfaceClient.setToken(tokenVal);
+        }
+      }
     }
 
     if (newConfig.webhooks !== undefined) {
@@ -2380,16 +2519,9 @@ function registerIpcHandlers() {
   // Download Handlers
   ipcMain.handle('add-download', async (_event: unknown, taskParams: any) => {
     let downloadUrl = taskParams.downloadUrl;
-    // Prefer the caller-supplied URL (which may already carry a token) and only build one
-    // from the version id when none was provided.
+    // Prefer the caller-supplied URL and only build one from the version id when none was provided.
     if (!downloadUrl && taskParams.modelVersionId) {
       downloadUrl = civitaiClient.getDownloadUrl(taskParams.modelVersionId);
-    }
-    // Always append the configured API token to the download URL when a key exists and the
-    // URL lacks one, so auth-gated (NSFW/creator-restricted) downloads succeed.
-    if (currentConfig.civitai_api_key && downloadUrl && !downloadUrl.includes('token=')) {
-      const sep = downloadUrl.includes('?') ? '&' : '?';
-      downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(currentConfig.civitai_api_key)}`;
     }
 
     const effectiveRoot = taskParams.targetRoot || currentConfig.default_download_folder || currentConfig.comfyui_root || (currentConfig.comfyui_folders && currentConfig.comfyui_folders[0]);
@@ -2659,6 +2791,7 @@ async function performLiveRestart() {
     // 2. Re-initialize and sync backend services
     if (currentConfig.civitai_api_key) {
       civitaiClient.setApiKey(currentConfig.civitai_api_key);
+      downloadManager.setApiKey(currentConfig.civitai_api_key);
     }
     downloadManager.setConflictStrategy(currentConfig.conflict_strategy);
     downloadManager.setStrictHashVerification(currentConfig.strict_hash_verification !== false);
@@ -2778,6 +2911,15 @@ if (!gotTheLock) {
     try {
       await downloadManager.flushAndStopPersistence();
     } catch {}
+  });
+
+  // Security: Harden all created webContents and <webview> instances
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (_waEvent, webPreferences) => {
+      delete (webPreferences as any).preload;
+      webPreferences.nodeIntegration = false;
+      webPreferences.contextIsolation = true;
+    });
   });
 
   app.whenReady().then(async () => {

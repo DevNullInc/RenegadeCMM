@@ -255,11 +255,7 @@ export class CivitAIClient {
   }
 
   getDownloadUrl(versionId: number): string {
-    const baseDownloadUrl = `https://civitai.com/api/download/models/${versionId}`;
-    if (this.apiKey) {
-      return `${baseDownloadUrl}?token=${encodeURIComponent(this.apiKey)}`;
-    }
-    return baseDownloadUrl;
+    return `https://civitai.com/api/download/models/${versionId}`;
   }
 }
 

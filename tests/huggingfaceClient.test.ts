@@ -62,4 +62,15 @@ describe('HuggingFaceClient', () => {
     expect(result.safetensorsFiles).toContain('sd_xl_base_1.0.safetensors');
     expect(result.ggufFiles).toContain('sd_xl_base_1.0.gguf');
   });
+
+  it('should reject invalid or traversal repo IDs', async () => {
+    const client = new HuggingFaceClient();
+    const result1 = await client.checkModelRepo('../../../etc/passwd');
+    expect(result1.exists).toBe(false);
+    expect(result1.error).toContain('Invalid Hugging Face repo ID format');
+
+    const result2 = await client.checkModelRepo('invalid repo with spaces/model');
+    expect(result2.exists).toBe(false);
+    expect(result2.error).toContain('Invalid Hugging Face repo ID format');
+  });
 });

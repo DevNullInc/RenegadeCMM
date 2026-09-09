@@ -90,9 +90,10 @@ export class FolderRouter {
     const { fileName, modelType, baseModel, creator, fileType, targetRoot } = params;
 
     const baseFolder = this.determineFolder(fileName, modelType, fileType);
+    const sanitizedBaseFolder = sanitizeFileName(baseFolder);
     const sanitizedFileName = sanitizeFileName(fileName);
 
-    const pathParts: string[] = [baseFolder];
+    const pathParts: string[] = [sanitizedBaseFolder];
 
     if (this.config.separateByBaseModel && baseModel) {
       pathParts.push(sanitizeFileName(baseModel));
@@ -104,9 +105,20 @@ export class FolderRouter {
 
     const relativePath = path.join(...pathParts, sanitizedFileName);
     const effectiveRoot = targetRoot || this.config.rootPath || (this.config.folderPaths && this.config.folderPaths[0]) || '';
-    const fullPath = effectiveRoot
+    let fullPath = effectiveRoot
       ? path.join(effectiveRoot, relativePath)
       : relativePath;
+
+    // Boundary check: Ensure fullPath never escapes effectiveRoot
+    if (effectiveRoot) {
+      const resolvedRoot = path.resolve(effectiveRoot);
+      const resolvedTarget = path.resolve(fullPath);
+      const rel = path.relative(resolvedRoot, resolvedTarget);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        logger.warn(`Security: Path traversal attempt blocked in computePath for: ${relativePath}`);
+        fullPath = path.join(effectiveRoot, sanitizedFileName);
+      }
+    }
 
     return {
       folderName: baseFolder,

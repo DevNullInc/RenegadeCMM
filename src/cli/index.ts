@@ -19,7 +19,7 @@ import { versionManager } from '../services/versionManager';
 import { backupService } from '../services/backupService';
 import { huggingfaceClient } from '../services/huggingfaceClient';
 import { workflowScanner } from '../services/workflowScanner';
-import { decryptKey } from '../utils/secureStorage';
+import { decryptKey, encryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
 
 function printBanner() {
@@ -105,6 +105,13 @@ async function loadConfig() {
     if (cfg.civitai_api_key) {
       const key = decryptKey(cfg.civitai_api_key);
       civitaiClient.setApiKey(key);
+      downloadManager.setApiKey(key);
+      if (isLegacyEncrypted(cfg.civitai_api_key) && key) {
+        await dbManager.run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);', [
+          'civitai_api_key',
+          JSON.stringify(encryptKey(key)),
+        ]);
+      }
     }
     if (cfg.mirror_url) {
       civitaiClient.setBaseUrl(cfg.mirror_url);
@@ -112,6 +119,12 @@ async function loadConfig() {
     if (cfg.huggingface_token) {
       const hfToken = decryptKey(cfg.huggingface_token);
       huggingfaceClient.setToken(hfToken);
+      if (isLegacyEncrypted(cfg.huggingface_token) && hfToken) {
+        await dbManager.run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);', [
+          'huggingface_token',
+          JSON.stringify(encryptKey(hfToken)),
+        ]);
+      }
     }
 
     folderRouter.updateConfig({
@@ -261,7 +274,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
       if (format === 'json') {
         const rows = await dbManager.all('SELECT * FROM local_models;');
-        const configRows = await dbManager.all('SELECT * FROM app_config;');
+        const rawConfigRows = await dbManager.all('SELECT * FROM app_config;');
+        const configRows = rawConfigRows.filter(
+          (r: any) => r && r.key !== 'civitai_api_key' && r.key !== 'huggingface_token'
+        );
         const exportData = {
           exportedAt: new Date().toISOString(),
           version: '1.4.2',

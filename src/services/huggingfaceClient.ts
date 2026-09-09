@@ -63,7 +63,7 @@ export class HuggingFaceClient {
   }
 
   async validateToken(customToken?: string): Promise<{ valid: boolean; username?: string; orgs?: string[]; error?: string }> {
-    const tokenToTest = customToken || this.token;
+    const tokenToTest = (customToken && !customToken.startsWith('•')) ? customToken : this.token;
     if (!tokenToTest) {
       return { valid: false, error: 'No Hugging Face token provided' };
     }
@@ -99,8 +99,8 @@ export class HuggingFaceClient {
     ggufFiles?: string[];
   }> {
     const cleanRepoId = repoId.replace(/^hf:\/\/(models\/)?/, '').replace(/^\/+/, '').trim();
-    if (!cleanRepoId) {
-      return { exists: false, error: 'Invalid Hugging Face repo ID' };
+    if (!cleanRepoId || !/^[a-zA-Z0-9_.-]+(\/[a-zA-Z0-9_.-]+)?$/.test(cleanRepoId)) {
+      return { exists: false, error: 'Invalid Hugging Face repo ID format' };
     }
 
     try {

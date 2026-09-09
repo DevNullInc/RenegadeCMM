@@ -17,6 +17,24 @@ import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
 import { webhookService } from './webhookService';
 
+export function sanitizeDownloadUrl(url?: string): string {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has('token')) {
+      parsed.searchParams.delete('token');
+      return parsed.toString();
+    }
+    return url;
+  } catch {
+    return url.replace(/([?&])token=[^&]*(&|$)/gi, (_match, prefix, suffix) => {
+      if (prefix === '?' && suffix === '&') return '?';
+      if (prefix === '&' && suffix === '&') return '&';
+      return '';
+    });
+  }
+}
+
 export class DownloadManager {
   private tasks: Map<string, DownloadTask> = new Map();
   private activeDownloads: Map<string, { cancel: () => void; cleanup: () => void }> = new Map();
@@ -25,9 +43,14 @@ export class DownloadManager {
   private strictHashVerification: boolean = true;
   private persistenceTimer: NodeJS.Timeout | null = null;
   private dbReady: boolean = false;
+  private civitaiApiKey?: string;
 
   constructor(maxConcurrent = 2) {
     this.maxConcurrent = maxConcurrent;
+  }
+
+  setApiKey(key?: string) {
+    this.civitaiApiKey = key?.trim() || undefined;
   }
 
   /**
@@ -82,7 +105,7 @@ export class DownloadManager {
         targetFolder: r.target_folder || '',
         targetRoot: r.target_root || undefined,
         fileName: r.file_name || 'model.safetensors',
-        downloadUrl: r.download_url || '',
+        downloadUrl: sanitizeDownloadUrl(r.download_url || ''),
         sizeKB: r.size_kb || 0,
         sha256: r.sha256 || undefined,
         status,
@@ -131,7 +154,7 @@ export class DownloadManager {
           task.targetFolder || '',
           task.targetRoot || null,
           task.fileName || '',
-          task.downloadUrl || '',
+          sanitizeDownloadUrl(task.downloadUrl || ''),
           task.sizeKB || 0,
           task.sha256 || null,
           task.status,
@@ -194,9 +217,11 @@ export class DownloadManager {
 
   addTask(task: Omit<DownloadTask, 'id' | 'status' | 'progress' | 'downloadedBytes' | 'totalBytes' | 'speedBps'>): DownloadTask {
     const id = `dl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const cleanUrl = sanitizeDownloadUrl(task.downloadUrl || '');
     const fullTask: DownloadTask = {
       ...task,
       id,
+      downloadUrl: cleanUrl,
       status: 'pending',
       progress: 0,
       downloadedBytes: 0,
@@ -425,7 +450,12 @@ export class DownloadManager {
         if (useRange && existingBytes > 0) {
           headers['Range'] = `bytes=${existingBytes}-`;
         }
-        return await axios.get(task.downloadUrl, {
+        let requestUrl = task.downloadUrl;
+        if (this.civitaiApiKey && requestUrl.includes('civitai.com') && !requestUrl.includes('token=')) {
+          const sep = requestUrl.includes('?') ? '&' : '?';
+          requestUrl = `${requestUrl}${sep}token=${encodeURIComponent(this.civitaiApiKey)}`;
+        }
+        return await axios.get(requestUrl, {
           responseType: 'stream',
           headers,
           cancelToken: cancelTokenSource.token,

@@ -66,8 +66,10 @@ export const SettingsTab: React.FC = () => {
     comfyui_install_dir: '',
     comfyui_custom_nodes_dir: '',
     civitai_api_key: '',
+    has_civitai_api_key: false,
     mirror_url: '',
     huggingface_token: '',
+    has_huggingface_token: false,
     webhooks: {
       on_download_complete: '',
       on_update_available: '',
@@ -408,9 +410,11 @@ export const SettingsTab: React.FC = () => {
           setConfig({
             comfyui_root: normalizeFolderPath(loaded.comfyui_root || folders[0] || ''),
             comfyui_folders: folders,
-            civitai_api_key: loaded.civitai_api_key || '',
+            civitai_api_key: loaded.civitai_api_key || (loaded.has_civitai_api_key ? '••••••••' : ''),
+            has_civitai_api_key: loaded.has_civitai_api_key ?? (!!loaded.civitai_api_key && loaded.civitai_api_key.trim().length > 0),
             mirror_url: loaded.mirror_url || '',
-            huggingface_token: loaded.huggingface_token || '',
+            huggingface_token: loaded.huggingface_token || (loaded.has_huggingface_token ? '••••••••' : ''),
+            has_huggingface_token: loaded.has_huggingface_token ?? (!!loaded.huggingface_token && loaded.huggingface_token.trim().length > 0),
             webhooks: {
               on_download_complete: loaded.webhooks?.on_download_complete || '',
               on_update_available: loaded.webhooks?.on_update_available || '',
@@ -1677,14 +1681,32 @@ export const SettingsTab: React.FC = () => {
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              CivitAI API Key (Optional — for NSFW/Private Models & Higher Rate Limits)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                CivitAI API Key (Optional — for NSFW/Private Models & Higher Rate Limits)
+              </label>
+              <div className="flex items-center gap-2">
+                {(config.has_civitai_api_key || (config.civitai_api_key && config.civitai_api_key.trim().length > 0)) && (
+                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-medium">
+                    <Lock size={12} /> Encrypted & Active
+                  </span>
+                )}
+                {(config.has_civitai_api_key || (config.civitai_api_key && config.civitai_api_key.trim().length > 0)) && (
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, civitai_api_key: '', has_civitai_api_key: false })}
+                    className="text-[11px] px-2 py-0.5 text-rose-400 hover:bg-rose-500/15 border border-rose-500/30 rounded-lg transition-all cursor-pointer"
+                  >
+                    Clear Key
+                  </button>
+                )}
+              </div>
+            </div>
             <input
               type="password"
-              placeholder="Enter your CivitAI API Key..."
+              placeholder={config.has_civitai_api_key ? '•••••••• (Enter new key to replace)' : 'Enter your CivitAI API Key...'}
               value={config.civitai_api_key || ''}
-              onChange={(e) => setConfig({ ...config, civitai_api_key: e.target.value })}
+              onChange={(e) => setConfig({ ...config, civitai_api_key: e.target.value, has_civitai_api_key: e.target.value.length > 0 })}
               className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
             />
             <p className="text-[11px] text-slate-500 mt-1">
@@ -1786,14 +1808,32 @@ export const SettingsTab: React.FC = () => {
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Hugging Face User Access Token (Optional — for gated models like FLUX.1, SD3, Llama)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                Hugging Face User Access Token (Optional — for gated models like FLUX.1, SD3, Llama)
+              </label>
+              <div className="flex items-center gap-2">
+                {(config.has_huggingface_token || (config.huggingface_token && config.huggingface_token.trim().length > 0)) && (
+                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-medium">
+                    <Lock size={12} /> Encrypted & Active
+                  </span>
+                )}
+                {(config.has_huggingface_token || (config.huggingface_token && config.huggingface_token.trim().length > 0)) && (
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, huggingface_token: '', has_huggingface_token: false })}
+                    className="text-[11px] px-2 py-0.5 text-rose-400 hover:bg-rose-500/15 border border-rose-500/30 rounded-lg transition-all cursor-pointer"
+                  >
+                    Clear Token
+                  </button>
+                )}
+              </div>
+            </div>
             <input
               type="password"
-              placeholder="hf_..."
+              placeholder={config.has_huggingface_token ? '•••••••• (Enter new token to replace)' : 'hf_...'}
               value={config.huggingface_token || ''}
-              onChange={(e) => setConfig({ ...config, huggingface_token: e.target.value })}
+              onChange={(e) => setConfig({ ...config, huggingface_token: e.target.value, has_huggingface_token: e.target.value.length > 0 })}
               className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-yellow-500 font-mono"
             />
             <p className="text-[11px] text-slate-500 mt-1">
