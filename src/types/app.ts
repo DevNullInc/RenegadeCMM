@@ -282,6 +282,9 @@ export interface WorkflowInfo {
 
 export interface DownloadTask {
   id: string;
+  source?: 'civitai' | 'huggingface';
+  hfRepoId?: string;
+  hfCommitSha?: string;
   modelVersionId: number;
   modelId: number;
   modelName: string;
@@ -312,6 +315,10 @@ export interface DownloadTask {
 
 export interface LocalModel {
   id: string;
+  source?: 'civitai' | 'huggingface';
+  hfRepoId?: string;
+  hfCommitSha?: string;
+  quantization?: string;
   filePath: string;
   fileName: string;
   fileSize: number;

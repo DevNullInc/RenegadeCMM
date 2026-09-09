@@ -119,6 +119,7 @@ async function loadConfig() {
     if (cfg.huggingface_token) {
       const hfToken = decryptKey(cfg.huggingface_token);
       huggingfaceClient.setToken(hfToken);
+      downloadManager.setHuggingFaceToken(hfToken);
       if (isLegacyEncrypted(cfg.huggingface_token) && hfToken) {
         await dbManager.run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);', [
           'huggingface_token',

@@ -265,6 +265,7 @@ async function loadConfigFromDb() {
       const decryptedHf = decryptKey(cfgObj.huggingface_token);
       currentConfig.huggingface_token = decryptedHf;
       huggingfaceClient.setToken(decryptedHf);
+      downloadManager.setHuggingFaceToken(decryptedHf);
       if (isLegacyEncrypted(cfgObj.huggingface_token) && decryptedHf) {
         const reEncryptedHf = encryptKey(decryptedHf);
         await dbManager.run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);', [
@@ -1480,6 +1481,7 @@ function startHttpBridgeServer() {
               currentConfig.huggingface_token = '';
               await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['huggingface_token']);
               huggingfaceClient.setToken('');
+              downloadManager.setHuggingFaceToken('');
             } else {
               currentConfig.huggingface_token = tokenVal;
               const encryptedHf = encryptKey(tokenVal);
@@ -1488,6 +1490,7 @@ function startHttpBridgeServer() {
                 ['huggingface_token', JSON.stringify(encryptedHf)]
               );
               huggingfaceClient.setToken(tokenVal);
+              downloadManager.setHuggingFaceToken(tokenVal);
             }
           }
         }
@@ -2218,6 +2221,7 @@ function registerIpcHandlers() {
           currentConfig.huggingface_token = '';
           await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['huggingface_token']);
           huggingfaceClient.setToken('');
+          downloadManager.setHuggingFaceToken('');
         } else {
           currentConfig.huggingface_token = tokenVal;
           const encryptedHf = encryptKey(tokenVal);
@@ -2226,6 +2230,7 @@ function registerIpcHandlers() {
             ['huggingface_token', JSON.stringify(encryptedHf)]
           );
           huggingfaceClient.setToken(tokenVal);
+          downloadManager.setHuggingFaceToken(tokenVal);
         }
       }
     }

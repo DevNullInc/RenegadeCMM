@@ -98,7 +98,11 @@ export class DatabaseManager {
         update_version_name TEXT,
         update_download_url TEXT,
         ignored_version_id INTEGER,
-        update_checked_at INTEGER
+        update_checked_at INTEGER,
+        source TEXT DEFAULT 'civitai',
+        hf_repo_id TEXT,
+        hf_commit_sha TEXT,
+        quantization TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_local_models_sha256 ON local_models(sha256);
       CREATE INDEX IF NOT EXISTS idx_local_models_civitai_version ON local_models(civitai_version_id);
@@ -134,7 +138,10 @@ export class DatabaseManager {
         computed_path TEXT,
         is_hash_mismatch INTEGER DEFAULT 0,
         delete_old_version_file TEXT,
-        delete_old_model_id TEXT
+        delete_old_model_id TEXT,
+        source TEXT DEFAULT 'civitai',
+        hf_repo_id TEXT,
+        hf_commit_sha TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
     `);
@@ -208,6 +215,13 @@ export class DatabaseManager {
       'ALTER TABLE downloads ADD COLUMN creator TEXT;',
       'ALTER TABLE downloads ADD COLUMN target_root TEXT;',
       'ALTER TABLE downloads ADD COLUMN is_hash_mismatch INTEGER DEFAULT 0;',
+      'ALTER TABLE local_models ADD COLUMN source TEXT DEFAULT \'civitai\';',
+      'ALTER TABLE local_models ADD COLUMN hf_repo_id TEXT;',
+      'ALTER TABLE local_models ADD COLUMN hf_commit_sha TEXT;',
+      'ALTER TABLE local_models ADD COLUMN quantization TEXT;',
+      'ALTER TABLE downloads ADD COLUMN source TEXT DEFAULT \'civitai\';',
+      'ALTER TABLE downloads ADD COLUMN hf_repo_id TEXT;',
+      'ALTER TABLE downloads ADD COLUMN hf_commit_sha TEXT;',
     ];
 
     for (const sql of columnUpdates) {
@@ -223,7 +237,7 @@ export class DatabaseManager {
     const migrationsDir = path.join(process.cwd(), 'migrations');
     if (!fs.existsSync(migrationsDir)) {
       // Standalone execution without external SQL files
-      await this.exec('PRAGMA user_version = 8;').catch(() => {});
+      await this.exec('PRAGMA user_version = 9;').catch(() => {});
       return;
     }
 
@@ -281,7 +295,10 @@ export class DatabaseManager {
         computed_path TEXT,
         is_hash_mismatch INTEGER DEFAULT 0,
         delete_old_version_file TEXT,
-        delete_old_model_id TEXT
+        delete_old_model_id TEXT,
+        source TEXT DEFAULT 'civitai',
+        hf_repo_id TEXT,
+        hf_commit_sha TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
     `);
@@ -358,6 +375,9 @@ export class DatabaseManager {
         is_hash_mismatch: has('is_hash_mismatch') ? 'COALESCE(is_hash_mismatch, 0)' : '0',
         delete_old_version_file: has('delete_old_version_file') ? 'delete_old_version_file' : 'NULL',
         delete_old_model_id: has('delete_old_model_id') ? 'delete_old_model_id' : 'NULL',
+        source: has('source') ? `COALESCE(source, 'civitai')` : `'civitai'`,
+        hf_repo_id: has('hf_repo_id') ? 'hf_repo_id' : 'NULL',
+        hf_commit_sha: has('hf_commit_sha') ? 'hf_commit_sha' : 'NULL',
       };
 
       const insertCols = Object.keys(map).join(', ');

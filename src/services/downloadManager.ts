@@ -75,6 +75,23 @@ export function attachCivitaiToken(url: string, apiKey?: string): string {
   return url;
 }
 
+/**
+ * Determines whether a URL securely targets the Hugging Face domain ecosystem (huggingface.co
+ * or subdomains such as cdn-lfs.huggingface.co) over HTTPS.
+ */
+export function isHuggingFaceUrl(url?: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === 'huggingface.co' || host.endsWith('.huggingface.co');
+  } catch {
+    return false;
+  }
+}
+
+
 
 export class DownloadManager {
   private tasks: Map<string, DownloadTask> = new Map();
@@ -85,6 +102,7 @@ export class DownloadManager {
   private persistenceTimer: NodeJS.Timeout | null = null;
   private dbReady: boolean = false;
   private civitaiApiKey?: string;
+  private huggingfaceToken?: string;
 
   constructor(maxConcurrent = 2) {
     this.maxConcurrent = maxConcurrent;
@@ -92,6 +110,10 @@ export class DownloadManager {
 
   setApiKey(key?: string) {
     this.civitaiApiKey = key?.trim() || undefined;
+  }
+
+  setHuggingFaceToken(token?: string) {
+    this.huggingfaceToken = token?.trim() || undefined;
   }
 
   /**
@@ -160,6 +182,9 @@ export class DownloadManager {
         deleteOldVersionFile: r.delete_old_version_file || undefined,
         deleteOldModelId: r.delete_old_model_id || undefined,
         completedAt: r.completed_at || undefined,
+        source: (r.source || 'civitai') as 'civitai' | 'huggingface',
+        hfRepoId: r.hf_repo_id || undefined,
+        hfCommitSha: r.hf_commit_sha || undefined,
       };
 
       // Stats for prior sessions are historical; live speed starts at 0.
@@ -181,8 +206,9 @@ export class DownloadManager {
           (id, model_version_id, model_id, model_name, version_name, model_type, base_model, creator,
            target_folder, target_root, file_name, download_url, size_kb, sha256, status, progress,
            downloaded_bytes, total_bytes, speed_bps, error, computed_path, completed_at,
-           is_hash_mismatch, delete_old_version_file, delete_old_model_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+           is_hash_mismatch, delete_old_version_file, delete_old_model_id,
+           source, hf_repo_id, hf_commit_sha)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
           task.id,
           task.modelVersionId || 0,
@@ -209,6 +235,9 @@ export class DownloadManager {
           task.isHashMismatch ? 1 : 0,
           task.deleteOldVersionFile || null,
           task.deleteOldModelId || null,
+          task.source || 'civitai',
+          task.hfRepoId || null,
+          task.hfCommitSha || null,
         ]
       );
     } catch (err) {
@@ -492,14 +521,29 @@ export class DownloadManager {
           headers['Range'] = `bytes=${existingBytes}-`;
         }
         let requestUrl = task.downloadUrl;
-        if (this.civitaiApiKey) {
+        if (this.civitaiApiKey && isCivitaiUrl(requestUrl)) {
           requestUrl = attachCivitaiToken(requestUrl, this.civitaiApiKey);
+        }
+        if (this.huggingfaceToken && isHuggingFaceUrl(requestUrl)) {
+          headers['Authorization'] = `Bearer ${this.huggingfaceToken}`;
         }
         return await axios.get(requestUrl, {
           responseType: 'stream',
           headers,
           cancelToken: cancelTokenSource.token,
           maxRedirects: 5,
+          beforeRedirect: (options: any) => {
+            // When redirected from huggingface.co to S3/CloudFront LFS storage (e.g. cdn-lfs.huggingface.co
+            // or AWS presigned URL), remove Authorization header to prevent AWS S3 HTTP 400 Bad Request
+            // ("Only one auth mechanism allowed; query params and Authorization header cannot both be present")
+            const targetHost = (options.hostname || '').toLowerCase();
+            if (targetHost !== 'huggingface.co') {
+              if (options.headers) {
+                delete options.headers['authorization'];
+                delete options.headers['Authorization'];
+              }
+            }
+          },
         });
       };
 
