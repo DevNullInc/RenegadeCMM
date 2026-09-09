@@ -54,7 +54,7 @@ export class HuggingFaceClient {
 
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
-      'User-Agent': 'RenegadeCMM/1.4.2 (HuggingFace Integration)',
+      'User-Agent': 'RenegadeCMM/1.5.0 (HuggingFace Integration)',
     };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -72,7 +72,7 @@ export class HuggingFaceClient {
       const res = await axios.get('https://huggingface.co/api/whoami-v2', {
         headers: {
           Authorization: `Bearer ${tokenToTest}`,
-          'User-Agent': 'RenegadeCMM/1.4.2',
+          'User-Agent': 'RenegadeCMM/1.5.0',
         },
         timeout: 10000,
       });

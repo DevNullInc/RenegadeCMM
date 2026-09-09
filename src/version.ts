@@ -2,7 +2,7 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Central application version & build configuration
  */
-export const APP_VERSION = '1.4.2';
+export const APP_VERSION = '1.5.0';
 
 /**
  * Build Configuration & Release Mode Toggle

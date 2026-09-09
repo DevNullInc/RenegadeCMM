@@ -11,7 +11,7 @@ graph LR
     v13["✅ v1.3.0<br/>CLI + HF Hub + Webhooks"] --> v14["✅ v1.4.0<br/>Workflow Auto-Resolver & UI"]
     v14 --> v141["✅ v1.4.1<br/>Live ComfyUI & Binary Hardening"]
     v141 --> v142["✅ v1.4.2<br/>CI Modernization, Desktop & Test Tracking"]
-    v142 --> v15["🎯 v1.5.0<br/>Native HF & GGUF Engine"]
+    v142 --> v15["✅ v1.5.0<br/>Native HF & GGUF Engine"]
     v15 --> v16["🎯 v1.6.0<br/>Hardlink Storage Optimizer"]
     v16 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
     v17 --> v20["🎯 v2.0.0<br/>Unified Multi-Gen & Package Launch Hub"]
@@ -104,12 +104,16 @@ graph LR
 
 > **Goal**: Equal-citizen support for Hugging Face `.safetensors`, GGUF quantizations, and next-gen video/image models.
 
-- [ ] **Native Hugging Face Download Pipeline**:
-  - High-performance chunked downloads with token authorization for gated models (FLUX.1, SD3.5, Wan2.1, HunyuanVideo) without requiring external Python environments or the `hf` CLI.
-- [ ] **GGUF & Quantization Metadata Parser**:
-  - Inspect `.gguf` architecture headers (e.g., `Q4_K_M`, `Q8_0`, `BF16`) and route to `models/unet` or `models/LLM` automatically.
-- [ ] **Unified Dual-Source Search**:
-  - Search bar toggle to query both CivitAI and Hugging Face repositories simultaneously.
+- [x] ~~**Native Hugging Face Download Pipeline**:~~
+  - ~~High-performance chunked downloads with token authorization for gated models (FLUX.1, SD3.5, Wan2.1, HunyuanVideo) without requiring external Python environments or the `hf` CLI.~~
+  - ~~Database Schema Migration v9 with HF repository identifiers (`hfRepoId`), commit SHAs (`hfCommitSha`), and quantization tags.~~
+  - ~~AWS S3 LFS redirect credential-stripping (`beforeRedirect`) preventing 400 Bad Request errors on pre-signed S3 CDN URLs.~~
+- [x] ~~**GGUF & Quantization Metadata Parser**:~~
+  - ~~Zero-memory binary header parser (`ggufParser.ts`) reading little-endian magic `GGUF` v2/v3, architecture, quantization (`Q4_K_M`, `Q8_0`, `BF16`), and tensor counts without loading heavy weights into memory.~~
+  - ~~Intelligent folder routing to `models/unet`, `models/LLM`, `models/text_encoders`, or `models/gguf` based on architecture type.~~
+- [x] ~~**Unified Dual-Source Search**:~~
+  - ~~Interactive search toggle in Browse tab seamlessly querying CivitAI and Hugging Face repositories.~~
+  - ~~Repository file inspector modal displaying real-time branch tree, file sizes, and 1-click downloads into ComfyUI.~~
 
 ---
 

@@ -6,6 +6,29 @@ All notable changes, fixes, and unversioned enhancements to **Renegade Core Mode
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.0]
+
+### 🚀 Phase 2: Native Hugging Face & GGUF Download Engine
+
+- **Native Hugging Face Download Pipeline & Gated Model Authorization**:
+  - Engineered direct chunked download pipeline supporting `huggingface.co` repository weights with Bearer token authorization without requiring external Python environments or the `hf` CLI.
+  - Resolved AWS S3 LFS redirect authentication errors: implemented `beforeRedirect` hook in Axios download stream to strip the `Authorization` header when redirected to pre-signed AWS S3 CDN endpoints (`cdn-lfs.huggingface.co`), preventing HTTP 400 Bad Request errors.
+  - Automatically loads and configures Hugging Face tokens on startup, during settings updates, and during CLI initialization.
+- **Database Schema Migration v9**:
+  - Upgraded SQLite database `user_version` to 9.
+  - Added `source` (`'civitai' | 'huggingface'`), `hf_repo_id`, `hf_commit_sha`, and `quantization` columns across `local_models` and `downloads` tables.
+  - Maintained complete backward compatibility for legacy databases with nullable/synthetic model IDs and automatic schema reconciliation.
+- **Zero-Memory Binary GGUF Header Parser (`ggufParser.ts`)**:
+  - Implemented high-performance binary header parser extracting little-endian `GGUF` magic (`0x46554747`), version (v2/v3), architecture (`general.architecture`), quantization (`general.file_type`), and tensor counts by reading only the first 128KB header buffer.
+  - Automatically identifies common quantizations (`Q4_0`, `Q4_K_M`, `Q5_K_M`, `Q8_0`, `BF16`, `F16`, etc.) and maps them to clean human-readable tags.
+  - Smart folder routing: categorizes models into `models/unet` (diffusion weights like FLUX, SD3, Wan, Hunyuan), `models/LLM` / `models/text_encoders` (language/text encoder weights like T5, CLIP, Qwen, LLaMA), or `models/gguf`.
+- **Unified Dual-Source Search in Browse UI (`src/components/BrowseTab.tsx`)**:
+  - Added dual-source selector toggle in the Browse tab allowing users to switch between CivitAI and Hugging Face repositories seamlessly.
+  - Real-time Hugging Face Hub search integration via `hfSearchModels` IPC bridge displaying repository cards with author, download counts, likes, and tags.
+  - Interactive Hugging Face repository file inspector modal displaying files, sizes, and direct 1-click downloads into target ComfyUI model directories.
+- **IPC & Web Bridge Contracts**:
+  - Implemented `hfSearchModels` and `inspectGGUF` across Electron main process (`src/main/index.ts`), preload script (`src/main/preload.ts`), TypeScript definitions (`src/types/electron.d.ts`), and native HTTP bridge (`src/utils/webBridge.ts`).
+
 ---
 
 ## [1.4.2]

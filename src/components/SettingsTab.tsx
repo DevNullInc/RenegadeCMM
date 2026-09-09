@@ -758,7 +758,7 @@ export const SettingsTab: React.FC = () => {
     try {
       const exportData = {
         _format: 'renegadecmm-settings',
-        version: '1.4.2',
+        version: '1.5.0',
         exportedAt: new Date().toISOString(),
         settings: config,
       };

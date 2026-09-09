@@ -103,10 +103,12 @@ const api = {
   markCustomNodeInstalled: (nodeType: string, folderName: string, customNodesDir?: string) =>
     ipcRenderer.invoke('mark-node-installed', nodeType, folderName, customNodesDir),
 
-  // Hugging Face
+  // Hugging Face & GGUF
   hfCheckModel: (repoId: string) => ipcRenderer.invoke('hf-check-model', repoId),
   hfValidateToken: (token?: string) => ipcRenderer.invoke('hf-validate-token', token),
   hfWhoami: () => ipcRenderer.invoke('hf-whoami'),
+  hfSearchModels: (query: string, limit?: number) => ipcRenderer.invoke('hf-search-models', query, limit),
+  inspectGGUF: (filePath: string) => ipcRenderer.invoke('inspect-gguf', filePath),
 
   // External Link & System Info
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),

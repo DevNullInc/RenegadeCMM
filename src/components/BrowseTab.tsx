@@ -36,6 +36,8 @@ import {
   Check,
   AlertTriangle,
   RotateCcw,
+  Box,
+  Heart,
 } from 'lucide-react';
 import { FallbackImage } from './FallbackImage';
 import { CivitAIModel, CivitAIModelVersion, ModelType, SearchParams } from '../types/civitai';
@@ -212,6 +214,92 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   const [activeModel, setActiveModel] = useState<CivitAIModel | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<CivitAIModelVersion | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+
+  // Dual-Source Search: CivitAI vs Hugging Face
+  const [searchSource, setSearchSource] = useState<'civitai' | 'huggingface'>('civitai');
+  const [hfModels, setHfModels] = useState<any[]>([]);
+  const [hfLoading, setHfLoading] = useState<boolean>(false);
+  const [hfError, setHfError] = useState<string | null>(null);
+  const [activeHfModel, setActiveHfModel] = useState<any | null>(null);
+  const [activeHfFiles, setActiveHfFiles] = useState<{ safetensorsFiles: string[]; ggufFiles: string[]; siblings: any[] } | null>(null);
+  const [loadingHfFiles, setLoadingHfFiles] = useState<boolean>(false);
+  const [hfDownloadSuccess, setHfDownloadSuccess] = useState<string | null>(null);
+
+  const fetchHfModels = async (searchQuery?: string) => {
+    if (!window.civitaiAPI || typeof window.civitaiAPI.hfSearchModels !== 'function') return;
+    setHfLoading(true);
+    setHfError(null);
+    try {
+      const q = searchQuery !== undefined ? searchQuery : query;
+      const results = await window.civitaiAPI.hfSearchModels(q.trim() || 'flux', 48);
+      setHfModels(results || []);
+    } catch (err: any) {
+      setHfError(err?.message || 'Failed to search Hugging Face Hub');
+    } finally {
+      setHfLoading(false);
+    }
+  };
+
+  const openHfModelDetails = async (hfModel: any) => {
+    setActiveHfModel(hfModel);
+    setActiveHfFiles(null);
+    setLoadingHfFiles(true);
+    setHfDownloadSuccess(null);
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.hfCheckModel === 'function') {
+        const res = await window.civitaiAPI.hfCheckModel(hfModel.id);
+        if (res && res.exists) {
+          setActiveHfFiles({
+            safetensorsFiles: res.safetensorsFiles || [],
+            ggufFiles: res.ggufFiles || [],
+            siblings: res.info?.siblings || [],
+          });
+        } else {
+          setHfError(res?.error || 'Could not fetch repository files.');
+        }
+      }
+    } catch (e: any) {
+      console.error('Failed to fetch HF repo siblings:', e);
+    } finally {
+      setLoadingHfFiles(false);
+    }
+  };
+
+  const downloadHfFile = async (repo: any, filename: string, size?: number) => {
+    if (!window.civitaiAPI || typeof window.civitaiAPI.addDownload !== 'function') return;
+    try {
+      const config = await window.civitaiAPI.getConfig();
+      const rawFolders = (config?.comfyui_folders && config.comfyui_folders.length > 0)
+        ? config.comfyui_folders
+        : (config?.comfyui_root ? [config.comfyui_root] : []);
+      const folders = rawFolders.filter(Boolean);
+      const targetRoot = config?.default_download_folder || folders[0] || '';
+
+      const isGguf = filename.toLowerCase().endsWith('.gguf');
+      const cleanFileName = filename.split('/').pop() || filename;
+
+      await window.civitaiAPI.addDownload({
+        source: 'huggingface',
+        hfRepoId: repo.id,
+        modelVersionId: 0,
+        modelId: 0,
+        modelName: repo.modelName || repo.id,
+        versionName: 'main',
+        modelType: isGguf ? 'GGUF' : 'Checkpoint',
+        baseModel: '',
+        creator: repo.author || '',
+        fileName: cleanFileName,
+        downloadUrl: `https://huggingface.co/${repo.id}/resolve/main/${filename}`,
+        sizeKB: size ? Math.round(size / 1024) : 0,
+        targetRoot,
+      });
+
+      setHfDownloadSuccess(`Queued download for ${cleanFileName}`);
+      setTimeout(() => setHfDownloadSuccess(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to add HF download:', err);
+    }
+  };
 
   const modelTypes: string[] = [
     'All',
@@ -531,9 +619,13 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1);
-    setPageCursors({});
-    fetchModels(1, '');
+    if (searchSource === 'huggingface') {
+      fetchHfModels(query);
+    } else {
+      setCurrentPage(1);
+      setPageCursors({});
+      fetchModels(1, '');
+    }
   };
 
   const handleClearFilters = () => {
@@ -542,7 +634,11 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     setSelectedBaseModel('All');
     setCurrentPage(1);
     setPageCursors({});
-    fetchModels(1, '', '');
+    if (searchSource === 'huggingface') {
+      fetchHfModels('');
+    } else {
+      fetchModels(1, '', '');
+    }
   };
 
   const handlePageChange = (newPage: number) => {
@@ -594,236 +690,405 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
             <Sparkles size={24} className="text-purple-400 animate-pulse" />
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Search across CivitAI with verified API integration and direct ComfyUI folder auto-sorting.
+            Search across CivitAI and Hugging Face with direct ComfyUI folder auto-sorting.
           </p>
         </div>
 
-        <form onSubmit={handleSearchSubmit} className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-96">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-purple-400" size={18} />
+        <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          {/* Dual-Source Toggle */}
+          <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-700/60 shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                setSearchSource('civitai');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                searchSource === 'civitai'
+                  ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>CivitAI</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchSource('huggingface');
+                if (hfModels.length === 0) {
+                  fetchHfModels(query || 'flux');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                searchSource === 'huggingface'
+                  ? 'bg-linear-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-md font-extrabold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>🤗 Hugging Face</span>
+            </button>
+          </div>
+
+          <div className="relative flex-1 md:w-80">
+            <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${searchSource === 'huggingface' ? 'text-amber-400' : 'text-purple-400'}`} size={18} />
             <input
               type="text"
-              placeholder="Search checkpoints, LoRAs, ControlNets..."
+              placeholder={searchSource === 'huggingface' ? 'Search Hugging Face models (e.g. flux, wan, sdxl)...' : 'Search checkpoints, LoRAs, ControlNets...'}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-slate-900/90 border border-slate-700/60 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all shadow-inner"
+              className={`w-full bg-slate-900/90 border rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all shadow-inner ${
+                searchSource === 'huggingface'
+                  ? 'border-amber-500/40 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20'
+                  : 'border-slate-700/60 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20'
+              }`}
             />
           </div>
           <button
             type="submit"
-            className="px-5 py-2.5 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold text-sm rounded-xl transition-all shadow-lg shadow-purple-600/25 flex items-center gap-2"
+            className={`px-5 py-2.5 font-semibold text-sm rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer ${
+              searchSource === 'huggingface'
+                ? 'bg-linear-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-slate-950 font-bold shadow-amber-600/20'
+                : 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/25'
+            }`}
           >
             <span>Search</span>
           </button>
         </form>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="glass-panel p-4 rounded-2xl flex flex-wrap gap-4 items-center justify-between text-sm shadow-xl">
-        <div className="flex flex-wrap gap-3 items-center">
-          {/* Model Type */}
-          <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
-            <Filter size={15} className="text-purple-400" />
-            <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Type:</span>
-            <select
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
-              className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer"
-            >
-              {modelTypes.map((t) => (
-                <option key={t} value={t} className="bg-slate-900 text-slate-100">
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* Filter Toolbar (CivitAI) or Hub Banner (Hugging Face) */}
+      {searchSource === 'civitai' ? (
+        <div className="glass-panel p-4 rounded-2xl flex flex-wrap gap-4 items-center justify-between text-sm shadow-xl">
+          <div className="flex flex-wrap gap-3 items-center">
+            {/* Model Type */}
+            <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
+              <Filter size={15} className="text-purple-400" />
+              <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Type:</span>
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                {modelTypes.map((t) => (
+                  <option key={t} value={t} className="bg-slate-900 text-slate-100">
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Base Model */}
-          <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
-            <HardDrive size={15} className="text-indigo-400" />
-            <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Base:</span>
-            {loadingBases && (
-              <span title="Refreshing CivitAI base models...">
-                <RefreshCw size={12} className="animate-spin text-indigo-400" />
-              </span>
-            )}
-            <select
-              value={selectedBaseModel}
-              onChange={(e) => setSelectedBaseModel(e.target.value)}
-              className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer max-w-[150px] truncate"
-            >
-              {baseModels.map((b) => (
-                <option key={b} value={b} className="bg-slate-900 text-slate-100">
-                  {b}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Base Model */}
+            <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
+              <HardDrive size={15} className="text-indigo-400" />
+              <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Base:</span>
+              {loadingBases && (
+                <span title="Refreshing CivitAI base models...">
+                  <RefreshCw size={12} className="animate-spin text-indigo-400" />
+                </span>
+              )}
+              <select
+                value={selectedBaseModel}
+                onChange={(e) => setSelectedBaseModel(e.target.value)}
+                className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer max-w-[150px] truncate"
+              >
+                {baseModels.map((b) => (
+                  <option key={b} value={b} className="bg-slate-900 text-slate-100">
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Sort */}
-          <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
-            <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Sort:</span>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as any)}
-              className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer"
-            >
-              <option value="Most Downloaded" className="bg-slate-900">Most Downloaded</option>
-              <option value="Highest Rated" className="bg-slate-900">Highest Rated</option>
-              <option value="Newest" className="bg-slate-900">Newest</option>
-              <option value="Most Liked" className="bg-slate-900">Most Liked</option>
-            </select>
-          </div>
+            {/* Sort */}
+            <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
+              <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Sort:</span>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as any)}
+                className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value="Most Downloaded" className="bg-slate-900">Most Downloaded</option>
+                <option value="Highest Rated" className="bg-slate-900">Highest Rated</option>
+                <option value="Newest" className="bg-slate-900">Newest</option>
+                <option value="Most Liked" className="bg-slate-900">Most Liked</option>
+              </select>
+            </div>
 
-          {/* Clear Filters */}
-          <button
-            onClick={handleClearFilters}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-950/40 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
-            title="Reset Type and Base to All and clear the search term"
-          >
-            <RotateCcw size={14} />
-            <span>Clear Filters</span>
-          </button>
-        </div>
-
-        {/* NSFW Controls */}
-        <div className="flex items-center gap-4 border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-800/80 w-full sm:w-auto justify-between">
-          <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-300">
-            <input
-              type="checkbox"
-              checked={includeNsfw}
-              onChange={(e) => setIncludeNsfw(e.target.checked)}
-              className="rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4"
-            />
-            <span>Include Mature Content</span>
-          </label>
-
-          {includeNsfw && (
+            {/* Clear Filters */}
             <button
-              onClick={() => setNsfwBlur(!nsfwBlur)}
-              className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/20 hover:bg-amber-500/20 transition-all font-semibold"
+              onClick={handleClearFilters}
+              className="flex items-center gap-1 text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded-xl hover:bg-slate-800/60 transition-colors text-xs font-semibold cursor-pointer"
+              title="Reset all filters and query"
             >
-              {nsfwBlur ? <EyeOff size={14} className="text-amber-400" /> : <Eye size={14} className="text-slate-400" />}
-              <span>{nsfwBlur ? 'Blur NSFW' : 'Show Unblurred'}</span>
+              <RotateCcw size={13} />
+              <span>Reset</span>
             </button>
-          )}
-        </div>
-      </div>
+          </div>
 
-      {/* Model Cards Grid */}
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-28 space-y-3">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 glow-purple"></div>
-          <span className="text-xs text-slate-400 font-medium">Fetching model catalog...</span>
-        </div>
-      ) : error ? (
-        <div className="p-5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-3">
-          <span>{error}</span>
-        </div>
-      ) : displayedModels.length === 0 ? (
-        <div className="text-center py-28 text-slate-500 text-sm glass-panel rounded-2xl">
-          No models found matching your search parameters. Try adjusting filters.
+          <div className="flex items-center gap-3">
+            {/* Period */}
+            <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
+              <Calendar size={15} className="text-indigo-400" />
+              <select
+                value={period}
+                onChange={(e) => setPeriod(e.target.value as any)}
+                className="bg-transparent text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value="AllTime" className="bg-slate-900">All Time</option>
+                <option value="Year" className="bg-slate-900">Year</option>
+                <option value="Month" className="bg-slate-900">Month</option>
+                <option value="Week" className="bg-slate-900">Week</option>
+                <option value="Day" className="bg-slate-900">Day</option>
+              </select>
+            </div>
+
+            {/* NSFW Toggle */}
+            <button
+              onClick={() => setIncludeNsfw(!includeNsfw)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-all font-semibold ${
+                includeNsfw
+                  ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>{includeNsfw ? 'NSFW Allowed' : 'Safe Only'}</span>
+            </button>
+
+            {includeNsfw && (
+              <button
+                onClick={() => setNsfwBlur(!nsfwBlur)}
+                className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/20 hover:bg-amber-500/20 transition-all font-semibold"
+              >
+                {nsfwBlur ? <EyeOff size={14} className="text-amber-400" /> : <Eye size={14} className="text-slate-400" />}
+                <span>{nsfwBlur ? 'Blur NSFW' : 'Show Unblurred'}</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {displayedModels.map((model) => {
-            const firstVersion = model.modelVersions?.[0];
-            const candidateImages: string[] = [];
-            model.modelVersions?.forEach((v) => {
-              v.images?.forEach((img) => {
-                if (img?.url && !candidateImages.includes(img.url)) {
-                  candidateImages.push(img.url);
-                }
-              });
-            });
-            const isNsfw = isModelNsfwOrMature(model);
-            const installStatus = getModelInstallStatus(model);
-
-            return (
-              <div
-                key={model.id}
-                onClick={() => openModelDetails(model)}
-                className="glass-card rounded-2xl overflow-hidden cursor-pointer flex flex-col group border border-slate-800/80 hover:border-purple-500/40 relative"
-              >
-                {/* Image Preview Container */}
-                <div className="relative aspect-[4/3] bg-slate-950 overflow-hidden">
-                  <FallbackImage
-                    src={candidateImages[0]}
-                    candidateUrls={candidateImages}
-                    alt={model.name}
-                    isBlurred={isNsfw && nsfwBlur}
-                    cacheType="browse"
-                    className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
-                  />
-
-                  {/* Top-Left: Type & NSFW Badges */}
-                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
-                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-950/85 border border-purple-500/40 text-purple-300 backdrop-blur-md shadow-md">
-                      {model.type}
-                    </span>
-                    {isNsfw && (
-                      <span className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-red-950/90 border border-red-500/40 text-red-400 backdrop-blur-md shadow-md">
-                        NSFW
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Top-Right: Installed / Update Status Badges */}
-                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
-                    {installStatus.hasUpdate ? (
-                      <span
-                        className="px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-500 text-slate-950 border border-amber-300 backdrop-blur-md shadow-lg shadow-amber-950/50 flex items-center gap-1 animate-pulse"
-                        title={`Update Available: ${installStatus.updateVersion?.name || 'Newer release available'}`}
-                      >
-                        <Sparkles size={11} className="stroke-[2.5]" />
-                        <span>Update Available</span>
-                      </span>
-                    ) : installStatus.isInstalled ? (
-                      <span
-                        className="px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 backdrop-blur-md shadow-lg shadow-emerald-950/40 flex items-center gap-1"
-                        title="Model is installed in your ComfyUI library"
-                      >
-                        <CheckCircle2 size={11} className="text-emerald-400" />
-                        <span>Installed</span>
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* Model Info */}
-                <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                  <div>
-                    <h3 className="font-bold text-slate-100 text-sm line-clamp-1 group-hover:text-purple-300 transition-colors">
-                      {model.name}
-                    </h3>
-                    {model.creator && (
-                      <p className="text-slate-400 text-xs flex items-center gap-1 mt-1 font-medium">
-                        <User size={12} className="text-purple-400" />
-                        <span className="line-clamp-1">{model.creator.username}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3 border-t border-slate-800/80">
-                    <span className="flex items-center gap-1 text-slate-300 font-semibold">
-                      <Download size={13} className="text-purple-400" />
-                      {formatCount(model.stats?.downloadCount)}
-                    </span>
-                    {firstVersion?.baseModel && (
-                      <span className="bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] text-slate-300 font-medium">
-                        {firstVersion.baseModel}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+        <div className="glass-panel p-4 rounded-2xl flex flex-wrap gap-4 items-center justify-between text-sm shadow-xl border border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-center gap-2 text-xs text-slate-300 font-medium">
+            <span className="text-base">🤗</span>
+            <span>Browsing <strong>Hugging Face Hub</strong> model repositories. Gated models automatically use your configured token.</span>
+          </div>
+          <button
+            onClick={() => fetchHfModels(query)}
+            disabled={hfLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-200 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+          >
+            <RefreshCw size={12} className={hfLoading ? 'animate-spin text-amber-400' : ''} />
+            <span>Refresh</span>
+          </button>
         </div>
       )}
 
-      {/* Pagination Controls */}
-      {!loading && !error && displayedModels.length > 0 && (
+      {/* Model Cards Grid: Hugging Face vs CivitAI */}
+      {searchSource === 'huggingface' ? (
+        hfLoading ? (
+          <div className="flex flex-col items-center justify-center py-28 space-y-3">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500 glow-amber"></div>
+            <span className="text-xs text-slate-400 font-medium">Querying Hugging Face repositories...</span>
+          </div>
+        ) : hfError ? (
+          <div className="p-5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-3">
+            <span>{hfError}</span>
+          </div>
+        ) : hfModels.length === 0 ? (
+          <div className="text-center py-28 text-slate-500 text-sm glass-panel rounded-2xl">
+            No Hugging Face models found matching "{query}". Try searching for popular models like "flux", "wan", "sdxl", or "qwen".
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {hfModels.map((hf) => {
+              const parts = (hf.id || '').split('/');
+              const author = parts.length > 1 ? parts[0] : (hf.author || 'community');
+              const repoTitle = parts.length > 1 ? parts[1] : hf.id;
+              const safetensorsCount = (hf.siblings || []).filter((s: any) => s.rfilename?.toLowerCase().endsWith('.safetensors')).length;
+              const ggufCount = (hf.siblings || []).filter((s: any) => s.rfilename?.toLowerCase().endsWith('.gguf')).length;
+
+              return (
+                <div
+                  key={hf.id}
+                  onClick={() => openHfModelDetails(hf)}
+                  className="glass-card rounded-2xl overflow-hidden cursor-pointer flex flex-col group border border-slate-800/80 hover:border-amber-500/50 relative p-5 justify-between transition-all hover:scale-[1.01]"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                        <Box size={20} />
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {hf.gated && (
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                            Gated
+                          </span>
+                        )}
+                        {hf.pipelineTag && (
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-purple-500/15 border border-purple-500/30 text-purple-300">
+                            {hf.pipelineTag}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-bold text-slate-100 text-sm line-clamp-1 group-hover:text-amber-300 transition-colors">
+                        {repoTitle}
+                      </h3>
+                      <p className="text-slate-400 text-xs flex items-center gap-1 mt-1 font-medium">
+                        <User size={12} className="text-amber-400" />
+                        <span className="line-clamp-1">{author}</span>
+                      </p>
+                    </div>
+
+                    {/* Weight formats available */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                      {safetensorsCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-900 border border-slate-800 text-slate-300">
+                          {safetensorsCount} .safetensors
+                        </span>
+                      )}
+                      {ggufCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
+                          {ggufCount} .gguf
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-800/80 mt-4 flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1 font-semibold text-slate-300">
+                      <Download size={13} className="text-amber-400" />
+                      {formatCount(hf.downloads)}
+                    </span>
+                    <span className="flex items-center gap-1 text-slate-400">
+                      <Heart size={12} className="text-rose-400" />
+                      {formatCount(hf.likes)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
+        loading ? (
+          <div className="flex flex-col items-center justify-center py-28 space-y-3">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 glow-purple"></div>
+            <span className="text-xs text-slate-400 font-medium">Fetching model catalog...</span>
+          </div>
+        ) : error ? (
+          <div className="p-5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-3">
+            <span>{error}</span>
+          </div>
+        ) : displayedModels.length === 0 ? (
+          <div className="text-center py-28 text-slate-500 text-sm glass-panel rounded-2xl">
+            No models found matching your search parameters. Try adjusting filters.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {displayedModels.map((model) => {
+              const firstVersion = model.modelVersions?.[0];
+              const candidateImages: string[] = [];
+              model.modelVersions?.forEach((v) => {
+                v.images?.forEach((img) => {
+                  if (img?.url && !candidateImages.includes(img.url)) {
+                    candidateImages.push(img.url);
+                  }
+                });
+              });
+              const isNsfw = isModelNsfwOrMature(model);
+              const installStatus = getModelInstallStatus(model);
+
+              return (
+                <div
+                  key={model.id}
+                  onClick={() => openModelDetails(model)}
+                  className="glass-card rounded-2xl overflow-hidden cursor-pointer flex flex-col group border border-slate-800/80 hover:border-purple-500/40 relative"
+                >
+                  {/* Image Preview Container */}
+                  <div className="relative aspect-[4/3] bg-slate-950 overflow-hidden">
+                    <FallbackImage
+                      src={candidateImages[0]}
+                      candidateUrls={candidateImages}
+                      alt={model.name}
+                      isBlurred={isNsfw && nsfwBlur}
+                      cacheType="browse"
+                      className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+                    />
+
+                    {/* Top-Left: Type & NSFW Badges */}
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
+                      <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-950/85 border border-purple-500/40 text-purple-300 backdrop-blur-md shadow-md">
+                        {model.type}
+                      </span>
+                      {isNsfw && (
+                        <span className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-red-950/90 border border-red-500/40 text-red-400 backdrop-blur-md shadow-md">
+                          NSFW
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Top-Right: Star / Rating */}
+                    {model.stats?.rating !== undefined && model.stats.rating > 0 && (
+                      <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-950/85 border border-slate-700/60 text-amber-300 text-[10px] font-bold backdrop-blur-md shadow-md z-10">
+                        <Star size={11} className="fill-amber-400 text-amber-400" />
+                        <span>{model.stats.rating.toFixed(1)}</span>
+                      </div>
+                    )}
+
+                    {/* Bottom-Right: Local Installation Indicator */}
+                    {installStatus.isInstalled && (
+                      <div className="absolute bottom-2.5 right-2.5 z-10">
+                        {installStatus.hasUpdate ? (
+                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-500/90 text-slate-950 border border-amber-400 flex items-center gap-1 shadow-lg animate-pulse backdrop-blur-md">
+                            <Sparkles size={11} />
+                            <span>Update Available</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 shadow-md backdrop-blur-md">
+                            <CheckCircle2 size={11} />
+                            <span>Installed</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="p-4 flex flex-col justify-between flex-1 space-y-3">
+                    <div>
+                      <h3 className="font-bold text-slate-100 text-sm line-clamp-1 group-hover:text-purple-300 transition-colors">
+                        {model.name}
+                      </h3>
+                      {model.creator && (
+                        <p className="text-slate-400 text-xs flex items-center gap-1 mt-1 font-medium">
+                          <User size={12} className="text-purple-400" />
+                          <span className="line-clamp-1">{model.creator.username}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3 border-t border-slate-800/80">
+                      <span className="flex items-center gap-1 text-slate-300 font-semibold">
+                        <Download size={13} className="text-purple-400" />
+                        {formatCount(model.stats?.downloadCount)}
+                      </span>
+                      {firstVersion?.baseModel && (
+                        <span className="bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] text-slate-300 font-medium">
+                          {firstVersion.baseModel}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* Pagination Controls (CivitAI only) */}
+      {searchSource === 'civitai' && !loading && !error && displayedModels.length > 0 && (
         <div className="glass-panel p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 text-xs font-semibold shadow-xl border border-slate-800">
           {/* Left: Info / Total Count */}
           <div className="text-slate-400 font-medium flex items-center gap-2">
@@ -1144,6 +1409,133 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                   </span>
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hugging Face Model Detail Modal */}
+      {activeHfModel && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xl flex items-center justify-center p-4" onClick={() => setActiveHfModel(null)}>
+          <div
+            className="glass-panel w-full max-w-3xl rounded-3xl overflow-hidden flex flex-col max-h-[90vh] border border-amber-500/40 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/60">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🤗</span>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                    <span>{activeHfModel.modelName || activeHfModel.id}</span>
+                    {activeHfModel.gated && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        Gated Repo
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5 font-medium flex items-center gap-3">
+                    <span>Author: <strong className="text-amber-300">{activeHfModel.author || 'Hugging Face'}</strong></span>
+                    {activeHfModel.pipelineTag && (
+                      <span>Pipeline: <strong className="text-purple-300">{activeHfModel.pipelineTag}</strong></span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.open(`https://huggingface.co/${activeHfModel.id}`, '_blank', 'noopener,noreferrer')}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Open on Hugging Face"
+                >
+                  <ExternalLink size={18} />
+                </button>
+                <button
+                  onClick={() => setActiveHfModel(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content: Files list */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-sm text-slate-300">
+              {hfDownloadSuccess && (
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-2.5 text-xs font-semibold glow-emerald">
+                  <CheckCircle2 size={18} />
+                  <span>{hfDownloadSuccess}</span>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Repository Model Weights & Checkpoints (.safetensors, .gguf)
+                </h3>
+                <p className="text-xs text-slate-500 mb-4">
+                  Select a model file below to download directly into your ComfyUI models folder. Gated repositories will automatically use your encrypted Hugging Face token.
+                </p>
+
+                {loadingHfFiles ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <RefreshCw size={24} className="animate-spin text-amber-400" />
+                    <span className="text-xs">Inspecting Hugging Face repository files...</span>
+                  </div>
+                ) : !activeHfFiles || (activeHfFiles.safetensorsFiles.length === 0 && activeHfFiles.ggufFiles.length === 0) ? (
+                  <div className="p-6 text-center text-slate-500 text-xs bg-slate-900/50 rounded-2xl border border-slate-800">
+                    No primary .safetensors or .gguf weight files found at repository root.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {[...activeHfFiles.safetensorsFiles, ...activeHfFiles.ggufFiles].map((filename) => {
+                      const sibling = activeHfFiles.siblings.find((s: any) => s.rfilename === filename);
+                      const sizeBytes = sibling?.size || sibling?.lfs?.size;
+                      const sizeStr = sizeBytes
+                        ? sizeBytes >= 1073741824
+                          ? `${(sizeBytes / 1073741824).toFixed(2)} GB`
+                          : `${(sizeBytes / 1048576).toFixed(1)} MB`
+                        : undefined;
+                      const isGguf = filename.toLowerCase().endsWith('.gguf');
+                      const quantMatch = filename.match(/(Q[0-9]_[A-Z0-9_]+|BF16|F16|F32|IQ[0-9]_[A-Z0-9_]+)/i);
+
+                      return (
+                        <div
+                          key={filename}
+                          className="flex items-center justify-between p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-amber-500/40 transition-all"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 pr-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                              isGguf
+                                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            }`}>
+                              {isGguf ? 'GGUF' : 'SAFETENSORS'}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-slate-200 truncate">{filename}</p>
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 font-mono">
+                                {sizeStr && <span>{sizeStr}</span>}
+                                {quantMatch && (
+                                  <span className="text-purple-400 font-semibold">• {quantMatch[1].toUpperCase()}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => downloadHfFile(activeHfModel, filename, sizeBytes)}
+                            className="px-3.5 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+                          >
+                            <Download size={13} />
+                            <span>Download</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

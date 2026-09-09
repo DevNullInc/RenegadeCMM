@@ -710,6 +710,32 @@ export function setupWebBridgeIfNeeded() {
         }
       },
 
+      hfSearchModels: async (query: string, limit?: number) => {
+        try {
+          const res = await fetch(`${API_BASE}/hf/search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, limit }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return [];
+        }
+      },
+
+      inspectGGUF: async (filePath: string) => {
+        try {
+          const res = await fetch(`${API_BASE}/inspect-gguf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { valid: false, error: e.message };
+        }
+      },
+
       openExternal: async (url: string) => {
         window.open(url, '_blank', 'noopener,noreferrer');
         return true;

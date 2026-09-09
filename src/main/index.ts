@@ -25,6 +25,7 @@ import { imageCacheService } from '../services/imageCacheService';
 import axios from 'axios';
 import { webhookService } from '../services/webhookService';
 import { huggingfaceClient } from '../services/huggingfaceClient';
+import { ggufParser } from '../services/ggufParser';
 import { workflowScanner } from '../services/workflowScanner';
 import { nodeResolverService } from '../services/nodeResolverService';
 import { encryptKey, decryptKey, isLegacyEncrypted } from '../utils/secureStorage';
@@ -1358,7 +1359,7 @@ function startHttpBridgeServer() {
             uptime: process.uptime(),
             pid: process.pid,
             name: 'RenegadeCMM',
-            version: '1.4.2',
+            version: '1.5.0',
             port: apiPort,
             host: '127.0.0.1',
             localhostOnly: true,
@@ -2455,6 +2456,14 @@ function registerIpcHandlers() {
 
   ipcMain.handle('hf-whoami', async () => {
     return await huggingfaceClient.getCliWhoami();
+  });
+
+  ipcMain.handle('hf-search-models', async (_event: unknown, query: string, limit?: number) => {
+    return await huggingfaceClient.searchModels(query, limit);
+  });
+
+  ipcMain.handle('inspect-gguf', async (_event: unknown, filePath: string) => {
+    return ggufParser.inspectGGUF(filePath);
   });
 
   // Scanner Handlers

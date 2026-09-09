@@ -85,10 +85,12 @@ export interface CivitaiAPI {
   getInstalledCustomNodes: () => Promise<any>;
   markCustomNodeInstalled: (nodeType: string, folderName: string, customNodesDir?: string) => Promise<any>;
 
-  // Hugging Face
+  // Hugging Face & GGUF
   hfCheckModel: (repoId: string) => Promise<any>;
   hfValidateToken: (token?: string) => Promise<any>;
   hfWhoami: () => Promise<any>;
+  hfSearchModels: (query: string, limit?: number) => Promise<any>;
+  inspectGGUF: (filePath: string) => Promise<any>;
 
   // External Link & System Info
   openExternal: (url: string) => Promise<any>;
