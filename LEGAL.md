@@ -133,4 +133,4 @@ These legal notices and disclaimers shall be governed by and construed in accord
 We may update these notices periodically as the project and its legal context evolve. Updates will be reflected in this file with a revised "Last Updated" timestamp. Continued use of the software after such revisions signifies your acknowledgment of the updated terms.
 
 **Last Updated:** September 9, 2026  
-**Applicable Release:** RenegadeCMM v1.4.2 and subsequent releases
+**Applicable Release:** RenegadeCMM v1.5.0 and subsequent releases
