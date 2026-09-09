@@ -35,6 +35,47 @@ export function sanitizeDownloadUrl(url?: string): string {
   }
 }
 
+/**
+ * Determines whether a URL securely targets the CivitAI domain ecosystem (civitai.com, civitai.red,
+ * or their subdomains) over HTTPS.
+ * Uses WHATWG URL parsing to prevent incomplete URL substring sanitization vulnerabilities.
+ */
+export function isCivitaiUrl(url?: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'civitai.com' ||
+      host.endsWith('.civitai.com') ||
+      host === 'civitai.red' ||
+      host.endsWith('.civitai.red')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Attaches the CivitAI API token to the URL query string if and only if the URL
+ * securely targets CivitAI over HTTPS and does not already contain a token.
+ */
+export function attachCivitaiToken(url: string, apiKey?: string): string {
+  if (!url || !apiKey || !isCivitaiUrl(url)) return url;
+  try {
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has('token')) {
+      parsed.searchParams.set('token', apiKey.trim());
+      return parsed.toString();
+    }
+  } catch {
+    // Malformed URL, return unadjusted
+  }
+  return url;
+}
+
+
 export class DownloadManager {
   private tasks: Map<string, DownloadTask> = new Map();
   private activeDownloads: Map<string, { cancel: () => void; cleanup: () => void }> = new Map();
@@ -451,9 +492,8 @@ export class DownloadManager {
           headers['Range'] = `bytes=${existingBytes}-`;
         }
         let requestUrl = task.downloadUrl;
-        if (this.civitaiApiKey && requestUrl.includes('civitai.com') && !requestUrl.includes('token=')) {
-          const sep = requestUrl.includes('?') ? '&' : '?';
-          requestUrl = `${requestUrl}${sep}token=${encodeURIComponent(this.civitaiApiKey)}`;
+        if (this.civitaiApiKey) {
+          requestUrl = attachCivitaiToken(requestUrl, this.civitaiApiKey);
         }
         return await axios.get(requestUrl, {
           responseType: 'stream',

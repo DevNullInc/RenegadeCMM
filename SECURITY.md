@@ -166,5 +166,7 @@ RenegadeCMM allows users to resolve missing custom nodes and install them into C
 
 ### 7. Dependency Security & Third-Party Advisories
 
-- **Advisory Disclosure (adm-zip `GHSA-vwc7-r8mq-g2x9`)**: Dependency scanners may flag advisory `GHSA-vwc7-r8mq-g2x9` regarding symlink traversal during archive extraction.
-- **Non-Exploitable Context**: RenegadeCMM utilizes `adm-zip` exclusively for creating backup archives and reading entry buffers in memory (`getData()`). CMM never extracts archive contents directly to disk via `extractAllTo` or follows destination symlinks, neutralizing this attack vector.
+- **Advisory Disclosure (adm-zip `GHSA-vwc7-r8mq-g2x9` / CVE-2026-76845)**: Dependency scanners may flag advisory `GHSA-vwc7-r8mq-g2x9` regarding symlink traversal during archive extraction.
+  - **Non-Exploitable Context**: RenegadeCMM utilizes `adm-zip` exclusively for creating backup archives (`zip.toBuffer()`) and reading entry buffers in memory (`getData()`). CMM never extracts archive contents directly to disk via `extractAllTo` or follows destination symlinks on the filesystem, neutralizing this attack vector.
+- **Resolved Advisory (Vitest `GHSA-82fw-gwwq-j7x9` / CVE-2026-84373)**: Addressed via upgrading `vitest` to `^4.1.11` in devDependencies, eliminating the path traversal / arbitrary file read vulnerability in `@vitest/mocker`.
+- **URL Substring Sanitization Hardening (CodeQL `js/incomplete-url-substring-sanitization`)**: Replaced loose `.includes('civitai.com')` substring checks in [downloadManager.ts](file:///home/stygianrenegade/Projects/manager/Civitai-manager-ComfyUI/src/services/downloadManager.ts) with strict WHATWG URL parsing (`isCivitaiUrl` / `attachCivitaiToken`). Authenticated tokens are dynamically appended only to verified `https://civitai.com`, `https://civitai.red`, or legitimate CivitAI subdomains over TLS, preventing SSRF and credential leakage to attacker-controlled domains.

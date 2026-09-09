@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
 import { encryptKey, decryptKey, isLegacyEncrypted, getMachineEntropy } from '../src/utils/secureStorage';
 import { redactSecrets } from '../src/utils/logger';
-import { sanitizeDownloadUrl } from '../src/services/downloadManager';
+import { sanitizeDownloadUrl, isCivitaiUrl, attachCivitaiToken } from '../src/services/downloadManager';
 import { getSanitizedConfig } from '../src/utils/configSanitizer';
 import { AppConfig } from '../src/types/app';
 
@@ -101,6 +101,53 @@ describe('Security Hardening & Machine-Bound Encryption', () => {
     it('should handle empty or clean URLs without alteration', () => {
       expect(sanitizeDownloadUrl('')).toBe('');
       expect(sanitizeDownloadUrl('https://civitai.com/api/download/models/123')).toBe('https://civitai.com/api/download/models/123');
+    });
+
+    it('should validate CivitAI domains strictly and reject spoofed substrings or plain HTTP', () => {
+      expect(isCivitaiUrl('https://civitai.com/api/download/models/123')).toBe(true);
+      expect(isCivitaiUrl('https://image.civitai.com/view/123')).toBe(true);
+      expect(isCivitaiUrl('https://civitai.red/api/download/models/123')).toBe(true);
+      expect(isCivitaiUrl('https://sub.civitai.red/download')).toBe(true);
+
+      // Substring & spoofing attacks
+      expect(isCivitaiUrl('https://attacker-civitai.com/api/download')).toBe(false);
+      expect(isCivitaiUrl('https://civitai.com.attacker.com/model')).toBe(false);
+      expect(isCivitaiUrl('https://evil.com/?target=civitai.com')).toBe(false);
+      expect(isCivitaiUrl('https://notcivitai.com')).toBe(false);
+
+      // Plain HTTP (insecure)
+      expect(isCivitaiUrl('http://civitai.com/api/download/models/123')).toBe(false);
+
+      // Invalid / empty
+      expect(isCivitaiUrl('')).toBe(false);
+      expect(isCivitaiUrl('not-a-url')).toBe(false);
+      expect(isCivitaiUrl(undefined as any)).toBe(false);
+    });
+
+    it('should safely attach token only to verified CivitAI HTTPS endpoints', () => {
+      const apiKey = 'test_api_key_12345';
+      const civitaiUrl = 'https://civitai.com/api/download/models/123';
+      const attached = attachCivitaiToken(civitaiUrl, apiKey);
+      expect(attached).toBe('https://civitai.com/api/download/models/123?token=test_api_key_12345');
+
+      // Preserve existing token if already present
+      const alreadyHasToken = 'https://civitai.com/api/download/models/123?token=existing_token';
+      expect(attachCivitaiToken(alreadyHasToken, apiKey)).toBe(alreadyHasToken);
+
+      // Never attach token to untrusted hosts
+      const maliciousUrl = 'https://evil-civitai.com/api/download/models/123';
+      expect(attachCivitaiToken(maliciousUrl, apiKey)).toBe(maliciousUrl);
+
+      const querySpoofUrl = 'https://evil.com/download?fake=civitai.com';
+      expect(attachCivitaiToken(querySpoofUrl, apiKey)).toBe(querySpoofUrl);
+
+      // Never attach token to cleartext HTTP
+      const httpUrl = 'http://civitai.com/api/download/models/123';
+      expect(attachCivitaiToken(httpUrl, apiKey)).toBe(httpUrl);
+
+      // No apiKey provided
+      expect(attachCivitaiToken(civitaiUrl, undefined)).toBe(civitaiUrl);
+      expect(attachCivitaiToken(civitaiUrl, '')).toBe(civitaiUrl);
     });
   });
 

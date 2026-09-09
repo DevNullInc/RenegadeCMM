@@ -34,8 +34,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Added visual `Encrypted & Active` lock badges in `src/components/SettingsTab.tsx` when credentials are configured.
   - Added dedicated one-click "Clear Key" and "Clear Token" controls allowing users to remove stored secrets without selecting and editing masked placeholders.
   - Updated `huggingfaceClient.validateToken()` to recognize masked input strings and transparently validate against stored credentials.
+- **Strict WHATWG URL Parsing for Download Authentication (CodeQL `js/incomplete-url-substring-sanitization`)**:
+  - Replaced loose `.includes('civitai.com')` substring matching in `src/services/downloadManager.ts` with strict WHATWG URL parsing (`isCivitaiUrl`, `attachCivitaiToken`).
+  - Restricts dynamic token attachment to verified `https://civitai.com`, `https://civitai.red`, and legitimate subdomains over TLS, preventing SSRF and credential leakage to malicious domains.
+- **Vitest Dependency Security Patch (GHSA-82fw-gwwq-j7x9 / CVE-2026-84373)**:
+  - Upgraded `vitest` to `^4.1.11` in devDependencies, eliminating the Path Traversal / Arbitrary File Read vulnerability in `@vitest/mocker`.
 - **Comprehensive Automated Test Coverage**:
-  - Added `tests/securityHardening.test.ts` with 14 automated unit tests covering machine entropy derivation, legacy decryption fallback, log scrubbers, download URL sanitizers, and config redaction (all 46 repository tests passing).
+  - Expanded `tests/securityHardening.test.ts` to 16 unit tests covering URL domain verification, token attachment boundaries, machine entropy derivation, legacy decryption fallback, log scrubbers, and config redaction (all 48 repository tests passing).
 
 ### 🛡️ Fixed & Hardened
 
