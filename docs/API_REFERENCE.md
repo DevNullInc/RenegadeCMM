@@ -81,6 +81,18 @@ class CMMClient:
         res.raise_for_status()
         return res.json()
 
+    def search_huggingface(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Search Hugging Face Hub repositories for models."""
+        res = requests.post(f"{self.base_url}/api/hf/search", json={"query": query, "limit": limit})
+        res.raise_for_status()
+        return res.json()
+
+    def inspect_gguf(self, file_path: str) -> Dict[str, Any]:
+        """Inspect zero-memory binary metadata and quantization for a local GGUF file."""
+        res = requests.post(f"{self.base_url}/api/inspect-gguf", json={"filePath": file_path})
+        res.raise_for_status()
+        return res.json()
+
 # Example Usage:
 # 1. Initialize client:
 cmm = CMMClient()
@@ -90,6 +102,10 @@ if cmm.is_online():
     analysis = cmm.parse_workflow(workflow_dict)
     print("Referenced Models:", len(analysis.get("models", [])))
     print("Referenced Node Types:", len(analysis.get("nodeTypes", [])))
+
+    # 3. Search Hugging Face Hub for FLUX GGUF models
+    hf_models = cmm.search_huggingface("FLUX.1-dev GGUF", limit=5)
+    print("HF Repos Found:", len(hf_models))
 ```
 
 ---
@@ -123,7 +139,7 @@ Checks if CMM is running, whether the API Bridge is enabled, and returns the act
   "status": "online",
   "enabled": true,
   "name": "Renegade Core Model Manager",
-  "version": "1.3.0",
+  "version": "1.5.0",
   "port": 5174,
   "host": "127.0.0.1",
   "localhostOnly": true
@@ -518,6 +534,36 @@ Returns the list of all download tasks with real-time speed, bytes downloaded, a
 
 ### 6. Hugging Face Integration
 
+#### `POST /api/hf/search`
+
+Searches the Hugging Face Hub for repositories matching a query string.
+
+- **Request Body:**
+
+```json
+{
+  "query": "FLUX.1-dev GGUF",
+  "limit": 20
+}
+```
+
+- **Response `200 OK`:**
+
+```json
+[
+  {
+    "id": "city96/FLUX.1-dev-gguf",
+    "author": "city96",
+    "description": "GGUF quantizations for FLUX.1-dev",
+    "downloads": 48210,
+    "likes": 612,
+    "pipeline_tag": "text-to-image",
+    "tags": ["flux", "gguf", "diffusers"],
+    "lastModified": "2026-08-15T12:00:00.000Z"
+  }
+]
+```
+
 #### `POST /api/hf/check`
 
 Inspects a Hugging Face repository and returns file lists, sizes, and `.safetensors` model metadata.
@@ -548,11 +594,42 @@ Validates a Hugging Face User Access Token.
 
 ---
 
-### 7. Configuration & Backups
+### 7. GGUF Binary Header Inspection
+
+#### `POST /api/inspect-gguf`
+
+Performs zero-memory binary inspection on local `.gguf` and `.bin` files by reading only the first 128KB header buffer from disk. Extracts little-endian magic, version, architecture, tensor counts, and maps quantization levels.
+
+- **Request Body:**
+
+```json
+{
+  "filePath": "/home/user/ComfyUI/models/unet/flux1-dev-Q4_K_M.gguf"
+}
+```
+
+- **Response `200 OK`:**
+
+```json
+{
+  "valid": true,
+  "version": 3,
+  "architecture": "flux",
+  "tensorCount": 384,
+  "kvCount": 24,
+  "quantization": "Q4_K_M",
+  "recommendedFolder": "models/unet",
+  "fileType": 12
+}
+```
+
+---
+
+### 8. Configuration & Backups
 
 #### `GET /api/config`
 
-Retrieves app configuration, folder paths, and sorting preferences.
+Retrieves app configuration, folder paths, and sorting preferences (credentials redacted with boolean flags `has_civitai_api_key`, `has_huggingface_token`).
 
 #### `POST /api/save-config`
 
@@ -560,7 +637,7 @@ Updates application configuration parameters.
 
 #### `GET /api/export-backup-zip`
 
-Exports a timestamped `.zip` containing SQLite database and application settings.
+Exports a timestamped `.zip` containing model metadata and sanitized settings (API credentials excluded).
 
 #### `POST /api/import-backup-zip`
 
@@ -568,7 +645,7 @@ Restores database and configuration from an uploaded backup `.zip` payload.
 
 ---
 
-### 8. Webhooks & Integrations
+### 9. Webhooks & Integrations
 
 #### `POST /api/webhooks/test`
 
@@ -589,15 +666,17 @@ Dispatches a test event (`ping`, `on_download_complete`, `on_update_available`) 
 
 For clarity and consistent UX across ComfyUI workflows, use the action-oriented verb-noun naming convention:
 
-| Node Class Name       | Display Title               | Category          | Function / Purpose                                        |
-| --------------------- | --------------------------- | ----------------- | --------------------------------------------------------- |
-| `CMMStatus`           | **CMM: Status & Heartbeat** | `CivitAI/Manager` | Verifies connection, API port, and database uptime        |
-| `CMMInspectWorkflow`  | **CMM: Inspect Workflow**   | `CivitAI/Manager` | Scans in-memory graph for missing models and custom nodes |
-| `CMMResolveNode`      | **CMM: Resolve Node**       | `CivitAI/Manager` | 4-tier query to find install repos for missing node types |
-| `CMMDownloadModel`    | **CMM: Download Model**     | `CivitAI/Manager` | Enqueues model download into auto-sorted folders          |
-| `CMMSearchCivitAI`    | **CMM: Search CivitAI**     | `CivitAI/Manager` | Queries CivitAI catalog by query, type, and base model    |
-| `CMMCheckHuggingFace` | **CMM: Check Hugging Face** | `CivitAI/Manager` | Queries Hugging Face model repository files & metadata    |
-| `CMMRawRequest`       | **CMM: Raw API Request**    | `CivitAI/Manager` | Low-level generic HTTP caller for advanced scripting      |
+| Node Class Name          | Display Title                  | Category          | Function / Purpose                                        |
+| ------------------------ | ------------------------------ | ----------------- | --------------------------------------------------------- |
+| `CMMStatus`              | **CMM: Status & Heartbeat**    | `CivitAI/Manager` | Verifies connection, API port, and database uptime        |
+| `CMMInspectWorkflow`     | **CMM: Inspect Workflow**      | `CivitAI/Manager` | Scans in-memory graph for missing models and custom nodes |
+| `CMMResolveNode`         | **CMM: Resolve Node**          | `CivitAI/Manager` | 4-tier query to find install repos for missing node types |
+| `CMMDownloadModel`       | **CMM: Download Model**        | `CivitAI/Manager` | Enqueues model download into auto-sorted folders          |
+| `CMMSearchCivitAI`       | **CMM: Search CivitAI**        | `CivitAI/Manager` | Queries CivitAI catalog by query, type, and base model    |
+| `CMMSearchHuggingFace`   | **CMM: Search Hugging Face**   | `CivitAI/Manager` | Searches Hugging Face Hub model repositories by query     |
+| `CMMCheckHuggingFace`    | **CMM: Check Hugging Face**    | `CivitAI/Manager` | Queries Hugging Face model repository files & metadata    |
+| `CMMInspectGGUF`         | **CMM: Inspect GGUF**          | `CivitAI/Manager` | Inspects local GGUF header for architecture & quant level |
+| `CMMRawRequest`          | **CMM: Raw API Request**       | `CivitAI/Manager` | Low-level generic HTTP caller for advanced scripting      |
 
 ### Standard `__init__.py` Registration Template
 
@@ -608,7 +687,9 @@ from .nodes import (
     CMMResolveNode,
     CMMDownloadModel,
     CMMSearchCivitAI,
+    CMMSearchHuggingFace,
     CMMCheckHuggingFace,
+    CMMInspectGGUF,
     CMMRawRequest,
 )
 
@@ -618,7 +699,9 @@ NODE_CLASS_MAPPINGS = {
     "CMMResolveNode": CMMResolveNode,
     "CMMDownloadModel": CMMDownloadModel,
     "CMMSearchCivitAI": CMMSearchCivitAI,
+    "CMMSearchHuggingFace": CMMSearchHuggingFace,
     "CMMCheckHuggingFace": CMMCheckHuggingFace,
+    "CMMInspectGGUF": CMMInspectGGUF,
     "CMMRawRequest": CMMRawRequest,
 }
 
@@ -628,7 +711,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "CMMResolveNode": "CMM: Resolve Node",
     "CMMDownloadModel": "CMM: Download Model",
     "CMMSearchCivitAI": "CMM: Search CivitAI",
+    "CMMSearchHuggingFace": "CMM: Search Hugging Face",
     "CMMCheckHuggingFace": "CMM: Check Hugging Face",
+    "CMMInspectGGUF": "CMM: Inspect GGUF",
     "CMMRawRequest": "CMM: Raw API Request",
 }
 

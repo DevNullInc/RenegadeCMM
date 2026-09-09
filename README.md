@@ -6,7 +6,7 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
-**The missing model manager for ComfyUI.** A unified desktop application for discovering, downloading, organizing, and version-managing generative AI models across multiple CivitAI sources with intelligent auto-sorting into ComfyUI's folder structure.
+**The missing model manager for ComfyUI.** A unified desktop application for discovering, downloading, organizing, and version-managing generative AI models across **CivitAI and Hugging Face Hub**, with zero-memory binary GGUF header parsing and intelligent auto-sorting into ComfyUI's folder structure.
 
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -111,9 +111,13 @@
 
 ## 🎯 Why CMM?
 
-If you've been manually downloading models from CivitAI, creating folders, moving files, and losing track of what you have, this tool is for you. CMM acts as a **Steam-like library manager** for your AI models:
+If you've been manually downloading models from CivitAI or Hugging Face, creating folders, moving files, and losing track of what you have, this tool is for you. CMM acts as a **Steam-like library manager** for your AI models:
 
-- **Auto-organizes** downloads into the correct ComfyUI folders (checkpoints → `checkpoints/`, LoRAs → `loras/`, etc.)
+- **Auto-organizes** downloads into the correct ComfyUI folders (checkpoints → `checkpoints/`, LoRAs → `loras/`, diffusion weights → `unet/`, text encoders → `text_encoders/`, GGUFs → `gguf/`, etc.)
+- **Dual-Source Discovery** - seamlessly search, inspect, and download models from both **CivitAI** and **🤗 Hugging Face Hub**
+- **Native Hugging Face Pipeline** - high-performance chunked downloads supporting gated models (FLUX.1-dev, SD3.5, Wan2.1, HunyuanVideo) with Bearer token authentication and automated AWS S3 LFS redirect credential stripping
+- **Zero-Memory Binary GGUF Header Parser** - inspects little-endian GGUF v2/v3 metadata, tensor counts, and quantizations (`Q4_K_M`, `Q8_0`, `BF16`) from the first 128KB header buffer without loading multi-gigabyte weights into RAM
+- **Architectural GGUF Routing** - automatically categorizes diffusion backbones to `models/unet`, language models and text encoders to `models/LLM` or `models/text_encoders`, and general weights to `models/gguf`
 - **Persistent Background Scanning** - scan thousands of models in the background across tabs with a live, real-time footer widget and instant cancellation (after final SHA256 on the last scanned file)
 - **Multi-Criteria Library Sorting** - sort local models by Name, Model Type, File Size, or Date Modified (Ascending / Descending)
 - **Browse Tab Update Badging & Selective Update Ignoring** - see instant `Installed` or `Update Available` flags on browse cards; ignore specific updates that target different base models
@@ -124,7 +128,7 @@ If you've been manually downloading models from CivitAI, creating folders, movin
 - **Multi-Path Download Routing** - pick target destination when multiple ComfyUI root paths are configured with "Always use this folder" preference
 - **Complete System Backup & Restore (.ZIP)** - export/import your entire model database, configuration, download history, and ignore lists in a standard portable `.zip` archive
 - **Single-Instance Windowing** - focuses existing running window automatically rather than spawning duplicate instances
-- **Dual-source support** - search both civitai.com and civitai.red
+- **Dual-source CivitAI support** - search both civitai.com and civitai.red
 - **Hardware-accelerated hash verification** - 64MB streaming buffer utilizing CPU SHA-NI / AVX-512
 
 ---
@@ -133,7 +137,10 @@ If you've been manually downloading models from CivitAI, creating folders, movin
 
 ### 🔍 Discovery & Search
 
-- Search across CivitAI's entire model database
+- **Dual-Source Catalog Selector**: Segmented control in the Browse tab allowing instant switching between CivitAI and Hugging Face Hub repositories
+- **Search CivitAI**: Search CivitAI's entire catalog of Checkpoints, LoRAs, ControlNets, VAEs, Upscalers, and Motion Modules
+- **Hugging Face Hub Integration**: Search repositories in real-time with responsive cards showing repository ID, creator avatar, download metrics, likes, and pipeline tags
+- **Interactive File Inspector Modal**: Click any Hugging Face repository to inspect file trees, file extensions (`.safetensors`, `.gguf`, `.bin`), and sizes, with direct 1-click downloading into ComfyUI folders
 - **Installed & Update Indicators**: Model cards feature instant emerald **`Installed`** or amber **`Update Available`** badges
 - Filter by **Base Model**: SD 1.5, SDXL 1.0, Illustrious, Flux.1 D, Pony, Qwen, Wan Video, and more
 - Filter by **Model Type**: Checkpoint, LoRA, LLM, LyCORIS, Embedding, VAE, ControlNet, Upscaler, etc.
@@ -142,6 +149,11 @@ If you've been manually downloading models from CivitAI, creating folders, movin
 
 ### 📥 Download Management & Version Updating
 
+- **Native Hugging Face Download Pipeline**: High-performance chunked streaming downloads for `huggingface.co` repository weights with Bearer token authentication for gated models — zero external Python or `hf` CLI requirements
+- **AWS S3 LFS Redirect Credential Stripping**: Automatic `beforeRedirect` hook purges `Authorization` headers when Hugging Face redirects to pre-signed AWS S3 LFS CDN endpoints (`cdn-lfs.huggingface.co`), preventing HTTP 400 Bad Request errors
+- **Zero-Memory Binary GGUF Header Parser**: Reads only the first 128KB header buffer from disk via `fs.readSync` to inspect metadata and normalize quantization tags (`Q4_0`, `Q4_K_M`, `Q5_K_M`, `Q8_0`, `BF16`, `F16`) without memory overhead
+- **Smart Architecture Routing**: Routes diffusion models to `models/unet`, language models and text encoders to `models/LLM` or `models/text_encoders`, and general GGUF models to `models/gguf`
+- **Database Schema Migration v9**: Upgraded SQLite database with `source` (`'civitai' | 'huggingface'`), `hf_repo_id`, `hf_commit_sha`, and `quantization` fields across `local_models` and `downloads` tables
 - **Intelligent auto-sorting**: Downloads route to the correct ComfyUI folder automatically
 - **Multi-Path Destination Prompt**: Choose target directory when multiple folder roots are configured, with "Always use this folder" toggle
 - **Safe Previous Version Cleanup**: Option to delete previous versions only after the update file finishes downloading 100% and passes SHA256 verification
@@ -150,7 +162,7 @@ If you've been manually downloading models from CivitAI, creating folders, movin
 - **Queue system**: Download multiple models with priority management
 - **Persistent queue & auto-library**: The download queue is saved to SQLite and restored after a restart; finished downloads auto-register into the Library (with SHA-256 + CivitAI metadata) and the Downloads card controls (Pause/Resume/Cancel) sync instantly
 - **Date-aware update detection**: Updates are flagged by comparing actual upload/publish dates (plus a SHA-256 cross-check), so older uploads never show as false "update available" badges when you already have the newest file
-- **API key support**: Higher rate limits, gated/NSFW/private content access — with clear guidance when a download needs a CivitAI token
+- **API key & token support**: Higher rate limits, gated/NSFW/private content access — with clear guidance when a download needs a CivitAI key or Hugging Face token
 
 ### 📁 Library Management & Persistent Scanner
 
@@ -507,14 +519,15 @@ The equivalent mapping structure looks like this:
 }
 ```
 
-### API Sources
+### API Sources & Model Hubs
 
-Add multiple CivitAI sources in Settings:
+Configure external model repositories in Settings:
 
-| Source      | URL                   | API Key Required       |
-| ----------- | --------------------- | ---------------------- |
-| CivitAI     | `https://civitai.com` | Optional (recommended) |
-| CivitAI.red | `https://civitai.red` | Optional               |
+| Source | URL | Authentication | Capabilities |
+| :--- | :--- | :--- | :--- |
+| **CivitAI** | `https://civitai.com` | Optional (recommended) | Model browsing, early access, NSFW/gated downloads |
+| **CivitAI.red** | `https://civitai.red` | Optional | Mirror endpoint fallback |
+| **Hugging Face Hub** | `https://huggingface.co` | Optional (User Access Token) | Repository search, file tree inspection, gated models (FLUX.1-dev, SD3.5, Wan2.1, HunyuanVideo) |
 
 ---
 
@@ -536,10 +549,10 @@ CMM recognizes and manages models in these ComfyUI folders:
 
 - `clip/` - CLIP models
 - `clip_vision/` - CLIP Vision encoders
-- `text_encoders/` - T5, text encoders
+- `text_encoders/` - T5, CLIP, and text encoders (auto-routed for GGUF text encoders)
 - `diffusion_models/` - Standalone diffusion models
-- `unet/` - UNet models
-- `gguf/` - GGUF quantized models
+- `unet/` - UNet & diffusion backbone weights (e.g. FLUX, SD3.5, Wan2.1, HunyuanVideo GGUF files)
+- `gguf/` - General GGUF quantized models (fallback)
 - `ipadapter/` - IP-Adapter models
 - `photomaker/` - PhotoMaker models
 - `pulid/` - PuLID models
@@ -562,7 +575,7 @@ CMM recognizes and manages models in these ComfyUI folders:
 - `style_models/` - Style models
 - `gligen/` - GLIGEN models
 - `TTS/` - Text-to-speech
-- `LLM/` - Large language models
+- `LLM/` - Large language models & Qwen/LLaMA GGUF weights
 
 ---
 
@@ -651,7 +664,19 @@ Settings → API Sources → CivitAI → Paste Key → Test Connection
 - Download gated/private models you have access to
 - Better download speeds
 
-> 🔐 **Security note:** Your API key and HuggingFace token are the only genuine login credentials CMM stores. See the **[API & Secret Storage Security](docs/APISecurity.md)** doc for exactly how they're encrypted, stored, transmitted, and what the real-world trust boundaries are.
+### Getting Your Hugging Face User Access Token
+
+1. Log in to [Hugging Face](https://huggingface.co)
+2. Go to **Settings** → **Access Tokens**
+3. Create a token with **Read** permissions
+4. In CMM, go to **Settings → Hugging Face Token → Paste Token → Test Connection**
+
+**Benefits of Hugging Face Token:**
+
+- Unlocks gated repository model weights (FLUX.1-dev, SD3.5-large, Wan2.1, HunyuanVideo)
+- Bypasses anonymous rate limits when inspecting repository file trees
+
+> 🔐 **Security note:** Your API key and Hugging Face token are the only genuine login credentials CMM stores. See the **[API & Secret Storage Security](docs/APISecurity.md)** doc for exactly how they're encrypted, stored, transmitted, and what the real-world trust boundaries are.
 
 ---
 
@@ -698,14 +723,23 @@ Settings → API Sources → CivitAI → Paste Key → Test Connection
 # Scan library
 cmm scan --path /path/to/comfyui
 
-# Download specific model
+# Download specific model from CivitAI
 cmm download --id 827184 --version 2514310
 
-# Check for updates
+# Check installed models for updates
 cmm check-updates
 
 # Export library
 cmm export --format json --output backup.json
+
+# Inspect Hugging Face model repository and file tree
+cmm hf check black-forest-labs/FLUX.1-dev
+
+# Check Hugging Face CLI login authorization
+cmm hf whoami
+
+# Scan workflows for referenced model dependencies
+cmm workflows --path /path/to/ComfyUI/workflows
 ```
 
 ### Webhook Integration

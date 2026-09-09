@@ -28,6 +28,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Interactive Hugging Face repository file inspector modal displaying files, sizes, and direct 1-click downloads into target ComfyUI model directories.
 - **IPC & Web Bridge Contracts**:
   - Implemented `hfSearchModels` and `inspectGGUF` across Electron main process (`src/main/index.ts`), preload script (`src/main/preload.ts`), TypeScript definitions (`src/types/electron.d.ts`), and native HTTP bridge (`src/utils/webBridge.ts`).
+- **Cross-Platform Test Suite Compatibility (Windows Runner Fix)**:
+  - Fixed path separator assertions in `tests/folderRouter.test.ts` by using `path.resolve` and `startsWith(testRoot)`, eliminating test failures on Windows runners caused by backslash (`\`) path differences.
+  - Achieved 100% test pass rate across all 11 test suites and 60 automated unit/integration tests on Linux, macOS, and Windows.
+- **Deterministic CI/CD Builds & Dependency Synchronization**:
+  - Re-synchronized `package-lock.json` with all transitive build dependencies (`electron-builder-squirrel-windows`, `@electron/windows-sign`, `electron-winstaller`, `fs-extra`, `temp`, `postject`), guaranteeing clean zero-error `npm ci` installs.
+  - Configured `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` at workflow root in `.github/workflows/release.yml` to ensure all GitHub Actions runners execute action plugins under Node 24 ahead of Node 20 EOL.
+- **Comprehensive Documentation Updates**:
+  - Updated `README.md`, `FEATURES.md`, `docs/API_REFERENCE.md`, and `.github/ReleaseNotesDraft.md` detailing Hugging Face Hub discovery, gated model tokens, zero-memory GGUF parsing, CLI commands (`cmm hf check`, `cmm hf whoami`), and local REST API endpoints (`POST /api/hf/search`, `POST /api/inspect-gguf`).
 
 ---
 

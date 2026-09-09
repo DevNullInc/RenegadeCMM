@@ -16,8 +16,11 @@
 
 ## 📦 1. Model Discovery & Catalog
 
+- **Dual-Source Catalog Browsing**: Segmented toggle in the Browse tab lets you seamlessly switch between **CivitAI** and **🤗 Hugging Face Hub** repositories without losing your search context.
 - **Direct CivitAI Catalog Browsing**: Search, filter, and inspect thousands of Checkpoints, LoRAs, ControlNets, VAEs, Upscalers, and Motion Modules inside the app.
-- **Hugging Face Hub Integration**: Inspect HF repositories directly, validate gated-model API tokens, and resolve model files.
+- **Hugging Face Hub Discovery & Search**: Query the Hugging Face Hub in real-time with responsive cards displaying repository ID, creator avatar, download counters, likes, pipeline tags, and last-updated timestamps.
+- **Interactive Repository File Inspector Modal**: Click any Hugging Face repository to inspect its file tree, file extensions (`.safetensors`, `.gguf`, `.bin`), and individual file sizes, with direct 1-click downloading into ComfyUI folders.
+- **Gated Model Authentication**: Configure your Hugging Face User Access Token (`hf_...`) in Settings to unlock gated model weights (FLUX.1-dev, SD3.5, Wan2.1, HunyuanVideo).
 - **Mirror & CivitAI Red Support**: Switch between standard CivitAI endpoints and custom mirrors.
 - **NSFW Filter Slider**: Configurable blur/unblur and rating level gates (PG to XXX) with 1-click toggling.
 
@@ -25,7 +28,12 @@
 
 ## 📥 2. Download Queue & Smart Routing
 
-- **Automated Folder Routing**: Automatically routes downloads into ComfyUI's standard directories (`checkpoints/`, `loras/`, `vae/`, `controlnet/`, `diffusion_models/`, `upscale_models/`, `text_encoders/`, etc.).
+- **Automated Folder Routing**: Automatically routes downloads into ComfyUI's standard directories (`checkpoints/`, `loras/`, `vae/`, `controlnet/`, `diffusion_models/`, `upscale_models/`, `text_encoders/`, `unet/`, `gguf/`, etc.).
+- **Native Hugging Face Download Pipeline**: High-performance chunked download pipeline supporting `huggingface.co` repository weights with Bearer token authentication for gated models — zero external Python or `hf` CLI dependencies required.
+- **AWS S3 LFS Redirect Credential Stripping**: Automatic `beforeRedirect` hook strips `Authorization` headers when redirected to pre-signed AWS S3 LFS endpoints (`cdn-lfs.huggingface.co`), preventing HTTP 400 Bad Request errors.
+- **Zero-Memory Binary GGUF Header Parser (`ggufParser.ts`)**: Fast little-endian binary header parser that reads only the first 128KB header buffer from disk via `fs.readSync` without loading multi-gigabyte weight tensors. Extracts architecture, tensor counts, and normalizes quantization levels (`Q4_0`, `Q4_K_M`, `Q5_K_M`, `Q8_0`, `BF16`, `F16`).
+- **Architecture-Based Smart Folder Routing**: Routes diffusion models to `models/unet`, language models and text encoders to `models/LLM` or `models/text_encoders`, and general GGUF weights to `models/gguf`.
+- **Database Schema Migration v9**: Upgraded SQLite database with `source` (`'civitai' | 'huggingface'`), `hf_repo_id`, `hf_commit_sha`, and `quantization` fields across `local_models` and `downloads` tables with full backward compatibility.
 - **Automatic Subfolder Scaffolding**: If any standard ComfyUI model subdirectories are missing from your storage folders, CMM builds them on the fly.
 - **Queue Management**: Multi-file concurrent downloads with pause, resume, cancel, speed throttling, and inline progress tracking.
 - **Custom Filename Regex Patterns**: Map custom keywords (e.g. `ip-adapter`, `pulid`, `gguf`, `unet`) to specific custom folders.
@@ -90,6 +98,7 @@
 
 - **Official Companion Custom Node (`ComfyUI-Model-Manager`)**: Companion node providing in-graph nodes (`CMMDownloadModel`, `CMMInspectWorkflow`, `CMMCheckHuggingFace`).
 - **Localhost HTTP API Bridge (`http://127.0.0.1:5174`)**: Hardened REST API allowing external tools and ComfyUI nodes to scan, query, download, and parse workflows locally with strict loopback binding, DNS rebinding guards, path traversal sanitization, and credential redaction (`GET /api/config`).
+- **Hugging Face Hub & GGUF API Endpoints**: Programmatically search Hugging Face models (`POST /api/hf/search`), inspect local binary GGUF headers (`POST /api/inspect-gguf`), and inspect remote repo metadata (`POST /api/hf/check`).
 - **Sanitized Community Backups**: All backup ZIP archives (`backupService`) and CLI JSON dumps automatically strip API keys and exclude raw SQLite database files, eliminating credential leak risks when sharing setups.
 - **Webhook Automation**: Dispatches webhooks on `on_download_complete` and `on_update_available`.
 
@@ -102,7 +111,8 @@
   - `cmm download --id <id> --version <vid>`: Download models from terminal.
   - `cmm check-updates`: Check library for new versions.
   - `cmm export --format <json|zip>`: Backup configuration and models.
-  - `cmm hf check <repo_id>`: Inspect Hugging Face repos.
+  - `cmm hf check <repo_id>`: Inspect Hugging Face model repositories and file listings.
+  - `cmm hf whoami`: Check Hugging Face CLI login and authorization status.
   - `cmm workflows --path <dir>`: Scan and extract workflow model dependencies.
 
 ---
