@@ -1,3 +1,4 @@
+import path from 'path';
 import { describe, it, expect } from 'vitest';
 import { FolderRouter } from '../src/services/folderRouter';
 
@@ -68,14 +69,15 @@ describe('FolderRouter', () => {
   });
 
   it('should prevent path traversal when fileName or creator contains directory traversal markers', () => {
-    const router = new FolderRouter({ rootPath: '/tmp/comfy_models' });
+    const testRoot = path.resolve('/tmp/comfy_models');
+    const router = new FolderRouter({ rootPath: testRoot });
 
     // fileName with traversal attempts
     const result1 = router.computePath({
       fileName: '../../etc/passwd',
       modelType: 'Checkpoint',
     });
-    expect(result1.fullPath.startsWith('/tmp/comfy_models')).toBe(true);
+    expect(result1.fullPath.startsWith(testRoot)).toBe(true);
     expect(result1.fullPath).not.toContain('..');
 
     // dot-dot as fileName
@@ -83,8 +85,8 @@ describe('FolderRouter', () => {
       fileName: '..',
       modelType: 'Checkpoint',
     });
-    expect(result2.fullPath.startsWith('/tmp/comfy_models')).toBe(true);
-    expect(result2.fullPath).not.toContain('/../');
+    expect(result2.fullPath.startsWith(testRoot)).toBe(true);
+    expect(result2.fullPath.replace(/\\/g, '/')).not.toContain('/../');
 
     // creator with traversal
     router.updateConfig({ separateByCreator: true });
@@ -93,7 +95,7 @@ describe('FolderRouter', () => {
       modelType: 'Checkpoint',
       creator: '../../../malicious_creator',
     });
-    expect(result3.fullPath.startsWith('/tmp/comfy_models')).toBe(true);
+    expect(result3.fullPath.startsWith(testRoot)).toBe(true);
     expect(result3.fullPath).not.toContain('..');
   });
 });
