@@ -39,6 +39,7 @@ In accordance with Section 15 of the GNU General Public License v3.0:
 ### Supplementary Operational Disclaimers
 
 Without limiting the statutory disclaimer above:
+
 - **Filesystem & Data Integrity:** RenegadeCMM modifies local files, moves downloaded weights, unpacks archive entries, and updates ComfyUI directory trees. You assume full responsibility for maintaining backups of your files, workflows, and custom node directories.
 - **ComfyUI Compatibility:** ComfyUI and third-party custom nodes evolve independently. We do not guarantee uninterrupted compatibility with all ComfyUI releases, custom node packages, Python environments, or operating system updates.
 - **Local Security Environment:** While stored API credentials are encrypted at rest using machine-and-user bound AES-256-GCM, the software cannot protect against active keyloggers, rootkits, compromised Node.js dependencies, or administrative access under your operating system account.
@@ -56,6 +57,7 @@ Section 17 of the GNU General Public License v3.0 applies to the interpretation 
 ### Specific Scope of Liability Exclusion
 
 To the maximum extent permitted by applicable law, /dev/null Inc, TheStygianRenegade, and project contributors shall have no liability arising out of or related to:
+
 - Interruption, modification, or termination of third-party APIs or download endpoints (CivitAI, Hugging Face, GitHub).
 - Unintentional loss, corruption, or overwriting of models, workflows, generated images, or custom configurations.
 - Any actions taken by third-party custom node installation scripts (`requirements.txt`, `install.py`) executed within your local ComfyUI environment.
