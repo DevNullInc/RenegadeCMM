@@ -47,6 +47,7 @@ If you discover a bug, please check the [existing issues](https://github.com/Dev
 ### Suggesting Features & Enhancements
 
 Feature requests are always welcome! Before opening a feature request:
+
 - Check [`ROADMAP.md`](ROADMAP.md) to see if the feature is already planned.
 - Explain the **use case**, **why it is valuable**, and any proposed interface designs or workflow implications.
 
@@ -54,15 +55,19 @@ Feature requests are always welcome! Before opening a feature request:
 
 1. **Fork the repository** and clone your fork locally.
 2. **Create a topic branch** from `main`:
+
    ```bash
    git checkout -b feat/my-new-feature
    ```
+
 3. **Make your changes** following our code guidelines and test coverage.
 4. **Run the test suite and verify builds** cleanly:
+
    ```bash
    npm test
    npm run build
    ```
+
 5. **Update documentation and [`CHANGELOG.md`](CHANGELOG.md)** for any notable additions or fixes.
 6. **Push to your fork** and submit a Pull Request to `main`.
 
@@ -174,6 +179,7 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 - `chore:` Build scripts, dependencies, or maintenance.
 
 **Example:**
+
 ```git
 feat: add interactive visual node map to Workflows tab
 
