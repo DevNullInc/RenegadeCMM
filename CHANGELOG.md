@@ -10,6 +10,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [1.4.2]
 
+### 🔐 Security & Credential Hardening
+
+- **Unified Machine-and-User Bound Encryption At Rest**:
+  - Replaced the static encryption salt with machine-and-user entropy derived from username, user home directory, machine hostname, and OS platform (`cmm-entropy:<username>:<homedir>:<hostname>:<platform>`) in `src/utils/secureStorage.ts`.
+  - Derived authenticated `AES-256-GCM` cipher keys via `scrypt` (`N=32768, r=8, p=1`), formatting all newly encrypted credentials under `mb_gcm:<ivHex>:<authTagHex>:<ciphertextHex>`.
+  - Maintained architectural parity across both the Electron desktop main process and the standalone Node.js CLI runner (`cmm.sh` / `cmm.ps1`), avoiding the fragmentation of OS-only `safeStorage`.
+  - Preserved transparent backward compatibility for legacy static-salt ciphertexts (`iv:authTag:ciphertext`). Legacy credentials automatically decrypt on first startup and re-encrypt under the machine-bound format in both Electron startup (`loadConfigFromDb`) and the CLI runner bootstrap.
+- **Local API Bridge Credential Redaction (`GET /api/config`)**:
+  - Redacted `civitai_api_key` and `huggingface_token` entirely from `GET /api/config` responses on port 5174, replacing them with boolean status flags (`has_civitai_api_key`, `has_huggingface_token`).
+  - Stopped local background scripts, malicious browser tabs, or curious processes on loopback from scraping stored secrets off port 5174.
+  - Hardened IPC and HTTP `save-config` endpoints to ignore masked placeholder inputs (`••••••••`), preventing credential corruption or accidental overwrite on frontend settings saves, while permitting explicit updates and empty string (`""`) deletions.
+- **Sanitized Community Backup Exports (ZIP & JSON)**:
+  - Sanitized `config.json` inside backup ZIP archives in `src/services/backupService.ts` to omit `civitai_api_key` and `huggingface_token`.
+  - Excluded raw `database.sqlite` from backup ZIP archives to prevent accidental credential leakage when users exchange backup zips for folder mapping and model troubleshooting.
+  - Sanitized CLI JSON export dumps in `src/cli/index.ts` to suppress sensitive credential fields.
+- **Ephemeral Download Tokens & Diagnostic Log Scrubbing**:
+  - Sanitized download URLs across queue ingestion (`addTask`, `persistTask`, `hydrateFromDb`) in `src/services/downloadManager.ts` to strip `?token=` and `&token=` parameters before persisting tasks to SQLite.
+  - Injected CivitAI authentication tokens dynamically in-memory immediately prior to dispatching network requests, keeping database records clean.
+  - Updated `civitaiClient.getDownloadUrl()` to output clean base download URLs without query tokens.
+  - Implemented automated log sanitization in `src/utils/logger.ts` scrubbing Bearer headers, query parameter tokens (`?token=`, `&token=`, `apiKey=`), and JSON credential keys before streaming to console, disk logs, or IPC diagnostics.
+- **Settings UI Key Status Badges & Dedicated Clear Controls**:
+  - Added visual `Encrypted & Active` lock badges in `src/components/SettingsTab.tsx` when credentials are configured.
+  - Added dedicated one-click "Clear Key" and "Clear Token" controls allowing users to remove stored secrets without selecting and editing masked placeholders.
+  - Updated `huggingfaceClient.validateToken()` to recognize masked input strings and transparently validate against stored credentials.
+- **Comprehensive Automated Test Coverage**:
+  - Added `tests/securityHardening.test.ts` with 14 automated unit tests covering machine entropy derivation, legacy decryption fallback, log scrubbers, download URL sanitizers, and config redaction (all 46 repository tests passing).
+
 ### 🛡️ Fixed & Hardened
 
 - **Linux Desktop Window Association (`desktopName` & `syncDesktopName`)**:

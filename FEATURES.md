@@ -9,7 +9,7 @@
 - **Desktop App & Web UI in One**: Run as a native Electron desktop window or open `http://127.0.0.1:5173` in any browser.
 - **100% Cross-Platform**: Works natively on **Linux**, **Windows**, and **macOS** (Apple Silicon & Intel).
 - **Zero Cloud Lock-In**: Stores everything in a lightning-fast local SQLite database.
-- **API Keys Stored Encrypted & Opened in Your Real Browser**: CivitAI/HuggingFace keys are AES-256-GCM encrypted at rest (see [`docs/APISecurity.md`](docs/APISecurity.md)), and login-required pages always open in your system browser so you can verify the HTTPS URL/cert yourself.
+- **Machine-Bound Encrypted Credentials & Clean APIs**: CivitAI/HuggingFace keys are AES-256-GCM encrypted at rest using machine-and-user entropy across both GUI and CLI (see [`SECURITY.md`](SECURITY.md) and [`docs/APISecurity.md`](docs/APISecurity.md)). Keys are redacted on local HTTP APIs (`GET /api/config`), stripped from backup archives, and never persisted in download URLs. Login-required pages always open in your real system browser.
 - **F5 / Ctrl+R Hard Refresh**: Refresh the active tab any time (same keys as a browser) to clear stale UI after a network hiccup.
 
 ---
@@ -32,6 +32,7 @@
 - **Duplicate Conflict Handling**: Choose how to handle filename collisions (Rename, Replace, Skip, or Prompt).
 - **SHA-256 Hash Verification**: Compares downloaded checksums against CivitAI for tamper protection.
 - **Persistent Queue Across Restarts**: The download queue (with progress and superseded-file metadata) is saved to SQLite and fully restored on relaunch.
+- **Ephemeral Authentication & Log Privacy**: Download task URLs stored in SQLite never persist authentication tokens (`?token=` and `&token=` stripped upon ingestion). Credentials are attached in-memory only when dispatching network requests, and diagnostic logs scrub Bearer headers, query tokens, and JSON credentials automatically.
 - **Auto-Library on Completion**: A finished download is registered into the Library immediately — no manual re-scan — and Downloads-tab Pause/Resume/Cancel always reflect instantly.
 
 ---
@@ -88,7 +89,8 @@
 ## 🔌 6. Companion Node & Local API Bridge
 
 - **Official Companion Custom Node (`ComfyUI-Model-Manager`)**: Companion node providing in-graph nodes (`CMMDownloadModel`, `CMMInspectWorkflow`, `CMMCheckHuggingFace`).
-- **Localhost HTTP API Bridge (`http://127.0.0.1:5174`)**: REST API allowing external tools and ComfyUI nodes to scan, query, download, and parse workflows locally.
+- **Localhost HTTP API Bridge (`http://127.0.0.1:5174`)**: Hardened REST API allowing external tools and ComfyUI nodes to scan, query, download, and parse workflows locally with strict loopback binding, DNS rebinding guards, path traversal sanitization, and credential redaction (`GET /api/config`).
+- **Sanitized Community Backups**: All backup ZIP archives (`backupService`) and CLI JSON dumps automatically strip API keys and exclude raw SQLite database files, eliminating credential leak risks when sharing setups.
 - **Webhook Automation**: Dispatches webhooks on `on_download_complete` and `on_update_available`.
 
 ---

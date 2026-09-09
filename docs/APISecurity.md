@@ -22,10 +22,12 @@ These are **optional**. The app functions fully without them for public models.
 
 | Layer | Storage location | Format |
 |-------|------------------|--------|
-| **On disk (persisted)** | SQLite `app_config` table, keys `civitai_api_key` and `huggingface_token` | AES-256-GCM ciphertext, JSON-quoted in a `key/value` row |
-| **In memory (runtime)** | The process `currentConfig` object | Plaintext (required to sign requests) |
-| **Network (transmit)** | CivitAI downloads / HuggingFace requests | Token passed to the remote API (see §4) |
-| **Renderer** | Settings tab `<input type="password">` | In memory in the renderer; never written to `localStorage` |
+| **On disk (persisted)** | SQLite `app_config` table, keys `civitai_api_key` and `huggingface_token` | AES-256-GCM machine-bound ciphertext (`mb_gcm:...`), JSON-quoted in a `key/value` row |
+| **In memory (runtime)** | The process `currentConfig` object | Plaintext (required to authenticate requests) |
+| **Network (transmit)** | CivitAI downloads / HuggingFace requests | Token passed to the remote API in-memory (see §4) |
+| **Local HTTP Bridge** | `GET /api/config` on `127.0.0.1:5174` | Redacted: boolean flags `has_civitai_api_key` and `has_huggingface_token` |
+| **Renderer / IPC** | Settings tab `<input type="password">` / IPC `get-config` | Masked with bullets (`••••••••`); never written to `localStorage` |
+| **Backup Exports** | `backupService` ZIPs & CLI JSON dumps | Sanitized: API keys stripped; raw SQLite database excluded from ZIPs |
 
 The database file location:
 
@@ -39,10 +41,12 @@ The database file location:
 All secrets are encrypted **before** being written to the `app_config` table, using the app's `src/utils/secureStorage.ts`:
 
 - **Algorithm:** `AES-256-GCM` (authenticated encryption — detects tampering).
-- **Key derivation:** `crypto.scryptSync(secret, salt, 32)` producing a 256-bit key.
+- **Key derivation:** `crypto.scryptSync(secret, machineSalt, 32)` producing a 256-bit key, using `N=32768, r=8, p=1`.
+- **Machine & User Entropy:** `machineSalt` is dynamically computed from user and host identifiers (`cmm-entropy:<username>:<homedir>:<hostname>:<platform>`). Decryption requires the identical machine and user account.
 - **Per-value IV:** a fresh random 12-byte IV per encryption.
-- **Auth tag:** GCM auth tag is stored with the ciphertext and verified on decrypt.
-- **Record format:** `ivHex:authTagHex:ciphertextHex` stored as a single string value.
+- **Auth tag:** GCM auth tag (16 bytes) is stored with the ciphertext and verified on decrypt.
+- **Record format:** `mb_gcm:ivHex:authTagHex:ciphertextHex` stored as a single string value.
+- **Legacy Migration:** Transparent backward compatibility automatically detects legacy `iv:authTag:ciphertext` values, decrypts them, and re-encrypts under the machine-bound format during startup and CLI invocation.
 
 The full write path (`ipcMain.handle('save-config')` and the matching HTTP/CLI paths):
 
@@ -62,23 +66,18 @@ app_config row  →  decryptKey(ciphertext)  →  plaintext
 
 ## 4. How secrets are used at runtime
 
-- **CivitAI API:** The key is never stored raw in the DB. At runtime it is either sent as an HTTP `Authorization: Bearer <key>` header on API calls, or appended as `?token=<key>` to model download URLs when a download is queued.
+- **CivitAI API:** The key is never stored raw in the DB. At runtime it is sent as an HTTP `Authorization: Bearer <key>` header on API calls.
+- **Ephemeral Download Tokens:** Download task URLs saved to SQLite (`downloads` table) have `?token=` and `&token=` stripped upon ingestion (`addTask`, `persistTask`). Authentication tokens are attached in-memory immediately prior to dispatching HTTP requests, ensuring persistent records and diagnostic dumps stay free of secrets.
 - **HuggingFace:** The token is sent as an `Authorization: Bearer <token>` header to `huggingface.co`.
-- **Never logged:** The app does not log keys or tokens. Secrets are redacted from diagnostics.
+- **Automated Log Scrubbing:** `src/utils/logger.ts` intercepts all console, disk, and IPC log outputs, redacting Bearer headers, query parameter tokens (`?token=...`, `&token=...`, `apiKey=...`), and JSON credential keys before emission.
 
 ---
 
-## 5. Honest limitations (read this before trusting at-rest encryption)
+## 5. Security model & cross-environment parity
 
-> This is the important, non-hand-wavy part.
-
-- **The encryption key is embedded in the application source.** The key material is derived from a fixed secret + fixed salt hard-coded in `secureStorage.ts`. This is *encryption at rest against accidental exposure* (e.g. someone reading a leaked config file), **not** a defense against someone who has the app itself. Anyone with the app binary/source can derive the key and decrypt any config they also possess.
-- **There is no OS-backed keychain (this is a known gap).** On desktop, the most trustworthy approach would use the operating system's protected secret store (Windows Credential Manager via `safeStorage`, macOS Keychain, Linux Secret Service / libsecret). That integration is **not currently implemented**.
-- **Consequence to communicate to users:** Treat the stored key roughly like a saved password in a standard app — fine for convenience, but the at-rest protection should *not* be advertised as unbreakable. If you want maximum safety, do not store the key; enter it per-session and clear it from Settings when done.
-
-Because of these constraints, the app's at-rest encryption is best described as:
-
-> **Obfuscation + tamper detection at rest, not hardware-grade/keychain protection.**
+- **Cross-Environment Parity (Desktop GUI + Standalone CLI):** RenegadeCMM can be operated either via the Electron desktop interface or via headless CLI scripts (`cmm.sh` / `cmm.ps1`). Standard OS-only keychains (such as Chromium's `safeStorage` DPAPI on Windows) are inaccessible to external Node.js CLI processes. Utilizing machine-and-user entropy ensures both environments decrypt the exact same SQLite database seamlessly.
+- **Casual Theft Resistance:** If a database file or backup is stolen offline or copied to another machine or user profile, the ciphertext cannot be decrypted without the originating machine's environment and username entropy.
+- **Root/Local Compromise Limitation:** As with any local application where the decryption routine runs within user space, an attacker with full interactive code execution under your exact user account on the same machine could derive the entropy. For shared or high-risk multi-user workstations, avoid saving credentials permanently or clear them when finished.
 
 ---
 
@@ -86,26 +85,28 @@ Because of these constraints, the app's at-rest encryption is best described as:
 
 Since a leaked CivitAI key can **cost you money** (credits) and expose private/NSFW content tied to your account:
 
-- **Use a token with scoped permissions** where possible, and revoke it if you no longer use it. CivitAI lets you create and revoke API tokens from **Account Settings → API Keys** — a full token can perform actions as you.
-- **Do not share** your config file, database, or screenshots containing the key field.
-- **Starting fresh / removing a key:** clear the field in Settings and **Save**. This writes an empty/omitted value and stops using it. (If the value is blank, the app stores nothing for that key.)
-- **Backup hygiene:** If you back up the app DB, be aware it contains encrypted secrets tied to your key — keep backups private.
-- **Log out / clear on shared machines:** On a machine you don't fully trust, don't save the key; use it per-session only.
+- **Use a token with scoped permissions** where possible, and revoke it if you no longer use it. CivitAI lets you create and revoke API tokens from **Account Settings → API Keys**.
+- **Dedicated Clear Buttons:** Use the one-click "Clear Key" or "Clear Token" buttons in the Settings tab to instantly purge stored secrets from the database and zero active in-memory clients.
+- **Safe Community Backups:** Built-in backup export (`backupService`) automatically strips API keys from `config.json` and excludes raw SQLite database files. You can safely share backup ZIP archives with friends or community members for folder mapping or model troubleshooting.
+- **Log out / clear on shared machines:** On a shared machine, use the Clear buttons after your session.
 
 ---
 
 ## 7. Guidelines for developers / contributors
 
-- **Never log a key or token.** Verify any log or diagnostic line redacts secrets before merging.
+- **Never log a key or token.** Automated sanitizers in `logger.ts` provide defense-in-depth, but always avoid passing plaintext secrets to log statements.
 - **Keep secrets out of `localStorage`.** Secrets live only in the DB (encrypted) and memory — never in `localStorage`.
-- **Never send a secret to a non-CivitAI/HuggingFace host.** Download URLs always target the configured mirror/API base.
+- **Sanitize public endpoints.** When exposing new configuration or status endpoints on the local HTTP bridge (`src/server/index.ts`), always redact credentials using `sanitizeConfigForClient()`.
 - **Route auth-required links through the OS browser.** Links to CivitAI account/API-key pages and HuggingFace token pages open via `shell.openExternal` (the user's real browser) so users can verify the HTTPS certificate/URL themselves — never inside the embedded Electron window.
 
-### Recommended roadmap to close the at-rest gap
+### Status of Hardening Roadmap
 
-1. Replace the static key derivation with Electron's `safeStorage` (which uses the OS keychain/DPAPI) as the key source when running under Electron, falling back to the current scheme only in the browser dev build.
-2. Optionally gate downloads with sensitive-account tokens behind an explicit per-session unlock rather than auto-loading from the DB.
-3. Add a "revoke / clear all stored secrets" action in Settings.
+- [x] Machine-and-user bound authenticated encryption (`mb_gcm:`).
+- [x] Ephemeral download tokens (URL query tokens stripped before DB persistence).
+- [x] Local HTTP bridge credential redaction (`has_civitai_api_key`, `has_huggingface_token`).
+- [x] Sanitized community backup exports (ZIP & JSON).
+- [x] Dedicated one-click "Clear Key" and "Clear Token" controls in Settings UI.
+- [x] Automated log scrubbing for Bearer tokens, query strings, and credential keys.
 
 ---
 
@@ -114,12 +115,16 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 | Concern | Location |
 |---------|----------|
 | Encryption / decryption primitives | `src/utils/secureStorage.ts` |
-| Config load at startup | `src/main/index.ts` → `loadConfigFromDb()` |
+| Config sanitization & redaction | `src/utils/configSanitizer.ts` |
+| Config load & startup migration | `src/main/index.ts` → `loadConfigFromDb()` |
 | Config save / key write | `src/main/index.ts` → `ipcMain.handle('save-config')` |
-| Browser (dev) equivalents | `vite.config.ts`, `src/utils/webBridge.ts` |
-| CLI config loader | `src/cli/index.ts` |
+| Local HTTP REST API bridge | `src/server/index.ts` |
+| Ephemeral download token handling | `src/services/downloadManager.ts` |
+| Log sanitization | `src/utils/logger.ts` |
+| Backup export sanitization | `src/services/backupService.ts` |
+| CLI config loader & exporter | `src/cli/index.ts` |
 | External link handling | `src/main/index.ts` → `ipcMain.handle('open-external')` |
 
 ---
 
-*Last reviewed against source: current development build. This document is honest about the current trade-offs and updates whenever the storage scheme changes.*
+*Last reviewed against source: current development build. This document accurately reflects the current machine-bound encryption, API redaction, and download token architecture.*
