@@ -49,7 +49,7 @@
     - [3. Search and Download](#3-search-and-download)
   - [⚙ Configuration](#-configuration)
     - [Folder Mappings](#folder-mappings)
-    - [API Sources](#api-sources)
+    - [API Sources & Model Hubs](#api-sources--model-hubs)
   - [📂 Supported Folder Structure](#-supported-folder-structure)
     - [Core Model Folders](#core-model-folders)
     - [Specialized Folders](#specialized-folders)
