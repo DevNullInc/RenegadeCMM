@@ -122,8 +122,3 @@ const api = {
 
 contextBridge.exposeInMainWorld('civitaiAPI', api);
 
-declare global {
-  interface Window {
-    civitaiAPI: typeof api & { _isMock?: boolean };
-  }
-}
