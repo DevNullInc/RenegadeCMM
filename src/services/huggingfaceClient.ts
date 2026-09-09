@@ -160,12 +160,15 @@ export class HuggingFaceClient {
   }
 
   async searchModels(query: string, limit = 20): Promise<HFModelInfo[]> {
+    const cleanQuery = typeof query === 'string' ? query.trim().slice(0, 200) : '';
+    const safeLimit = Math.min(Math.max(1, parseInt(String(limit), 10) || 20), 100);
+
     try {
       const res = await this.axiosInstance.get('/models', {
         headers: this.getHeaders(),
         params: {
-          search: query,
-          limit,
+          search: cleanQuery,
+          limit: safeLimit,
           full: true,
         },
       });

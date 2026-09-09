@@ -525,7 +525,14 @@ export class DownloadManager {
           requestUrl = attachCivitaiToken(requestUrl, this.civitaiApiKey);
         }
         if (this.huggingfaceToken && isHuggingFaceUrl(requestUrl)) {
-          headers['Authorization'] = `Bearer ${this.huggingfaceToken}`;
+          try {
+            const parsedReq = new URL(requestUrl);
+            const reqHost = parsedReq.hostname.toLowerCase();
+            // Only inject Bearer auth to the primary Hugging Face host, never directly to external/CDN endpoints
+            if (reqHost === 'huggingface.co' || reqHost === 'www.huggingface.co') {
+              headers['Authorization'] = `Bearer ${this.huggingfaceToken}`;
+            }
+          } catch {}
         }
         return await axios.get(requestUrl, {
           responseType: 'stream',
@@ -536,11 +543,15 @@ export class DownloadManager {
             // When redirected from huggingface.co to S3/CloudFront LFS storage (e.g. cdn-lfs.huggingface.co
             // or AWS presigned URL), remove Authorization header to prevent AWS S3 HTTP 400 Bad Request
             // ("Only one auth mechanism allowed; query params and Authorization header cannot both be present")
+            // and prevent Bearer token leakage to third-party CDNs.
             const targetHost = (options.hostname || '').toLowerCase();
-            if (targetHost !== 'huggingface.co') {
+            if (targetHost !== 'huggingface.co' && targetHost !== 'www.huggingface.co') {
               if (options.headers) {
-                delete options.headers['authorization'];
-                delete options.headers['Authorization'];
+                for (const h of Object.keys(options.headers)) {
+                  if (h.toLowerCase() === 'authorization') {
+                    delete options.headers[h];
+                  }
+                }
               }
             }
           },

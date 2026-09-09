@@ -2076,6 +2076,30 @@ function startHttpBridgeServer() {
         const result = await huggingfaceClient.getCliWhoami();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
+      } else if (url === '/api/hf/search' && req.method === 'POST') {
+        const body = await getBody();
+        const query = typeof body.query === 'string' ? body.query : (body.q || '');
+        const limit = typeof body.limit === 'number' ? body.limit : 20;
+        const result = await huggingfaceClient.searchModels(query, limit);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/inspect-gguf' && req.method === 'POST') {
+        const body = await getBody();
+        const filePath = typeof body.filePath === 'string' ? body.filePath.trim() : '';
+        if (!filePath) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ valid: false, error: 'filePath parameter is required' }));
+          return;
+        }
+        const lower = filePath.toLowerCase();
+        if (!lower.endsWith('.gguf') && !lower.endsWith('.gguf.part') && !lower.endsWith('.bin')) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ valid: false, error: 'Only .gguf or .bin files may be inspected' }));
+          return;
+        }
+        const result = ggufParser.inspectGGUF(filePath);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
       } else if (url === '/api/app-update' && req.method === 'GET') {
         const result = await checkDevelopmentGitUpdate();
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2463,7 +2487,10 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('inspect-gguf', async (_event: unknown, filePath: string) => {
-    return ggufParser.inspectGGUF(filePath);
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      return { valid: false, error: 'Invalid file path' };
+    }
+    return ggufParser.inspectGGUF(filePath.trim());
   });
 
   // Scanner Handlers

@@ -107,6 +107,19 @@ export class GGUFParser {
       if (!fs.existsSync(source)) {
         return { valid: false, error: `File not found: ${source}` };
       }
+      const lowerName = fileName.toLowerCase();
+      if (!lowerName.endsWith('.gguf') && !lowerName.endsWith('.gguf.part') && !lowerName.endsWith('.bin')) {
+        return { valid: false, error: `Unsupported file extension for GGUF inspection: ${fileName}` };
+      }
+      try {
+        const stat = fs.statSync(source);
+        if (!stat.isFile()) {
+          return { valid: false, error: `Target path is not a regular file: ${source}` };
+        }
+      } catch (statErr: any) {
+        return { valid: false, error: `Cannot inspect file attributes: ${statErr.message}` };
+      }
+
       let fd: number | null = null;
       try {
         fd = fs.openSync(source, 'r');
@@ -147,16 +160,17 @@ export class GGUFParser {
     let contextLength: number | undefined;
 
     try {
-      for (let i = 0; i < metadataKvCount && offset < buffer.length - 8; i++) {
+      kvLoop: for (let i = 0; i < metadataKvCount && offset < buffer.length - 8; i++) {
         // Read key string: uint64 length + utf8 chars
+        if (offset + 8 > buffer.length) break kvLoop;
         const keyLen = Number(buffer.readBigUInt64LE(offset));
         offset += 8;
-        if (offset + keyLen > buffer.length) break;
+        if (keyLen < 0 || offset + keyLen > buffer.length) break kvLoop;
         const key = buffer.toString('utf8', offset, offset + keyLen);
         offset += keyLen;
 
         // Read value type: uint32
-        if (offset + 4 > buffer.length) break;
+        if (offset + 4 > buffer.length) break kvLoop;
         const valType = buffer.readUInt32LE(offset);
         offset += 4;
 
@@ -166,47 +180,55 @@ export class GGUFParser {
 
         switch (valType) {
           case 0: // UINT8
+            if (offset + 1 > buffer.length) break kvLoop;
             numVal = buffer.readUInt8(offset);
             offset += 1;
             break;
           case 1: // INT8
+            if (offset + 1 > buffer.length) break kvLoop;
             numVal = buffer.readInt8(offset);
             offset += 1;
             break;
           case 2: // UINT16
+            if (offset + 2 > buffer.length) break kvLoop;
             numVal = buffer.readUInt16LE(offset);
             offset += 2;
             break;
           case 3: // INT16
+            if (offset + 2 > buffer.length) break kvLoop;
             numVal = buffer.readInt16LE(offset);
             offset += 2;
             break;
           case 4: // UINT32
+            if (offset + 4 > buffer.length) break kvLoop;
             numVal = buffer.readUInt32LE(offset);
             offset += 4;
             break;
           case 5: // INT32
+            if (offset + 4 > buffer.length) break kvLoop;
             numVal = buffer.readInt32LE(offset);
             offset += 4;
             break;
           case 6: // FLOAT32
+            if (offset + 4 > buffer.length) break kvLoop;
             numVal = buffer.readFloatLE(offset);
             offset += 4;
             break;
           case 7: // BOOL
+            if (offset + 1 > buffer.length) break kvLoop;
             offset += 1;
             break;
           case 8: { // STRING
-            if (offset + 8 > buffer.length) break;
+            if (offset + 8 > buffer.length) break kvLoop;
             const strLen = Number(buffer.readBigUInt64LE(offset));
             offset += 8;
-            if (offset + strLen > buffer.length) break;
+            if (strLen < 0 || offset + strLen > buffer.length) break kvLoop;
             strVal = buffer.toString('utf8', offset, offset + strLen);
             offset += strLen;
             break;
           }
           case 9: { // ARRAY: uint32 type + uint64 length + items
-            if (offset + 12 > buffer.length) break;
+            if (offset + 12 > buffer.length) break kvLoop;
             const elemType = buffer.readUInt32LE(offset);
             offset += 4;
             const arrLen = Number(buffer.readBigUInt64LE(offset));
@@ -216,21 +238,24 @@ export class GGUFParser {
             break;
           }
           case 10: // UINT64
+            if (offset + 8 > buffer.length) break kvLoop;
             numVal = Number(buffer.readBigUInt64LE(offset));
             offset += 8;
             break;
           case 11: // INT64
+            if (offset + 8 > buffer.length) break kvLoop;
             numVal = Number(buffer.readBigInt64LE(offset));
             offset += 8;
             break;
           case 12: // FLOAT64
+            if (offset + 8 > buffer.length) break kvLoop;
             numVal = buffer.readDoubleLE(offset);
             offset += 8;
             break;
           default:
             // Unknown type: cannot reliably determine remaining offsets
             offset = buffer.length;
-            break;
+            break kvLoop;
         }
 
         if (key === 'general.architecture' && strVal) {
@@ -286,39 +311,35 @@ export class GGUFParser {
   }
 
   private skipArrayElements(buffer: Buffer, offset: number, elemType: number, len: number): number {
-    let cur = offset;
-    for (let i = 0; i < len && cur < buffer.length; i++) {
-      switch (elemType) {
-        case 0:
-        case 1:
-        case 7:
-          cur += 1;
-          break;
-        case 2:
-        case 3:
-          cur += 2;
-          break;
-        case 4:
-        case 5:
-        case 6:
-          cur += 4;
-          break;
-        case 8: { // String inside array
-          if (cur + 8 > buffer.length) return buffer.length;
-          const sLen = Number(buffer.readBigUInt64LE(cur));
-          cur += 8 + sLen;
-          break;
-        }
-        case 10:
-        case 11:
-        case 12:
-          cur += 8;
-          break;
-        default:
-          return buffer.length;
-      }
+    if (len <= 0) return offset;
+
+    // Fast-path for fixed-size primitive arrays to eliminate CPU exhaustion
+    const fixedSizes: Record<number, number> = {
+      0: 1, 1: 1, 7: 1, // 1-byte (uint8, int8, bool)
+      2: 2, 3: 2,       // 2-byte (uint16, int16)
+      4: 4, 5: 4, 6: 4, // 4-byte (uint32, int32, float32)
+      10: 8, 11: 8, 12: 8, // 8-byte (uint64, int64, float64)
+    };
+
+    if (fixedSizes[elemType] !== undefined) {
+      const totalBytes = len * fixedSizes[elemType];
+      return Math.min(buffer.length, offset + totalBytes);
     }
-    return cur;
+
+    if (elemType === 8) {
+      // Dynamic strings
+      let cur = offset;
+      for (let i = 0; i < len && cur < buffer.length; i++) {
+        if (cur + 8 > buffer.length) return buffer.length;
+        const sLen = Number(buffer.readBigUInt64LE(cur));
+        if (sLen < 0 || cur + 8 + sLen > buffer.length) return buffer.length;
+        cur += 8 + sLen;
+      }
+      return cur;
+    }
+
+    // Unsupported/nested types: safely truncate to avoid buffer corruption
+    return buffer.length;
   }
 }
 

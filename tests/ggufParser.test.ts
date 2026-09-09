@@ -106,4 +106,43 @@ describe('GGUF Binary Header Parser', () => {
     expect(res.architecture).toBe('qwen2');
     expect(res.recommendedFolder).toBe('LLM');
   });
+
+  it('should reject non-GGUF file extensions and directories for security path safety', () => {
+    // Non-gguf extension
+    const nonGgufRes = ggufParser.inspectGGUF('/tmp/malicious.txt');
+    expect(nonGgufRes.valid).toBe(false);
+    expect(nonGgufRes.error).toContain('File not found');
+
+    // Unsupported extension on real file
+    const packageJsonPath = require('path').resolve(__dirname, '../package.json');
+    const extRes = ggufParser.inspectGGUF(packageJsonPath);
+    expect(extRes.valid).toBe(false);
+    expect(extRes.error).toContain('Unsupported file extension');
+
+    // Directory path rejection
+    const dirRes = ggufParser.inspectGGUF(__dirname);
+    expect(dirRes.valid).toBe(false);
+  });
+
+  it('should terminate cleanly without hang on corrupted or truncated KV string bounds', () => {
+    const corruptBuf = Buffer.alloc(128);
+    let offset = 0;
+    corruptBuf.writeUInt32LE(0x46554747, offset); // Magic
+    offset += 4;
+    corruptBuf.writeUInt32LE(3, offset); // Version
+    offset += 4;
+    corruptBuf.writeBigUInt64LE(BigInt(10), offset); // Tensors
+    offset += 8;
+    corruptBuf.writeBigUInt64LE(BigInt(500000), offset); // Huge KV count (potential loop bomb)
+    offset += 8;
+
+    // Key with length claiming to extend far past buffer length
+    corruptBuf.writeBigUInt64LE(BigInt(999999), offset);
+    offset += 8;
+
+    const res = ggufParser.inspectGGUF(corruptBuf);
+    expect(res.valid).toBe(true);
+    expect(res.metadataKvCount).toBe(500000);
+    // Verified parser does not spin or throw RangeError
+  });
 });

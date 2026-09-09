@@ -88,6 +88,9 @@ The local HTTP bridge exposes dedicated endpoints categorized by function. All e
 | **Downloads** | `/api/pause-download`, `/api/resume-download`, `/api/cancel-download`, `/api/delete-download` | `POST` | Validates task ID existence; safe cleanup of partial `.part` files. |
 | **Missing Models** | `/api/pull-missing-model` | `POST` | Validates hash format; attaches auth dynamically without URL pollution. |
 | **CivitAI Search** | `/api/search-models` | `POST` | Passes queries through rate-limited `civitaiClient` with strict parameter bounds. |
+| **Hugging Face Hub** | `/api/hf/search` | `POST` | Query length sanitization (max 200 chars); clamped limit bounds (`1–100`); safe JSON serialization. |
+| **Hugging Face Repos** | `/api/hf/check`, `/api/hf/whoami`, `/api/hf/validate-token` | `POST`/`GET` | Strict regex validation (`^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)?$`); prevents SSRF and path traversal. |
+| **GGUF Inspection** | `/api/inspect-gguf` | `POST` | Zero-memory 128KB header parsing; regular file verification; strictly gated to `.gguf`, `.gguf.part`, and `.bin` extensions. |
 | **Custom Nodes** | `/api/nodes/resolve`, `/api/nodes/installed` | `GET` | Read-only node class mapping resolution. |
 | **Custom Nodes** | `/api/nodes/clone`, `/api/nodes/install-deps` | `POST` | Positional parameter boundaries (`--`); command injection defenses; restricted target directories. |
 | **Workflows** | `/api/workflows`, `/api/inspect-workflow` | `POST` | In-memory JSON parsing; schema validation without script execution. |
@@ -170,3 +173,24 @@ RenegadeCMM allows users to resolve missing custom nodes and install them into C
   - **Non-Exploitable Context**: RenegadeCMM utilizes `adm-zip` exclusively for creating backup archives (`zip.toBuffer()`) and reading entry buffers in memory (`getData()`). CMM never extracts archive contents directly to disk via `extractAllTo` or follows destination symlinks on the filesystem, neutralizing this attack vector.
 - **Resolved Advisory (Vitest `GHSA-82fw-gwwq-j7x9` / CVE-2026-84373)**: Addressed via upgrading `vitest` to `^4.1.11` in devDependencies, eliminating the path traversal / arbitrary file read vulnerability in `@vitest/mocker`.
 - **URL Substring Sanitization Hardening (CodeQL `js/incomplete-url-substring-sanitization`)**: Replaced loose `.includes('civitai.com')` substring checks in [downloadManager.ts](file:///home/stygianrenegade/Projects/manager/Civitai-manager-ComfyUI/src/services/downloadManager.ts) with strict WHATWG URL parsing (`isCivitaiUrl` / `attachCivitaiToken`). Authenticated tokens are dynamically appended only to verified `https://civitai.com`, `https://civitai.red`, or legitimate CivitAI subdomains over TLS, preventing SSRF and credential leakage to attacker-controlled domains.
+
+---
+
+### 8. Native Hugging Face & GGUF Engine Security Architecture
+
+Starting with release `v1.5.0`, RenegadeCMM implements native Hugging Face downloads and binary GGUF inspection without relying on external Python runtimes:
+
+- **Zero-Memory GGUF Header Parser (`ggufParser.ts`)**:
+  - **Memory Exhaustion Defense (CWE-400)**: Multi-gigabyte `.gguf` model files are never loaded into memory. The parser uses synchronous file descriptors (`fs.openSync` / `fs.readSync`) to read only the initial 128KB header buffer, ensuring the Electron main process and renderer maintain zero memory bloat.
+  - **CPU Starvation & ReDoS Protections (CWE-834)**:
+    - Bounded loop processing: Uses labeled loops (`kvLoop`) to guarantee that encountering truncated key-value entries or out-of-bounds strings breaks out of execution immediately rather than spinning.
+    - $O(1)$ Array element skips: Fixed-size primitive arrays (uint8, uint16, uint32, uint64, float32, float64) are skipped using arithmetic offset multiplication (`len * elemSize`) instead of linear element-by-element iteration.
+  - **Path Traversal & Device File Protections (CWE-22 / CWE-59)**:
+    - File extension gating: GGUF inspection strictly rejects files not matching `.gguf`, `.gguf.part`, or `.bin` extensions.
+    - File type verification: `fs.statSync(source).isFile()` confirms the target path is a regular file before calling `fs.openSync`, preventing hangs or unbounded blocking on FIFOs (named pipes) or character device files (e.g. `/dev/urandom`, `/dev/zero`).
+- **Hugging Face Authentication & Credential Boundary (CWE-200 / CWE-798)**:
+  - **Targeted Gateway Authorization**: Bearer tokens (`Authorization: Bearer <hf_token>`) are injected exclusively into requests targeting `huggingface.co` or `www.huggingface.co` over TLS. Direct requests to untrusted or CDN domains never receive token headers.
+  - **Case-Insensitive AWS S3 LFS Redirect Scrubbing**: When downloading gated weights, Hugging Face responds with HTTP 302 redirects to pre-signed AWS S3 LFS URLs (`cdn-lfs.huggingface.co`). Axios `beforeRedirect` hooks inspect the destination hostname and case-insensitively delete all `Authorization` headers. This prevents token exposure to third-party CDNs and avoids AWS S3 `HTTP 400 Bad Request` ("Only one auth mechanism allowed") errors.
+- **Repository Identifier Regex Sanitization**:
+  - The Hugging Face API client validates all user-supplied repository strings against strict alphanumeric patterns (`^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)?$`), preventing path traversal and URL injection in API requests.
+
