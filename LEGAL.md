@@ -114,9 +114,9 @@ Full license texts for all bundled open-source dependencies are preserved in the
 
 ## 7. Code Signing & Digital Certificates
 
-Official release binaries of RenegadeCMM are digitally signed with code signing certificates provided by the **[SignPath Foundation](https://signpath.org)** through **[SignPath.io](https://signpath.io)**:
+Code signing integration for official release binaries of RenegadeCMM is currently in progress through the **[SignPath Foundation](https://signpath.org)** and **[SignPath.io](https://signpath.io)**:
 
-- Code signing certificates verify binary integrity and attest that release packages have not been tampered with or modified since compilation in the official CI/CD pipeline.
+- Once fully integrated, code signing certificates will verify binary integrity and attest that release packages have not been tampered with or modified since compilation in the official CI/CD pipeline.
 - Digital signatures provide binary provenance and do not constitute an endorsement, warranty, or assumption of liability by the SignPath Foundation.
 
 ---

@@ -54,8 +54,7 @@ In-scope components include:
 Starting with release `v1.4.1`, RenegadeCMM explicitly strips the NSIS elevation helper binary (`packElevateHelper: false`, `allowElevation: false`, `perMachine: false` in Electron Builder configuration).
 
 - **Why this was changed**: Default NSIS installers bundle an unsigned elevation helper (`elevate.exe` / `elevation.exe`) designed to facilitate administrative UAC prompts. Automated malware scanning engines (including GitHub Release heuristic scanners and Microsoft Defender) frequently flag this binary as a potential security risk (`HackTool:Win32/AutoElevate`), which previously triggered automated false-positive moderation flags.
-- **User-Space Operation**: RenegadeCMM installs and runs entirely in user space (`%LOCALAPPDATA%\Programs\RenegadeCMM`) without requiring administrative elevation. Stripping the elevation helper eliminates false positives while preserving full application functionality.
-- **Code Signing**: Official release packages are signed with certificates provided by the [SignPath Foundation](https://signpath.org) through [SignPath.io](https://signpath.io).
+- **Code Signing (In Progress)**: Code signing integration is actively in progress through the [SignPath Foundation](https://signpath.org) and [SignPath.io](https://signpath.io). In the interim, release packages are compiled directly from source on public GitHub Actions runners.
 
 ---
 

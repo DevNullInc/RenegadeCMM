@@ -93,17 +93,21 @@
   <sub><i>Click any screenshot to expand and view full resolution.</i></sub>
 </p>
 
-|                                                  **Discover & Browse Catalog**                                                   |                                               **Local Model Library & Deduplication**                                               |
+|                                                  **Discover & Browse (CivitAI)**                                                 |                                               **Discover & Browse (Hugging Face)**                                               |
 | :------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------------------------: |
-| <a href="docs/screenshots/browse-tab.png"><img src="docs/screenshots/browse-tab.png" alt="Discover AI Models" width="460" /></a> | <a href="docs/screenshots/library-tab.png"><img src="docs/screenshots/library-tab.png" alt="Local Model Library" width="460" /></a> |
+| <a href="docs/screenshots/browse-tab-cai.png"><img src="docs/screenshots/browse-tab-cai.png" alt="Discover CivitAI Models" width="460" /></a> | <a href="docs/screenshots/browse-tab-hf.png"><img src="docs/screenshots/browse-tab-hf.png" alt="Discover Hugging Face Models" width="460" /></a> |
 
-|                                                **Concurrent Downloads & Auto-Sorting**                                                |                                                 **Multi-Folder Settings & Backup**                                                  |
-| :-----------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------------------------: |
-| <a href="docs/screenshots/downloads-tab.png"><img src="docs/screenshots/downloads-tab.png" alt="Downloads Manager" width="460" /></a> | <a href="docs/screenshots/settings-tab.png"><img src="docs/screenshots/settings-tab.png" alt="Settings & Backup" width="460" /></a> |
+|                                               **Local Model Library & Deduplication**                                            |                                                **Concurrent Downloads & Auto-Sorting**                                                |
+| :------------------------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------------------------: |
+| <a href="docs/screenshots/library-tab.png"><img src="docs/screenshots/library-tab.png" alt="Local Model Library" width="460" /></a> | <a href="docs/screenshots/downloads-tab.png"><img src="docs/screenshots/downloads-tab.png" alt="Downloads Manager" width="460" /></a> |
 
-|                                                         **Workflow & Missing Node Resolver**                                                         |                                                     **About & Project Info**                                                     |
-| :--------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------: |
-| <a href="docs/screenshots/workflows-tab.png"><img src="docs/screenshots/workflows-tab.png" alt="Workflow & Missing Node Resolver" width="460" /></a> | <a href="docs/screenshots/about-tab.png"><img src="docs/screenshots/about-tab.png" alt="About & Project Info" width="460" /></a> |
+|                                                         **Workflow & Missing Node Resolver**                                                         |                                                 **Multi-Folder Settings & Backup**                                                  |
+| :--------------------------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------------------------: |
+| <a href="docs/screenshots/workflows-tab.png"><img src="docs/screenshots/workflows-tab.png" alt="Workflow & Missing Node Resolver" width="460" /></a> | <a href="docs/screenshots/settings-tab.png"><img src="docs/screenshots/settings-tab.png" alt="Settings & Backup" width="460" /></a> |
+
+|                                                     **About & Project Info**                                                     |
+| :------------------------------------------------------------------------------------------------------------------------------: |
+| <a href="docs/screenshots/about-tab.png"><img src="docs/screenshots/about-tab.png" alt="About & Project Info" width="460" /></a> |
 
 <!-- markdownlint-enable MD033 -->
 
@@ -846,7 +850,7 @@ Seeing how you scrolled this far, if CMM saves you time organizing your ComfyUI 
 
 ## 🔐 Code Signing
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+> ⏳ **In Progress**: Code signing integration via [SignPath.io](https://signpath.io) (certificate courtesy of the [SignPath Foundation](https://signpath.org)) is currently in progress. While signing pipeline onboarding is finalized, all binaries are built directly on public GitHub Actions runners straight from source. Windows users may see a standard Microsoft Defender SmartScreen prompt until certificate reputation accumulates.
 
 ---
 
