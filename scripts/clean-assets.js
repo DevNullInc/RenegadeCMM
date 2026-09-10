@@ -5,9 +5,9 @@
  * Licensed under GNU General Public License v3.0 (GPL-3.0)
  *
  * Prunes stale hashed renderer bundles from dist/assets while leaving the folder,
- * vendor chunks, and the currently-referenced build untouched.
+ * non-bundle assets, and the currently-referenced build untouched.
  *
- * Scope:        only `dist/assets/index-*.js` and `dist/assets/index-*.css`
+ * Scope:        hashed `index-*.js`, `index-*.css`, and `vendor-*.js` bundles
  * Retention:    keep every asset referenced by `dist/index.html` PLUS the single
  *               most-recently-generated js/css pair (a safety net for any build that
  *               hasn't finished writing index.html yet, or a freshly emitted pair).
@@ -51,19 +51,19 @@ function main() {
     return 1;
   }
 
-  // 3) Enumerate candidate orphan candidates: hashed `index-*.js` / `index-*.css`.
+  // 3) Enumerate candidate orphan candidates: hashed `index-*.js` / `index-*.css` / `vendor-*.js`.
   const candidates = fs
     .readdirSync(ASSETS)
     .filter((f) => {
       const lower = f.toLowerCase();
-      const isBundle = /^index-[^/]*\.js$/i.test(f) || /^index-[^/]*\.css$/i.test(f);
-      const isHashed = /^index-[A-Za-z0-9_-]{8,}\.(js|css)$/i.test(lower) || /^index-[^.]*\.(js|css)$/i.test(lower);
+      const isBundle = /^(index|vendor-[^/]+)-[^/]*\.(js|css)$/i.test(f);
+      const isHashed = /^(index|vendor-[^/]+)-[A-Za-z0-9_-]{8,}\.(js|css)$/i.test(lower) || /^(index|vendor-[^/]+)-[^.]*\.(js|css)$/i.test(lower);
       return fs.statSync(path.join(ASSETS, f)).isFile() && isBundle && isHashed;
     })
     .sort();
 
   if (candidates.length === 0) {
-    log('[clean-assets] No hashed index bundles to prune.');
+    log('[clean-assets] No hashed bundles to prune.');
     return 0;
   }
 
