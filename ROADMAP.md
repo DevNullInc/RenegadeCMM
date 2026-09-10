@@ -131,6 +131,9 @@ graph LR
 - [ ] **Editable Visual Node Map (LiteGraph)**:
   - Upgrade the read-only LiteGraph node map (v1.5.x) to full editing: drag/reposition nodes, rewire connections, add/remove nodes, and persist edits back to the workflow, matching ComfyUI's native canvas interaction.
 
+- [ ] **CI/CD & Runner Modernization (Node.js 24 LTS Migration)**:
+  - Upgrade GitHub Actions release runners, engine specifications (`package.json`), and build toolchains from Node.js 22 to Node.js 24 LTS as official GitHub actions migrate away from Node.js 20 runtime, eliminating runner deprecation annotations and future-proofing builds.
+
 ---
 
 ### 🎯 Phase 4: v1.7.0 — Smart Collections, Trigger Word Hub & Semantic Search
