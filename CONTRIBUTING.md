@@ -107,7 +107,7 @@ npm run dev
 
 ## 🏛️ Project Architecture
 
-```
+```text
 RenegadeCMM/
 ├── src/
 │   ├── main/                 # Electron main process (lifecycle, IPC, window management)
@@ -191,4 +191,4 @@ feat: add interactive visual node map to Workflows tab
 
 ## 📄 License
 
-By contributing to **Renegade Core Model Manager**, you agree that your contributions will be licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+By contributing to **Renegade Core Model Manager**, you agree that your contributions will be licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** without additional restrictions. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for full statutory terms and source availability disclosures.

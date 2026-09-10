@@ -1,3 +1,12 @@
+/**
+ * Renegade Core Model Manager (RenegadeCMM)
+ * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
 import path from 'path';
 import { describe, it, expect } from 'vitest';
 import { FolderRouter } from '../src/services/folderRouter';

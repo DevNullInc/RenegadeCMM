@@ -8,7 +8,7 @@
 
 **The missing model manager for ComfyUI.** A unified desktop application for discovering, downloading, organizing, and version-managing generative AI models across **CivitAI and Hugging Face Hub**, with zero-memory binary GGUF header parsing and intelligent auto-sorting into ComfyUI's folder structure.
 
-![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 [![Privacy Policy](https://img.shields.io/badge/Privacy-100%25%20Local--First-00D632.svg)](PRIVACY.md)
 [![Features](https://img.shields.io/badge/Features-Quick%20Crib--Notes-00D632.svg)](FEATURES.md)
@@ -88,7 +88,7 @@
 
 ## 📸 Screenshots
 
-<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD033 MD060 -->
 <p align="center">
   <sub><i>Click any screenshot to expand and view full resolution.</i></sub>
 </p>
@@ -109,7 +109,7 @@
 | :------------------------------------------------------------------------------------------------------------------------------: |
 | <a href="docs/screenshots/about-tab.png"><img src="docs/screenshots/about-tab.png" alt="About & Project Info" width="460" /></a> |
 
-<!-- markdownlint-enable MD033 -->
+<!-- markdownlint-enable MD033 MD060 -->
 
 ---
 
@@ -777,7 +777,7 @@ Creates a zip containing:
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-By contributing to this project, you agree that your contributions will be licensed under the GPL-3.0 license.
+By contributing to this project, you agree that your contributions will be licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** without additional restrictions (see [CONTRIBUTING.md](CONTRIBUTING.md) and [LEGAL.md](LEGAL.md)).
 
 ### Development Setup
 
@@ -802,7 +802,7 @@ npm run build
 
 ## 📜 License
 
-This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** — see the [LICENSE](LICENSE) file and our full [Legal Information & Notices (LEGAL.md)](LEGAL.md) for statutory terms, warranty disclaimers, and source availability guarantees.
 
 ### License Summary
 
@@ -818,11 +818,12 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 
 - You **CAN** use this software commercially
 - You **CAN** modify and distribute it
-- If you distribute modified versions, you **MUST** release the source code under GPL-3.0
-- You **MUST** preserve copyright notices and provide attribution
+- If you distribute modified versions, you **MUST** release the source code under GPL-3.0-or-later
+- You **MUST** preserve copyright notices, license texts, and provide attribution
 - This license includes an express grant of patent rights from contributors
+- Distributed with **ABSOLUTELY NO WARRANTY** and limited liability as detailed in [LEGAL.md](LEGAL.md)
 
-For the full legal text, see [https://www.gnu.org/licenses/gpl-3.0.en.html](https://www.gnu.org/licenses/gpl-3.0.en.html)
+For the full legal text, see <https://www.gnu.org/licenses/gpl-3.0.en.html> and [LEGAL.md](LEGAL.md).
 
 ---
 

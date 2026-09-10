@@ -21,12 +21,17 @@ import { huggingfaceClient } from '../services/huggingfaceClient';
 import { workflowScanner } from '../services/workflowScanner';
 import { decryptKey, encryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
+import { APP_VERSION } from '../version';
 
 function printBanner() {
   console.log('\x1b[35m');
-  console.log('  +----------------------------------------------+');
-  console.log('  |   Renegade Core Model Manager (CMM) - CLI Runner  |');
-  console.log('  +----------------------------------------------+');
+  console.log('  +-------------------------------------------------------------+');
+  console.log('  |        Renegade Core Model Manager (CMM) - CLI Runner       |');
+  console.log('  +-------------------------------------------------------------+');
+  console.log(`  Version ${APP_VERSION} | Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc.`);
+  console.log('  License: GNU GPLv3 or later <https://www.gnu.org/licenses/gpl-3.0.html>');
+  console.log('  This is free software: you are free to change and redistribute it.');
+  console.log('  There is NO WARRANTY, to the extent permitted by law.\n');
   console.log('\x1b[0m');
 }
 
@@ -47,6 +52,7 @@ function printHelp() {
   console.log(`  --version <versionId>    Specific version ID to download`);
   console.log(`  --output <file>          Target output path for export`);
   console.log(`  --format <json|zip>      Export format (default: zip)`);
+  console.log(`  -v, --version            Show version and license information`);
   console.log(`  -h, --help               Show help information\n`);
   console.log(`Examples:`);
   console.log(`  cmm scan --path D:\\ComfyUI\\models`);
@@ -145,6 +151,18 @@ async function loadConfig() {
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const { command, subCommand, extra, options } = parseArgs(argv);
+
+  if (
+    command === 'version' ||
+    ((options['version'] === 'true' || options['v'] === 'true') && command !== 'download')
+  ) {
+    console.log(`RenegadeCMM CLI v${APP_VERSION}`);
+    console.log(`Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc.`);
+    console.log(`License: GNU General Public License v3.0 or later (GPL-3.0-or-later)`);
+    console.log(`This is free software: you are free to change and redistribute it.`);
+    console.log(`There is NO WARRANTY, to the extent permitted by law.`);
+    return 0;
+  }
 
   if (!command || command === 'help' || options['help'] || options['h']) {
     printHelp();

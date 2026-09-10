@@ -10,7 +10,9 @@
   "files": [
     "dist/**/*",
     "node_modules/**/*",
-    "package.json"
+    "package.json",
+    "LICENSE",
+    "LEGAL.md"
   ],
   "asar": true,
   "asarUnpack": [

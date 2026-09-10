@@ -76,7 +76,7 @@
     "url": "https://github.com/DevNullInc/RenegadeCMM/issues"
   },
   "homepage": "https://github.com/DevNullInc/RenegadeCMM#readme",
-  "license": "GPL-3.0",
+  "license": "GPL-3.0-or-later",
   "dependencies": {
     "adm-zip": "^0.6.0",
     "axios": "^1.7.9",

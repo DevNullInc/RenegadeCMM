@@ -1,3 +1,12 @@
+/**
+ * Renegade Core Model Manager (RenegadeCMM)
+ * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Info,
@@ -294,29 +303,46 @@ export function AboutTab() {
               <span>Open Source License</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Renegade Core Model Manager is Free and Open Source Software distributed under the terms of the GNU GPL 3.0.
+              Renegade Core Model Manager is Free and Open Source Software distributed under the terms of the GNU GPL v3.0 or later (GPL-3.0-or-later).
             </p>
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">License:</span>
-                <span className="font-bold text-emerald-400">GPL-3.0</span>
+                <span className="font-bold text-emerald-400">GPL-3.0-or-later</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Copyleft:</span>
+                <span className="text-slate-300">Disclose Source, Same License</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Permissions:</span>
-                <span className="text-slate-300">Commercial, Modify, Distribute, Attribute</span>
+                <span className="text-slate-300">Commercial, Modify, Distribute</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Warranty:</span>
+                <span className="text-amber-400/90 font-medium">None (AS-IS)</span>
               </div>
             </div>
           </div>
 
           <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-            <button
-              onClick={() => openLink('https://www.gnu.org/licenses/gpl-3.0.html')}
-              className="text-indigo-400 hover:text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Scale size={14} />
-              <span>Read full GPL-3.0 License</span>
-              <ExternalLink size={11} className="text-indigo-400/60" />
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => openLink('https://www.gnu.org/licenses/gpl-3.0.html')}
+                className="text-indigo-400 hover:text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Scale size={14} />
+                <span>Read GNU GPL-3.0</span>
+                <ExternalLink size={11} className="text-indigo-400/60" />
+              </button>
+              <button
+                onClick={() => openLink('https://github.com/DevNullInc/RenegadeCMM/blob/main/LEGAL.md')}
+                className="text-slate-400 hover:text-indigo-300 text-xs flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <span>LEGAL.md</span>
+                <ExternalLink size={11} className="text-slate-500" />
+              </button>
+            </div>
             <div className="text-[11px] text-slate-500 flex items-center gap-1">
               <span>Code signing by</span>
               <button

@@ -106,6 +106,9 @@ RenegadeCMM incorporates, bundles, or links with several open-source libraries. 
 | **electron-updater** | MIT | Compatible | GitHub release update detection and notification |
 | **keytar** | MIT | Compatible | Native OS credential store interface layer |
 | **Vite** | MIT | Compatible | Frontend build tooling and local preview server |
+| **TypeScript** | Apache-2.0 | Compatible | Type system and static analysis compiler |
+| **TailwindCSS** | MIT | Compatible | Utility-first CSS styling framework |
+| **Vitest** | MIT | Compatible | Unit and integration test runner suite |
 | **ComfyUI** | GPL-3.0 | Compatible | External integration target for model directories |
 
 Full license texts for all bundled open-source dependencies are preserved in the `node_modules` manifests of binary release distributions and acknowledged in [LICENSE](LICENSE).

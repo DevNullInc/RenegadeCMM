@@ -56,6 +56,7 @@ To organize models and inspect ComfyUI workflows, CMM requests access to local s
 ### Scope of Access
 
 File system operations are strictly confined to:
+
 1. The user-configured ComfyUI installation folder and model subdirectories (`checkpoints/`, `loras/`, `vae/`, `controlnet/`, `diffusion_models/`, `text_encoders/`, etc.).
 2. The workflow storage folders (`workflows/`, `user/default/workflows/`).
 3. The CMM application database and configuration directory (`renegadecmm.sqlite`).
@@ -160,4 +161,4 @@ As Renegade CMM continues to evolve, this privacy policy may be updated. All upd
 
 ---
 
-*Last reviewed against source: September 9, 2026*
+Last reviewed against source: September 9, 2026.
