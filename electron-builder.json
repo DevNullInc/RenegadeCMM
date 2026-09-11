@@ -49,7 +49,7 @@
   },
   "linux": {
     "syncDesktopName": true,
-    "maintainer": "TheStygianRenegade / /dev/null Inc <devnull@devnullinc.com>",
+    "maintainer": "TheStygianRenegade / /dev/null Inc <admin@renegadeinc.net>",
     "target": [
       {
         "target": "AppImage",

@@ -66,7 +66,7 @@
   ],
   "author": {
     "name": "DevNullInc (/dev/null Inc / TheStygianRenegade)",
-    "email": "devnull@devnullinc.com"
+    "email": "admin@renegadeinc.net"
   },
   "repository": {
     "type": "git",
@@ -157,7 +157,7 @@
     },
     "linux": {
       "syncDesktopName": true,
-      "maintainer": "TheStygianRenegade / /dev/null Inc <devnull@devnullinc.com>",
+      "maintainer": "TheStygianRenegade / /dev/null Inc <admin@renegadeinc.net>",
       "target": [
         {
           "target": "AppImage",
