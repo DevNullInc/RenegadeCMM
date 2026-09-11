@@ -2,6 +2,7 @@
 node_modules/
 dist/
 dist-app/
+dist-release/
 *.log
 *.sqlite
 *.sqlite*
