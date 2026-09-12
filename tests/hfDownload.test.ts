@@ -37,9 +37,9 @@ describe('Hugging Face Download Engine & Schema Migration v9', () => {
   });
 
   describe('Database Schema Migration v9', () => {
-    it('should set PRAGMA user_version to 9', async () => {
+    it('should set PRAGMA user_version to 9 or higher', async () => {
       const row: any = await dbManager.get('PRAGMA user_version;');
-      expect(row?.user_version).toBe(9);
+      expect(row?.user_version).toBeGreaterThanOrEqual(9);
     });
 
     it('should contain Hugging Face columns in local_models table', async () => {

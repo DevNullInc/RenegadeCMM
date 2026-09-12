@@ -204,6 +204,12 @@ export default defineConfig({
     emptyOutDir: false,
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
+      onwarn(warning, warn) {
+        if (warning.code === 'EVAL' && (warning.id?.includes('litegraph.js') || warning.loc?.file?.includes('litegraph.js'))) {
+          return;
+        }
+        warn(warning);
+      },
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],

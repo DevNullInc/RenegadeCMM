@@ -535,34 +535,40 @@ function Start-App {
 
   try {
     Write-Status '>>' 'Building renderer (Vite) + main process (TypeScript) in parallel...' 'Cyan'
-    if ($PSVersionTable.PSEdition -eq 'Core') {
-      # Renderer and main write to disjoint dist/ subtrees, so build them concurrently.
-      $buildResults = 1..2 | ForEach-Object -Parallel {
-        Push-Location $using:ProjectRoot
-        try {
-          if ($_ -eq 1) {
-            $out = npx vite build --base ./ --emptyOutDir false 2>&1
-          } else {
-            $out = npx tsc --project tsconfig.main.json --listEmittedFiles 2>&1
+    $origEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      if ($PSVersionTable.PSEdition -eq 'Core') {
+        # Renderer and main write to disjoint dist/ subtrees, so build them concurrently.
+        $buildResults = 1..2 | ForEach-Object -Parallel {
+          Push-Location $using:ProjectRoot
+          try {
+            if ($_ -eq 1) {
+              $out = npx.cmd vite build --base ./ --emptyOutDir false 2>&1
+            } else {
+              $out = npx.cmd tsc --project tsconfig.main.json --listEmittedFiles 2>&1
+            }
+            [pscustomobject]@{
+              Name    = if ($_ -eq 1) { 'renderer' } else { 'main' }
+              Success = $LASTEXITCODE -eq 0
+              Output  = ($out -join "`n")
+            }
+          } finally {
+            Pop-Location
           }
-          [pscustomobject]@{
-            Name    = if ($_ -eq 1) { 'renderer' } else { 'main' }
-            Success = $LASTEXITCODE -eq 0
-            Output  = ($out -join "`n")
-          }
-        } finally {
-          Pop-Location
-        }
-      } -ThrottleLimit 2
-    } else {
-      $rendererOut = npx vite build --base ./ --emptyOutDir false 2>&1
-      $rendererOk = $LASTEXITCODE -eq 0
-      $mainOut = npx tsc --project tsconfig.main.json --listEmittedFiles 2>&1
-      $mainOk = $LASTEXITCODE -eq 0
-      $buildResults = @(
-        [pscustomobject]@{ Name = 'renderer'; Success = $rendererOk; Output = ($rendererOut -join "`n") }
-        [pscustomobject]@{ Name = 'main'; Success = $mainOk; Output = ($mainOut -join "`n") }
-      )
+        } -ThrottleLimit 2
+      } else {
+        $rendererOut = npx.cmd vite build --base ./ --emptyOutDir false 2>&1
+        $rendererOk = $LASTEXITCODE -eq 0
+        $mainOut = npx.cmd tsc --project tsconfig.main.json --listEmittedFiles 2>&1
+        $mainOk = $LASTEXITCODE -eq 0
+        $buildResults = @(
+          [pscustomobject]@{ Name = 'renderer'; Success = $rendererOk; Output = ($rendererOut -join "`n") }
+          [pscustomobject]@{ Name = 'main'; Success = $mainOk; Output = ($mainOut -join "`n") }
+        )
+      }
+    } finally {
+      $ErrorActionPreference = $origEAP
     }
 
     $renderer = $buildResults | Where-Object { $_.Name -eq 'renderer' } | Select-Object -First 1
@@ -701,21 +707,21 @@ function Invoke-AppPackage {
   Write-Status '>>' 'Building production assets...' 'Cyan'
   
   Write-Status '>>' 'Building renderer process with Vite...' 'Cyan'
-  npx vite build --base ./ --emptyOutDir false
+  npx.cmd vite build --base ./ --emptyOutDir false
   if ($LASTEXITCODE -ne 0) {
     throw 'Vite build failed.'
   }
   Write-Status 'ok' 'Renderer built successfully.' 'Green'
 
   Write-Status '>>' 'Building Electron main process...' 'Cyan'
-  npx tsc --project tsconfig.main.json
+  npx.cmd tsc --project tsconfig.main.json
   if ($LASTEXITCODE -ne 0) {
     throw 'TypeScript main process compilation failed.'
   }
   Write-Status 'ok' 'TypeScript compilation succeeded.' 'Green'
 
   Write-Status '>>' 'Packaging standalone Windows binary with electron-builder...' 'Cyan'
-  npx electron-builder --win portable nsis
+  npx.cmd electron-builder --win portable nsis
   if ($LASTEXITCODE -ne 0) {
     throw 'electron-builder packaging failed.'
   }
