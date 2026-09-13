@@ -61,6 +61,83 @@ export function resolveModelFileName(filePath: string): string {
   return baseName;
 }
 
+export function discoverCompanionFiles(filePath: string): {
+  companionHash?: string;
+  companionInfo?: any;
+  companionInfoPath?: string;
+  localImagePath?: string;
+  localImageUrl?: string;
+} {
+  const ext = path.extname(filePath);
+  const baseWithoutExt = filePath.slice(0, -ext.length);
+  const result: {
+    companionHash?: string;
+    companionInfo?: any;
+    companionInfoPath?: string;
+    localImagePath?: string;
+    localImageUrl?: string;
+  } = {};
+
+  // 1. Companion Image Candidates
+  const imageExtensions = [
+    '.jpeg',
+    '.jpg',
+    '.png',
+    '.webp',
+    '.preview.png',
+    '.preview.jpg',
+    '.preview.jpeg',
+    '.preview.webp',
+  ];
+  for (const imgExt of imageExtensions) {
+    const candidate = `${baseWithoutExt}${imgExt}`;
+    if (fs.existsSync(candidate)) {
+      try {
+        const stat = fs.statSync(candidate);
+        if (stat.isFile() && stat.size > 0) {
+          result.localImagePath = candidate;
+          result.localImageUrl = `/api/local-image?path=${encodeURIComponent(candidate)}`;
+          break;
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Companion Hash (.sha256)
+  const shaCandidate = `${baseWithoutExt}.sha256`;
+  if (fs.existsSync(shaCandidate)) {
+    try {
+      const content = fs.readFileSync(shaCandidate, 'utf8').trim();
+      const match = content.match(/^[a-fA-F0-9]{64}$/);
+      if (match) {
+        result.companionHash = match[0].toUpperCase();
+      }
+    } catch {}
+  }
+
+  // 3. Companion Metadata Info (.civitai.info, .info, .huggingface.info)
+  const infoCandidates = [
+    `${baseWithoutExt}.civitai.info`,
+    `${baseWithoutExt}.info`,
+    `${baseWithoutExt}.huggingface.info`,
+  ];
+  for (const infoCandidate of infoCandidates) {
+    if (fs.existsSync(infoCandidate)) {
+      try {
+        const raw = fs.readFileSync(infoCandidate, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          result.companionInfo = parsed;
+          result.companionInfoPath = infoCandidate;
+          break;
+        }
+      } catch {}
+    }
+  }
+
+  return result;
+}
+
 export class LibraryScanner {
   private watcher: FSWatcher | null = null;
   private isScanning = false;
@@ -196,33 +273,69 @@ export class LibraryScanner {
 
         let sha256 = cached?.sha256;
 
+        // Discover any companion files (.sha256, .civitai.info, preview image)
+        const companion = discoverCompanionFiles(filePath);
+
         // Fast-path: if file size and modified timestamp match, skip SHA256 computation!
         if (!cached || cached.file_size !== fileSize || cached.modified_at !== modifiedAt || !sha256) {
-          try {
-            let lastByteReport = Date.now();
-            sha256 = await computeFileSHA256(filePath, (bytesRead, totalBytes) => {
-              const now = Date.now();
-              if (now - lastByteReport > 200) {
-                lastByteReport = now;
-                const fileMb = (bytesRead / (1024 * 1024)).toFixed(0);
-                const totalMb = (totalBytes / (1024 * 1024)).toFixed(0);
-                emitProgress({
-                  scannedFiles: i + 1,
-                  totalFiles: allFiles.length,
-                  status: 'hashing',
-                  currentFile: `${path.basename(filePath)} (${fileMb}MB / ${totalMb}MB)`,
-                });
-              }
-            });
-          } catch (hashErr) {
-            logger.error(`Error hashing file ${filePath}:`, hashErr);
-            continue;
+          if (companion.companionHash) {
+            sha256 = companion.companionHash;
+          } else {
+            try {
+              let lastByteReport = Date.now();
+              sha256 = await computeFileSHA256(filePath, (bytesRead, totalBytes) => {
+                const now = Date.now();
+                if (now - lastByteReport > 200) {
+                  lastByteReport = now;
+                  const fileMb = (bytesRead / (1024 * 1024)).toFixed(0);
+                  const totalMb = (totalBytes / (1024 * 1024)).toFixed(0);
+                  emitProgress({
+                    scannedFiles: i + 1,
+                    totalFiles: allFiles.length,
+                    status: 'hashing',
+                    currentFile: `${path.basename(filePath)} (${fileMb}MB / ${totalMb}MB)`,
+                  });
+                }
+              });
+            } catch (hashErr) {
+              logger.error(`Error hashing file ${filePath}:`, hashErr);
+              continue;
+            }
           }
         }
 
         const localId = cached?.id || `loc_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const resolvedFileName = resolveModelFileName(filePath);
         const isLlmPath = filePath.toLowerCase().includes('/llm/') || filePath.toLowerCase().includes('\\llm\\') || filePath.includes('models--');
+
+        let civitaiModelId = cached?.civitai_model_id;
+        let civitaiVersionId = cached?.civitai_version_id;
+        let civitaiName = cached?.civitai_name || undefined;
+        let civitaiBaseModel = cached?.civitai_base_model || undefined;
+        let previewUrl = companion.localImageUrl || cached?.preview_url || undefined;
+        let modelType = cached?.model_type || (isLlmPath ? ('LLM' as any) : undefined);
+        let nsfw = !!cached?.nsfw;
+
+        // Offline metadata extraction from companion .info file if not already matched
+        if (!civitaiVersionId && companion.companionInfo) {
+          const info = companion.companionInfo;
+          if (info.id || info.modelId || info.name) {
+            civitaiVersionId = info.id || civitaiVersionId;
+            civitaiModelId = info.modelId || info.model?.id || civitaiModelId;
+            civitaiName = info.model?.name || info.name || civitaiName;
+            civitaiBaseModel = info.baseModel || civitaiBaseModel;
+            modelType = info.model?.type || info.type || modelType;
+            if (!previewUrl) {
+              previewUrl = this.extractPreviewImage(info) || previewUrl;
+            }
+            const isNsfw = Boolean(
+              info.model?.nsfw ||
+              (info.images && info.images.some((img: any) => img && (img.nsfw || (img.nsfwLevel && img.nsfwLevel > 1)))) ||
+              (info.nsfwLevel && info.nsfwLevel > 1)
+            );
+            nsfw = isNsfw;
+          }
+        }
 
         const localModel: LocalModel = {
           id: localId,
@@ -231,13 +344,16 @@ export class LibraryScanner {
           fileSize,
           modifiedAt,
           sha256,
-          civitaiModelId: cached?.civitai_model_id,
-          civitaiVersionId: cached?.civitai_version_id,
-          civitaiName: cached?.civitai_name || undefined,
-          isMatched: !!cached?.civitai_version_id,
-          previewUrl: cached?.preview_url || undefined,
-          modelType: cached?.model_type || (isLlmPath ? ('LLM' as any) : undefined),
-          nsfw: !!cached?.nsfw,
+          civitaiModelId,
+          civitaiVersionId,
+          civitaiName,
+          civitaiBaseModel,
+          isMatched: !!civitaiVersionId,
+          previewUrl,
+          localPreviewPath: companion.localImagePath,
+          companionInfoPath: companion.companionInfoPath,
+          modelType,
+          nsfw,
         };
 
         scannedModels.push(localModel);

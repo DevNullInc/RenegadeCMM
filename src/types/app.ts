@@ -311,6 +311,8 @@ export interface DownloadTask {
   deleteOldModelId?: string;
   completedAt?: string;
   note?: string;
+  previewUrl?: string;
+  versionMetadata?: any;
 }
 
 export interface LocalModel {
@@ -331,6 +333,8 @@ export interface LocalModel {
   civitaiBaseModel?: string;
   civitaiCreator?: string;
   previewUrl?: string;
+  localPreviewPath?: string;
+  companionInfoPath?: string;
   modelType?: ModelType;
   nsfw?: boolean;
   isMatched: boolean;

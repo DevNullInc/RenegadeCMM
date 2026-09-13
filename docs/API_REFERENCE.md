@@ -645,7 +645,27 @@ Restores database and configuration from an uploaded backup `.zip` payload.
 
 ---
 
-### 9. Webhooks & Integrations
+### 9. Image & Companion Asset Endpoints
+
+#### `GET /api/local-image?path=<absolute_or_relative_path>`
+
+Streams local image files (`.jpg`, `.jpeg`, `.png`, `.webp`, `.avif`, `.gif`) discovered as companion previews alongside models on disk. Enables offline image rendering for custom nodes and frontend views without CORS restrictions.
+
+- **Query Parameters:**
+  - `path`: The disk path to the image file.
+- **Response Headers:** `Content-Type: image/jpeg` (or appropriate MIME type), `Cache-Control: public, max-age=3600`.
+
+#### `GET /api/cached-image?url=<encoded_url>&type=<library|browse>`
+
+Retrieves a cached remote thumbnail or downloads and persists it into the local cache directory.
+
+- **Query Parameters:**
+  - `url`: The target remote HTTPS image URL.
+  - `type`: Either `library` (permanent disk cache) or `browse` (in-memory session cache).
+
+---
+
+### 10. Webhooks & Integrations
 
 #### `POST /api/webhooks/test`
 

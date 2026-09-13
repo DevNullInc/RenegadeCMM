@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [1.5.0]
 
+### 📦 Companion Files & Metadata Harvesting (RenegadeSwarm Interoperability)
+
+- **Automated Triple-Asset Companion File Generation (`downloadManager.ts`)**:
+  - Whenever a model (e.g. `g3org3.safetensors`) finishes downloading, CMM automatically generates and saves 3 companion files directly beside the model weights in the target ComfyUI model folder:
+    1. **`<model>.sha256`**: Plaintext SHA-256 hash string for instant local integrity checks.
+    2. **`<model>.<ext>` (`.jpeg`, `.png`, `.webp`)**: Downloaded first valid preview image saved using the model's base name for offline thumbnail rendering.
+    3. **`<model>.<host>.info` (`g3org3.civitai.info` / `g3org3.huggingface.info`)**: Complete metadata JSON payload capturing model version details, tags, descriptions, download counts, and image arrays.
+- **Offline Model Verification & Library Extraction (`libraryScanner.ts`)**:
+  - Enhanced `LibraryScanner` with `discoverCompanionFiles` to parse on-disk companion `*.info` files (`.civitai.info`, `.info`, `.huggingface.info`) offline, instantly populating model cards, versions, and base models without requiring external API network calls.
+  - Automatically binds local companion preview images to `/api/local-image` for 100% offline image rendering in the Library tab.
+  - Reuses companion `.sha256` files on disk to accelerate scanning.
+- **Cross-App RenegadeSwarm Sister App Interoperability**:
+  - Companion `.sha256`, `.info`, and preview images establish a standardized on-disk model package consumed by the **RenegadeSwarm** sister app for decentralized P2P piece-seeding, Web of Trust (WoT) creator attestation, and offline verification.
+- **Local Companion Image Streaming Endpoint (`GET /api/local-image`)**:
+  - Implemented secure local image streaming endpoint across both the Electron main process bridge (`port 5174`) and Vite dev server (`port 5173`), serving local `.jpeg`, `.jpg`, `.png`, `.webp`, `.avif`, and `.gif` companion assets safely without CORS issues.
+- **Hardened PowerShell Build Execution (`cmm.ps1`) & Warning Suppression (`vite.config.ts`)**:
+  - Suppressed third-party `eval` warning from `litegraph.js` in Rollup options.
+  - Hardened `cmm.ps1` to invoke `npx.cmd` and safely handle `$ErrorActionPreference` during parallel renderer and main process compilation.
+
 ### 🚀 Phase 2: Native Hugging Face & GGUF Download Engine
 
 - **Native Hugging Face Download Pipeline & Gated Model Authorization**:

@@ -2006,6 +2006,46 @@ function startHttpBridgeServer() {
           res.end(JSON.stringify({ error: 'Image not found or failed to download' }));
         }
         return;
+      } else if (url.startsWith('/api/local-image') && req.method === 'GET') {
+        const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:5174'}`);
+        const rawPath = parsedUrl.searchParams.get('path');
+
+        if (!rawPath) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing path parameter' }));
+          return;
+        }
+
+        try {
+          const resolved = path.resolve(rawPath);
+          const ext = path.extname(resolved).toLowerCase();
+          const allowedExts: Record<string, string> = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp',
+            '.avif': 'image/avif',
+            '.gif': 'image/gif',
+          };
+
+          if (!allowedExts[ext] || !fs.existsSync(resolved)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Image not found or unsupported format' }));
+            return;
+          }
+
+          const buffer = fs.readFileSync(resolved);
+          res.writeHead(200, {
+            'Content-Type': allowedExts[ext],
+            'Cache-Control': 'public, max-age=3600',
+            'Content-Length': buffer.length,
+          });
+          res.end(buffer);
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e?.message || 'Failed to read local image' }));
+        }
+        return;
       } else if (url === '/api/clear-library' && req.method === 'POST') {
         await dbManager.run('DELETE FROM local_models;');
         imageCacheService.clearPermanentLibraryCache();

@@ -19,8 +19,13 @@ export interface FallbackImageProps extends React.ImgHTMLAttributes<HTMLImageEle
 }
 
 function getCacheProxyUrl(url: string, type: 'library' | 'browse'): string {
-  if (!url || typeof url !== 'string' || !url.startsWith('http')) return url;
+  if (!url || typeof url !== 'string') return url;
+  if (url.startsWith('/api/local-image') || url.includes('/api/local-image')) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `http://localhost:5174${url}`;
+  }
   if (url.includes('/api/cached-image')) return url;
+  if (!url.startsWith('http')) return url;
   return `http://localhost:5174/api/cached-image?url=${encodeURIComponent(url)}&type=${type}`;
 }
 
@@ -56,7 +61,15 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
 
     const finalList: string[] = [];
     rawList.forEach((raw) => {
-      if (raw.startsWith('http')) {
+      if (raw.startsWith('/api/local-image') || raw.includes('/api/local-image')) {
+        const fullLocal = raw.startsWith('http') ? raw : `http://localhost:5174${raw}`;
+        if (!finalList.includes(fullLocal)) {
+          finalList.push(fullLocal);
+        }
+        if (!finalList.includes(raw)) {
+          finalList.push(raw);
+        }
+      } else if (raw.startsWith('http')) {
         const proxied = getCacheProxyUrl(raw, cacheType);
         if (!finalList.includes(proxied)) {
           finalList.push(proxied);

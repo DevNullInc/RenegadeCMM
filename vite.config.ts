@@ -11,6 +11,7 @@ import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
+import fs from 'fs';
 import { dbManager } from './src/db/db';
 import { civitaiClient } from './src/services/civitaiClient';
 import { folderRouter } from './src/services/folderRouter';
@@ -174,6 +175,37 @@ function apiServerPlugin(): Plugin {
             res.end(JSON.stringify({ success: true }));
           } else if (req.url === '/api/delete-download' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true }));
+          } else if (req.url?.startsWith('/api/local-image') && req.method === 'GET') {
+            const parsedUrl = new URL(req.url, 'http://localhost:5173');
+            const rawPath = parsedUrl.searchParams.get('path');
+            if (!rawPath) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: 'Missing path parameter' }));
+              return;
+            }
+            try {
+              const resolved = path.resolve(rawPath);
+              const ext = path.extname(resolved).toLowerCase();
+              const allowedExts: Record<string, string> = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.webp': 'image/webp',
+                '.avif': 'image/avif',
+                '.gif': 'image/gif',
+              };
+              if (!allowedExts[ext] || !fs.existsSync(resolved)) {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ error: 'Image not found or unsupported format' }));
+                return;
+              }
+              res.setHeader('Content-Type', allowedExts[ext]);
+              res.setHeader('Cache-Control', 'public, max-age=3600');
+              res.end(fs.readFileSync(resolved));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: e?.message || 'Failed to read local image' }));
+            }
           } else if ('/api/clear-finished-downloads' === req.url && req.method === 'POST') {
             res.end(JSON.stringify({ success: true, cleared: 0 }));
           } else {

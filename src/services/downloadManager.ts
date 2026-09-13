@@ -16,6 +16,8 @@ import { sanitizeFileName } from '../utils/pathUtils';
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
 import { webhookService } from './webhookService';
+import { civitaiClient } from './civitaiClient';
+import { imageCacheService } from './imageCacheService';
 
 export function sanitizeDownloadUrl(url?: string): string {
   if (!url) return '';
@@ -691,6 +693,9 @@ export class DownloadManager {
         }
       }
 
+      // Save companion files (.sha256, .civitai.info / .huggingface.info, and preview image)
+      await this.saveCompanionFiles(task, resolvedPath);
+
       task.status = 'completed';
       task.progress = 100;
       task.speedBps = 0;
@@ -722,6 +727,107 @@ export class DownloadManager {
     }
 
     this.processQueue();
+  }
+
+  /**
+   * Saves companion assets alongside the downloaded model file:
+   * 1. <baseName>.sha256 - Plaintext SHA256 hash
+   * 2. <baseName>.<host>.info - Complete metadata JSON (e.g. .civitai.info or .huggingface.info)
+   * 3. <baseName>.<ext> - Downloaded preview thumbnail (e.g. .jpeg, .png, .webp)
+   */
+  public async saveCompanionFiles(task: DownloadTask, resolvedPath: string): Promise<void> {
+    try {
+      if (!fs.existsSync(resolvedPath)) return;
+      const ext = path.extname(resolvedPath);
+      const baseNameWithoutExt = resolvedPath.slice(0, -ext.length);
+
+      // 1. Write .sha256 companion file
+      if (task.sha256 && task.sha256.trim()) {
+        try {
+          const shaFile = `${baseNameWithoutExt}.sha256`;
+          fs.writeFileSync(shaFile, task.sha256.trim(), 'utf8');
+          logger.info(`Saved companion hash file: ${shaFile}`);
+        } catch (shaErr) {
+          logger.warn(`Failed writing companion .sha256 for ${task.fileName}:`, shaErr);
+        }
+      }
+
+      // 2. Fetch and write .civitai.info or .huggingface.info companion metadata file
+      let versionData: any = task.versionMetadata;
+      if (!versionData && task.source !== 'huggingface' && task.modelVersionId) {
+        try {
+          versionData = await civitaiClient.fetchModelVersion(task.modelVersionId);
+        } catch (fetchErr) {
+          logger.warn(`Could not fetch model version ${task.modelVersionId} metadata from CivitAI:`, fetchErr);
+        }
+      }
+
+      if (versionData) {
+        try {
+          const hostName = task.source === 'huggingface' ? 'huggingface' : 'civitai';
+          const infoFile = `${baseNameWithoutExt}.${hostName}.info`;
+          fs.writeFileSync(infoFile, JSON.stringify(versionData, null, 2), 'utf8');
+          logger.info(`Saved companion metadata info file: ${infoFile}`);
+        } catch (infoErr) {
+          logger.warn(`Failed writing companion .info metadata for ${task.fileName}:`, infoErr);
+        }
+      } else if (task.source === 'huggingface' || task.hfRepoId) {
+        try {
+          const hfInfo = {
+            id: task.hfRepoId,
+            repoId: task.hfRepoId,
+            commitSha: task.hfCommitSha,
+            fileName: task.fileName,
+            modelName: task.modelName,
+            modelType: task.modelType,
+            baseModel: task.baseModel,
+            source: 'huggingface',
+            downloadUrl: task.downloadUrl,
+            downloadedAt: new Date().toISOString(),
+          };
+          const infoFile = `${baseNameWithoutExt}.huggingface.info`;
+          fs.writeFileSync(infoFile, JSON.stringify(hfInfo, null, 2), 'utf8');
+          logger.info(`Saved companion Hugging Face metadata info file: ${infoFile}`);
+        } catch (hfInfoErr) {
+          logger.warn(`Failed writing companion .huggingface.info for ${task.fileName}:`, hfInfoErr);
+        }
+      }
+
+      // 3. Download and save primary preview image alongside model file
+      let previewUrl = task.previewUrl;
+      if (!previewUrl && versionData?.images && Array.isArray(versionData.images) && versionData.images.length > 0) {
+        const staticImg = versionData.images.find(
+          (img: any) => img && img.url && (img.type === 'image' || !img.url.toLowerCase().endsWith('.mp4'))
+        );
+        previewUrl = staticImg?.url || versionData.images[0]?.url;
+      }
+
+      if (previewUrl && typeof previewUrl === 'string' && previewUrl.startsWith('http')) {
+        try {
+          const cached = await imageCacheService.getImage(previewUrl, 'library');
+          if (cached && cached.buffer) {
+            let imgExt = '.jpeg';
+            if (cached.contentType?.includes('png') || previewUrl.toLowerCase().includes('.png')) {
+              imgExt = '.png';
+            } else if (cached.contentType?.includes('webp') || previewUrl.toLowerCase().includes('.webp')) {
+              imgExt = '.webp';
+            } else if (cached.contentType?.includes('gif')) {
+              imgExt = '.gif';
+            } else if (cached.contentType?.includes('avif')) {
+              imgExt = '.avif';
+            }
+
+            const imgFile = `${baseNameWithoutExt}${imgExt}`;
+            fs.writeFileSync(imgFile, cached.buffer);
+            logger.info(`Saved companion preview image: ${imgFile}`);
+          }
+        } catch (imgErr) {
+          logger.warn(`Failed downloading companion preview image for ${task.fileName}:`, imgErr);
+        }
+      }
+    } catch (companionErr) {
+      logger.warn(`Error during companion file generation for ${task.fileName}:`, companionErr);
+    }
   }
 
   /**

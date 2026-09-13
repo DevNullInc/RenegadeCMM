@@ -41,6 +41,9 @@
 - **SHA-256 Hash Verification**: Compares downloaded checksums against CivitAI for tamper protection.
 - **Persistent Queue Across Restarts**: The download queue (with progress and superseded-file metadata) is saved to SQLite and fully restored on relaunch.
 - **Ephemeral Authentication & Log Privacy**: Download task URLs stored in SQLite never persist authentication tokens (`?token=` and `&token=` stripped upon ingestion). Credentials are attached in-memory only when dispatching network requests, and diagnostic logs scrub Bearer headers, query tokens, and JSON credentials automatically.
+- **Triple-Asset Companion File Generation**:
+  - Automatically writes `<model>.sha256` (plaintext hash), `<model>.<ext>` (first valid preview image as `.jpeg`, `.png`, or `.webp`), and `<model>.<host>.info` (`.civitai.info` / `.huggingface.info` full metadata JSON) directly beside the model weights.
+  - **RenegadeSwarm Sister App Interoperability**: Downloaded companion packages are designed for 100% offline verification, Web of Trust attestation, and seamless ingestion into the decentralized **RenegadeSwarm** P2P distribution network.
 - **Auto-Library on Completion**: A finished download is registered into the Library immediately — no manual re-scan — and Downloads-tab Pause/Resume/Cancel always reflect instantly.
 
 ---
@@ -48,6 +51,10 @@
 ## 📚 3. Local Library & Ghost Model Resurrector
 
 - **Instant Search & Filter**: Search your installed model collection by base model (SD 1.5, SDXL, Flux.1, SD3, Pony, Illustrious, AuraFlow), creator, model type, or keyword.
+- **Offline Companion Asset Extraction**:
+  - Automatically discovers on-disk companion `*.info` metadata JSON files, companion `.sha256` checksums, and companion image thumbnails (`.jpeg`, `.png`, `.webp`) during folder scans.
+  - Populates model details and offline thumbnails instantly without requiring network access.
+  - Serves local companion preview images securely via `/api/local-image`.
 - **Missing on Disk ("Ghost Model") Detector**:
   - Automatically flags models that exist in your database but are missing from your disk (e.g. after importing a backup on a fresh machine).
   - **1-Click "Download Model" (Hash Match)**: Queries CivitAI by SHA-256 hash or version ID and pulls missing files directly to disk.

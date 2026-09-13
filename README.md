@@ -153,6 +153,9 @@ If you've been manually downloading models from CivitAI or Hugging Face, creatin
 
 ### 📥 Download Management & Version Updating
 
+- **Triple-Asset Companion File Generation**:
+  - Automatically writes `<model>.sha256` (plaintext checksum), `<model>.<ext>` (first valid preview image as `.jpeg`, `.png`, or `.webp`), and `<model>.<host>.info` (`.civitai.info` / `.huggingface.info` full metadata JSON) directly beside the downloaded model weights
+  - **RenegadeSwarm Sister App Interoperability**: Downloaded companion packages are designed for 100% offline verification, Web of Trust (WoT) creator attestation, and decentralized P2P piece-seeding inside the **RenegadeSwarm** sister app
 - **Native Hugging Face Download Pipeline**: High-performance chunked streaming downloads for `huggingface.co` repository weights with Bearer token authentication for gated models — zero external Python or `hf` CLI requirements
 - **AWS S3 LFS Redirect Credential Stripping**: Automatic `beforeRedirect` hook purges `Authorization` headers when Hugging Face redirects to pre-signed AWS S3 LFS CDN endpoints (`cdn-lfs.huggingface.co`), preventing HTTP 400 Bad Request errors
 - **Zero-Memory Binary GGUF Header Parser**: Reads only the first 128KB header buffer from disk via `fs.readSync` to inspect metadata and normalize quantization tags (`Q4_0`, `Q4_K_M`, `Q5_K_M`, `Q8_0`, `BF16`, `F16`) without memory overhead
@@ -170,6 +173,10 @@ If you've been manually downloading models from CivitAI or Hugging Face, creatin
 
 ### 📁 Library Management & Persistent Scanner
 
+- **Offline Companion Asset Extraction**:
+  - Automatically discovers on-disk companion `*.info` metadata JSON files, companion `.sha256` checksums, and companion image thumbnails (`.jpeg`, `.png`, `.webp`) during folder scans
+  - Populates model details and offline thumbnails instantly without requiring network access
+  - Serves local companion preview images securely via `/api/local-image`
 - **Missing Models Detection & 1-Click CivitAI Pulling**: Automatically detects library entries missing from disk (e.g., following a library or backup import onto a fresh machine). Displays a dedicated **"Missing on Disk"** filter with 1-click individual and batch **"Download Model"** / **"Pull from CivitAI (Hash Match)"** actions that resolve files by SHA256 checksum or version ID.
 - **Persistent Background Scanning**: Folder indexing continues seamlessly across tab switches
 - **Multi-Criteria Sorting**: Sort by Name (A-Z), Model Type, File Size, or Date Modified (Asc / Desc) with saved preferences
