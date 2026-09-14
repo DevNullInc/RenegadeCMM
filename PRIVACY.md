@@ -1,11 +1,11 @@
-# 🛡️ Renegade Core Model Manager (CMM) — Privacy Policy
+# Renegade Core Model Manager (CMM) — Privacy Policy
 
 **Effective Date:** September 3, 2026  
-**Last Updated:** September 9, 2026  
+**Last Updated:** September 13, 2026  
 **Project:** Renegade Core Model Manager (RenegadeCMM)  
 **Maintainer:** TheStygianRenegade / /dev/null Inc  
 **Privacy & Legal Contact:** <legal@renegadeinc.net> (CC: <contact-us@renegadeinc.net>)  
-**Source Repository:** <https://github.com/DevNullInc/RenegadeCMM>  
+**Source Repository:** <https://github.com/DevNullInc/RenegadeCMM>
 
 ---
 
@@ -56,7 +56,6 @@ To organize models and inspect ComfyUI workflows, CMM requests access to local s
 ### Scope of Access
 
 File system operations are strictly confined to:
-
 1. The user-configured ComfyUI installation folder and model subdirectories (`checkpoints/`, `loras/`, `vae/`, `controlnet/`, `diffusion_models/`, `text_encoders/`, etc.).
 2. The workflow storage folders (`workflows/`, `user/default/workflows/`).
 3. The CMM application database and configuration directory (`renegadecmm.sqlite`).
@@ -65,6 +64,7 @@ File system operations are strictly confined to:
 
 - **Metadata Indexing:** CMM reads file names, file sizes, modification timestamps, and calculates cryptographic SHA-256 checksums to index local libraries, resolve missing dependencies, detect duplicates, and check for upstream version updates.
 - **Workflow Analysis:** CMM inspects `.json` workflow files and `.png` image metadata (`tEXt` / `iTXt` chunks) to identify required model filenames and custom node class types.
+- **Local Hardware Telemetry & Memory Safety:** To assess memory headroom and prevent Out-Of-Memory (OOM) crashes during model conversions, CMM queries host hardware specs (CPU model/cores, total/free RAM, GPU adapter names/VRAM) using standard local OS interfaces (`os.cpus`, `os.freemem`, `nvidia-smi`, CIM `Win32_VideoController`, macOS `system_profiler`, Linux `lspci`). This hardware profiling is executed **100% locally in-memory**. Hardware metrics and device identifiers are **never transmitted over the network, never logged to remote servers, and never shared with third parties**.
 - **Strict Local Boundaries:** Your local model files, workflow compositions, generated images, and directory structures are **never** uploaded, synced, or shared with remote servers.
 - **Safe Deletion Controls:** CMM provides explicit options when removing models ("Remove from Library Only" vs. "Delete from Disk & Library") to protect you against accidental data loss.
 
@@ -81,6 +81,7 @@ CMM only communicates over the network when explicitly necessary to fulfill feat
 | **GitHub Releases & API** (`api.github.com`, `github.com`) | Checking for application updates (`electron-updater`) and querying custom node mappings | Startup update check, Workflows tab custom node resolution | Release version tags, node class names; **no personal data** |
 | **Python Package Index** (`pypi.org`) | Installing Python dependencies for resolved custom nodes | User triggers "Install Dependencies" for custom nodes | Package requests dispatched via local `pip` executable |
 | **Local ComfyUI** (`127.0.0.1:8188` or custom host) | Local instance health probing and 1-click workflow canvas injection | Workflows tab active or ComfyUI integration enabled | Loopback queries to verify ComfyUI process status |
+| **Local RenegadeSwarm** (`127.0.0.1:5180` or custom host) | Sister app health tracking, window focus, and download ingest notification | Swarm status badge polling or download completion | Local loopback probes (`/api/health`), window focus, and local file path ingest notification |
 | **User Webhooks** (Custom URLs) | Dispatching download completion and update notifications | Configured explicitly by user in Settings | Event payloads (`task_id`, `model_name`, `status`) |
 
 All external connections are initiated directly from your client machine to the specified endpoint without any intermediate proxy, tracker, or logging server operated by /dev/null Inc.
@@ -90,7 +91,6 @@ All external connections are initiated directly from your client machine to the 
 ## 5. Localhost API Server (`127.0.0.1:5174`)
 
 CMM runs an embedded local HTTP bridge server for companion ComfyUI custom nodes and CLI utilities:
-
 - **Strict Loopback Binding:** Bound strictly to IPv4 loopback (`127.0.0.1`). External or non-loopback connections are rejected.
 - **DNS Rebinding Defense:** Validates HTTP `Host` headers to prevent DNS rebinding attacks originating from malicious web pages.
 - **Origin Checking:** Enforces strict HTTP Origin checking to mitigate cross-site request forgery (CSRF) from untrusted browser tabs.
@@ -102,7 +102,6 @@ CMM runs an embedded local HTTP bridge server for companion ComfyUI custom nodes
 ## 6. Sanitized Community Backup Exports (ZIP & JSON)
 
 RenegadeCMM provides tools to export configurations and library structures for migration or troubleshooting:
-
 - **Automated Credential Stripping:** Backup ZIP archives generated by `backupService.ts` automatically sanitize `config.json` to strip `civitai_api_key` and `huggingface_token`.
 - **Database Exclusion:** Raw SQLite database files (`renegadecmm.sqlite`) are excluded from backup bundles.
 - **CLI Export Sanitization:** CLI JSON export dumps (`cmm export --format json`) filter out private tokens.
@@ -145,9 +144,8 @@ Because CMM does not collect your data on remote servers:
 ## 9. Security & Vulnerability Reporting
 
 If you discover a security vulnerability or privacy flaw regarding credential handling or network isolation, please report it through our responsible disclosure channels:
-
-- **Security Email:** <contact-us@renegadeinc.net> (CC: <bug-report@renegadeinc.net>) with subject line `[SECURITY] CMM Vulnerability Report`
-- **GitHub Private Advisory:** [https://github.com/DevNullInc/RenegadeCMM/security/advisories/new](https://github.com/DevNullInc/RenegadeCMM/security/advisories/new)
+- **Security Email:** <contact-us@renegadeinc.net> (CC: <bug-report@renegadeinc.net>) with subject line `[SECURITY] CMM Vulnerability Report`.
+- **GitHub Private Advisory:** https://github.com/DevNullInc/RenegadeCMM/security/advisories/new
 - **Security Policy:** Review our full [Security Policy & Architecture Disclosures](SECURITY.md).
 
 ---
@@ -161,4 +159,4 @@ As Renegade CMM continues to evolve, this privacy policy may be updated. All upd
 
 ---
 
-Last reviewed against source: September 9, 2026.
+Last reviewed against source: September 13, 2026.

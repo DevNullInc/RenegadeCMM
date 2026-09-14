@@ -18,6 +18,7 @@ import { logger } from '../utils/logger';
 import { webhookService } from './webhookService';
 import { civitaiClient } from './civitaiClient';
 import { imageCacheService } from './imageCacheService';
+import { swarmBridge } from './swarmBridge';
 
 export function sanitizeDownloadUrl(url?: string): string {
   if (!url) return '';
@@ -517,7 +518,7 @@ export class DownloadManager {
     try {
       const makeRequest = async (useRange: boolean): Promise<AxiosResponse> => {
         const headers: Record<string, string> = {
-          'User-Agent': 'RenegadeCMM/1.5.0',
+          'User-Agent': 'RenegadeCMM/1.6.0',
         };
         if (useRange && existingBytes > 0) {
           headers['Range'] = `bytes=${existingBytes}-`;
@@ -707,6 +708,7 @@ export class DownloadManager {
       webhookService.triggerDownloadComplete(task).catch((err) => {
         logger.warn('Error triggering download complete webhook:', err);
       });
+      swarmBridge.notifySwarmModelIngest(resolvedPath, task).catch(() => {});
     } catch (err: any) {
       this.activeDownloads.delete(id);
       if (axios.isCancel(err)) {

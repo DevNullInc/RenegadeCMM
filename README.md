@@ -11,12 +11,12 @@
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 [![Privacy Policy](https://img.shields.io/badge/Privacy-100%25%20Local--First-00D632.svg)](PRIVACY.md)
-[![Features](https://img.shields.io/badge/Features-Quick%20Crib--Notes-00D632.svg)](FEATURES.md)
-[![Roadmap](https://img.shields.io/badge/Roadmap-View%20Upcoming%20Milestones-8a2be2.svg)](ROADMAP.md)
+[![Features](https://img.shields.io/badge/Features-Quick%20Crib--Notes-00D632.svg)](docs/FEATURES.md)
+[![Roadmap](https://img.shields.io/badge/Roadmap-View%20Upcoming%20Milestones-8a2be2.svg)](docs/ROADMAP.md)
 
-> ⚡ **Want the quick summary without the long read? Check out the [Feature Crib-Notes (FEATURES.md)](FEATURES.md).**  
-> 🗺️ **Looking for upcoming features and releases? Check out the [Product Roadmap](ROADMAP.md).**  
-> 🛡️ **Questions about data security or credentials? Read our [Privacy Policy (PRIVACY.md)](PRIVACY.md).**
+> ⚡ **Want the quick summary without the long read? Check out the [Feature Crib-Notes (FEATURES.md)](docs/FEATURES.md).**  
+> 🗺️ **Looking for upcoming features and releases? Check out the [Product Roadmap](docs/ROADMAP.md).**  
+> 🛡️ **Questions about data security or credentials? Read our [Privacy Policy](PRIVACY.md).**
 
 ---
 

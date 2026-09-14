@@ -463,7 +463,51 @@ export class LibraryScanner {
         }
       }
 
-      // 5. Mark duplicates (only when same hash exists across distinct physical file paths)
+      // 5. Optional: Auto-convert PyTorch pickle models to SafeTensors if opt-in setting is enabled
+      try {
+        const autoConvertRow: any = await dbManager.get('SELECT value FROM app_config WHERE key = ?', ['auto_convert_pickle_to_safetensors']);
+        const shouldAutoConvert = autoConvertRow && JSON.parse(autoConvertRow.value) === true;
+        if (shouldAutoConvert && !this.cancelRequested) {
+          const deleteOrigRow: any = await dbManager.get('SELECT value FROM app_config WHERE key = ?', ['delete_original_after_conversion']);
+          const shouldDeleteOrig = deleteOrigRow ? JSON.parse(deleteOrigRow.value) === true : false;
+          const pyPathRow: any = await dbManager.get('SELECT value FROM app_config WHERE key = ?', ['custom_python_path']);
+          const customPy = pyPathRow ? JSON.parse(pyPathRow.value) : undefined;
+          const comfyInstallRow: any = await dbManager.get('SELECT value FROM app_config WHERE key = ?', ['comfyui_install_dir']);
+          const comfyInstall = comfyInstallRow ? JSON.parse(comfyInstallRow.value) : undefined;
+
+          const pickleModels = scannedModels.filter((m) => {
+            const ext = path.extname(m.filePath).toLowerCase();
+            return ext === '.ckpt' || ext === '.pt' || ext === '.bin';
+          });
+
+          if (pickleModels.length > 0) {
+            emitProgress({
+              scannedFiles: allFiles.length,
+              totalFiles: allFiles.length,
+              status: 'hashing',
+              currentFile: `Auto-converting ${pickleModels.length} pickle model(s) to SafeTensors...`,
+            });
+
+            const { modelConverter } = await import('./modelConverter');
+            for (const pModel of pickleModels) {
+              if (this.cancelRequested) break;
+              try {
+                await modelConverter.convertPickleToSafetensors(pModel.filePath, {
+                  deleteOriginal: shouldDeleteOrig,
+                  customPythonPath: customPy,
+                  comfyuiInstallDir: comfyInstall,
+                });
+              } catch (convErr) {
+                logger.warn(`Auto-conversion skipped for ${pModel.filePath}:`, convErr);
+              }
+            }
+          }
+        }
+      } catch (optErr) {
+        logger.warn('Error during auto-conversion pass:', optErr);
+      }
+
+      // 6. Mark duplicates (only when same hash exists across distinct physical file paths)
       await this.flagDuplicates();
 
       emitProgress({

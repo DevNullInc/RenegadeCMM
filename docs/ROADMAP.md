@@ -1,0 +1,162 @@
+# Renegade Core Model Manager — Product Roadmap
+
+This document outlines the milestones, completed capabilities, upcoming architectural evolutions, and development roadmap for **Renegade Core Model Manager (RenegadeCMM)**.
+
+---
+
+## Milestone Overview
+
+```mermaid
+graph LR
+    v13["✅ v1.3.0<br/>CLI + HF Hub + Webhooks"] --> v14["✅ v1.4.0<br/>Workflow Auto-Resolver & UI"]
+    v14 --> v141["✅ v1.4.1<br/>Live ComfyUI & Binary Hardening"]
+    v141 --> v142["✅ v1.4.2<br/>CI Modernization, Desktop & Test Tracking"]
+    v142 --> v15["✅ v1.5.0<br/>Native HF & GGUF Engine"]
+    v15 --> v16["✅ v1.6.0<br/>Hardlink Storage Optimizer & SafeTensors Engine"]
+    v16 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
+    v17 --> v20["🎯 v2.0.0<br/>Unified Multi-Gen & Package Launch Hub"]
+```
+
+---
+
+## Completed Milestones
+
+### Phase 1: v1.4.0 — Workflow Auto-Resolver & Local API Custom Node Bridge
+
+> **Goal**: Turn the Workflow Scanner engine into an interactive visual tab with automatic missing model resolution, and provide a secure Local API bridge for external ComfyUI custom nodes.
+
+- [x] **Dedicated "Workflows" UI Tab**:
+  - Drag-and-drop ComfyUI `.json` workflows or generated `.png` images with dual `tEXt`/`iTXt` chunk parsing.
+  - Spatial Visual Node Map with zoom/pan and node readiness color codes.
+  - Dependency matrix identifying installed vs. missing Checkpoints, LoRAs, VAEs, ControlNets, UNETs, and Upscalers.
+- [x] **One-Click Missing Model Resolution**:
+  - Download missing model dependencies directly from workflow cards.
+- [x] **Localhost API Bridge & Custom Node Companion**:
+  - Local HTTP REST bridge on port `5174` with strict loopback binding (`127.0.0.1`) and origin verification.
+  - Companion custom node support ([`ComfyUI-Model-Manager`](https://github.com/DevNullInc/ComfyUI-Model-Manager)).
+- [x] **4-Tier Custom Node Resolver**:
+  - Local check -> SQLite ETag registry cache -> GitHub Search API fallback -> one-click repository clone and dependency installation.
+
+---
+
+### Phase 1.1: v1.4.1 — Live ComfyUI Workspace Wrapper & Canvas Injection
+
+> **Goal**: Seamlessly bridge the Workflows tab into running ComfyUI instances with real-time health probing, one-click canvas graph pushing, cross-app auto-saving, and background generation keep-alive.
+
+- [x] **Dynamic Live ComfyUI Workspace**:
+  - Background health probing (`/system_stats` / `/prompt`) detecting active ComfyUI instances.
+  - Live Canvas mode embedding ComfyUI directly in the CMM window.
+  - Split View mode displaying ComfyUI side-by-side with missing node cards and model dependencies.
+  - Fullscreen canvas with quick workflow selector and slide-out node drawer.
+- [x] **Resident Tab Keep-Alive System**:
+  - Uninterrupted background generation when navigating between CMM tabs (`backgroundThrottling: false`).
+  - Unified resident `<webview>` preventing canvas reloads.
+- [x] **One-Click Workflow Canvas Injection**:
+  - "Push to Canvas" injection into active ComfyUI instances via `window.app.loadGraphData(graph, true)`.
+  - Automatic persistence saving uploaded `.json` and embedded `.png` workflows to ComfyUI's user workflow directory.
+- [x] **Security & Elevation Hardening**:
+  - Stripped NSIS `elevate.exe` (`packElevateHelper: false`, `allowElevation: false`, `perMachine: false`) to permanently resolve false-positive AV flags.
+
+---
+
+### Phase 1.2: v1.4.2 — CI/CD Modernization, Linux Desktop & Test Tracking
+
+> **Goal**: Upgrade continuous integration runners to Node.js 22+ LTS, track unit tests in source control, and configure Linux desktop window associations.
+
+- [x] **Automated Test Suite in Version Control**:
+  - Complete unit and integration test suite tracked in `tests/` with 100% pass rate.
+- [x] **Linux Desktop Window Association**:
+  - Configured `desktopName: "renegadecmm.desktop"` and `syncDesktopName: true` for proper window grouping across GNOME, KDE, and Wayland.
+- [x] **GitHub Actions Runner Upgrade**:
+  - Configured `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` across all workflow runners.
+
+---
+
+### Phase 2: v1.5.0 — Native Hugging Face & GGUF Download Engine
+
+> **Goal**: Equal-citizen support for Hugging Face `.safetensors`, GGUF quantizations, and next-generation model architectures.
+
+- [x] **Native Hugging Face Download Pipeline**:
+  - High-performance chunked downloads with Bearer token authentication for gated models (FLUX.1, SD3.5, Wan2.1, HunyuanVideo).
+  - AWS S3 LFS redirect credential-stripping to prevent HTTP 400 Bad Request errors.
+- [x] **Zero-Memory GGUF Header Parser**:
+  - Little-endian binary parser (`ggufParser.ts`) reading 128KB header buffers for architecture and quantization tags (`Q4_K_M`, `Q8_0`, `BF16`).
+  - Smart folder routing to `models/unet`, `models/LLM`, `models/text_encoders`, or `models/gguf`.
+- [x] **Unified Dual-Source Search**:
+  - Segmented toggle in Browse tab seamlessly querying CivitAI and Hugging Face Hub repositories.
+  - Interactive Hugging Face repository file inspector with direct one-click downloading.
+- [x] **Triple-Asset Companion File Generation**:
+  - Automatically writes `<model>.sha256`, `<model>.<ext>` preview image, and `<model>.<host>.info` metadata JSON alongside weights.
+
+---
+
+### Phase 3: v1.6.0 — Storage Optimizer, SafeTensors Converter & RenegadeSwarm Integration
+
+> **Goal**: Reclaim storage across multiple ComfyUI installations, eliminate legacy pickle security risks, and integrate with the RenegadeSwarm P2P ecosystem.
+
+- [x] **NTFS / ext4 Hardlink Storage Optimizer (`storageOptimizer.ts`)**:
+  - Groups duplicate models by SHA-256 hash.
+  - Verifies drive volume boundaries and consolidates duplicate files into atomic hardlinks (`fs.linkSync`), reclaiming disk space while maintaining multiple ComfyUI folder structures.
+- [x] **PyTorch Pickle-to-SafeTensors Converter (`modelConverter.ts` & `scripts/convert_to_safetensors.py`)**:
+  - Converts legacy `.ckpt`, `.pt`, and `.bin` weights into `.safetensors` format with zero-copy binary serialization.
+  - Multi-tier Python runtime and `.venv` probing.
+  - Automated startup scripts ([`cmm.ps1`](../cmm.ps1), [`cmm.sh`](../cmm.sh), [`cmm-mac.sh`](../cmm-mac.sh)) with `install` / `setup` commands and automatic `.venv` provisioning.
+- [x] **Hardware Capacity & OOM Assessment (`hardwareScanner.ts`)**:
+  - Probes CPU cores, available system RAM, and GPU VRAM via NVIDIA NVML / `nvidia-smi` to prevent out-of-memory crashes during large model conversions.
+- [x] **Model Precision Inspector (`precisionInspector.ts`)**:
+  - Analyzes tensor datatypes to detect unneeded FP32 optimizer weights and inspects quantization levels (GGUF, EXL2, AWQ, INT8, INT4, NF4).
+- [x] **Orphan & Unused Model Finder (`orphanFinder.ts`)**:
+  - Cross-references ComfyUI workflows with installed library models to identify unused checkpoints and LoRAs.
+- [x] **React Flow Interactive Node DAG (`@xyflow/react`)**:
+  - Modernized visual workflow map with hardware-accelerated pan/zoom, crisp node cards, MiniMap, and zero rollup eval warnings.
+- [x] **RenegadeSwarm Sister Application Integration (`swarmBridge.ts`)**:
+  - Automatic focus, launch, and health monitoring of the native **RenegadeSwarm** Electron desktop window (daemon port 5180).
+  - Automated decentralized ingestion notifications and single-model companion asset packager.
+
+---
+
+## Planned Future Releases
+
+### Phase 4: v1.7.0 — Smart Collections, Trigger Word Hub & Semantic Search
+
+> **Goal**: Complete creative workstation and prompt curation engine.
+
+- [ ] **LoRA Trigger Word & Prompt Injector**:
+  - One-click copy and direct ComfyUI node injection of trained trigger words and recommended LoRA strength weights.
+- [ ] **Custom Collections & Smart Playlists**:
+  - Group models by project, art style, or architecture (e.g. *"Flux Realism Setup"*, *"SDXL Inpainting Kit"*, *"Anime Style LoRAs"*).
+- [ ] **Local Semantic Search**:
+  - Embed local model descriptions and prompt tags with a lightweight embedded vector index for natural language queries (e.g. *"find cinematic warm lighting LoRAs"*).
+
+---
+
+### Phase 5: v2.0.0 — Unified Multi-Gen Ecosystem & Automated Package Launch Hub
+
+> **Goal**: Expand Renegade CMM into an all-in-one generative AI workstation and runtime manager. Launch, orchestrate, and automatically install multiple generative backends, model engines, and LLM suites directly from a single native launchpad.
+
+- [ ] **Universal Multi-Gen Launchpad & Suite Selector**:
+  - Unified launchpad allowing users to configure and boot preferred generation environments: **ComfyUI**, **AUTOMATIC1111**, **Stable Diffusion WebUI / SD.Next**, **Fooocus**, **SwarmUI**, and more.
+  - Dedicated package profile switching with customizable launch flags, port overrides, environment variables, and GPU acceleration arguments.
+- [ ] **Automated Host Package Installer & Environment Provisioning**:
+  - One-click native installation and environment setup for supported generation suites directly onto the host computer.
+  - Automated dependency bootstrapping: Git cloning, isolated Python virtual environments (`.venv`), PyTorch/CUDA wheels, and required dependencies.
+  - Built-in one-click package updater, dependency health repair, and version rollback management.
+- [ ] **Integrated Local LLM & Multi-Modal Packages**:
+  - Package orchestration for local LLM runtimes (Ollama, llama.cpp, text-generation-webui, KoboldCPP).
+  - Cross-modal workflow bridging allowing local LLMs to generate prompts, detailed captions, and structured generation parameters directly for diffusion engines.
+- [ ] **Cross-Engine Unified Model Linker**:
+  - Eliminate duplicate model files across engines (e.g. Automatic1111's `models/Stable-diffusion/` vs. ComfyUI's `models/checkpoints/` vs. Fooocus / SwarmUI directory structures) using automated symlinks, hardlinks, or NTFS junctions.
+  - Centralized master model repository management with hot-swap link relocation: moving physical files automatically updates links across all installed engines without broken references.
+
+---
+
+## Documentation Index
+
+- [Feature Reference Guide](FEATURES.md)
+- [Architecture & Process Isolation](ARCHITECTURE.md)
+- [Local REST API Reference](API_REFERENCE.md)
+- [API Security & Boundary Protections](APISecurity.md)
+- [Legal Notices & Third-Party Licenses](../LEGAL.md)
+- [Security Policy & Disclosures](../SECURITY.md)
+- [Privacy Policy](../PRIVACY.md)
+- [Contributing Guidelines](../CONTRIBUTING.md)

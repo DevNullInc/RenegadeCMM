@@ -9,6 +9,7 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$SCRIPT_DIR/.cmm.pid"
+INSTALLED_FILE="$SCRIPT_DIR/.installed"
 ACTION="${1:-start}"
 PORT=5173
 API_PORT=5174
@@ -92,7 +93,75 @@ if ! [[ "$API_PORT" =~ ^[0-9]+$ ]] || [ "$API_PORT" -lt 1024 ] || [ "$API_PORT" 
   exit 1
 fi
 
+ensure_python_environment() {
+  local force_install="${1:-false}"
+  local venv_dir="$SCRIPT_DIR/.venv"
+  local venv_py="$venv_dir/bin/python"
+  local venv_pip="$venv_dir/bin/pip"
+  local req_file="$SCRIPT_DIR/requirements.txt"
+
+  if [ ! -x "$venv_py" ]; then
+    local sys_py=""
+    for cand in python3 python; do
+      if command -v "$cand" >/dev/null 2>&1; then
+        if "$cand" --version 2>&1 | grep -q 'Python 3'; then
+          sys_py="$cand"
+          break
+        fi
+      fi
+    done
+
+    if [ -n "$sys_py" ]; then
+      write_status ">>" "Creating Python virtual environment (.venv) using $sys_py..." "$C_CYAN"
+      if "$sys_py" -m venv "$venv_dir" >/dev/null 2>&1; then
+        write_status "ok" "Python virtual environment created (.venv)." "$C_GREEN"
+      else
+        write_status "!" "Failed to create .venv virtual environment." "$C_YELLOW"
+      fi
+    else
+      write_status "!" "Python 3 runtime not detected on system PATH." "$C_YELLOW"
+      echo -e "      ${C_GRAY}(Optional: Python with torch/safetensors is only needed for Pickle -> SafeTensors conversion).${C_RESET}"
+      return 0
+    fi
+  fi
+
+  if [ -x "$venv_py" ]; then
+    local needs_install="$force_install"
+    if [ "$needs_install" != "true" ]; then
+      if ! "$venv_py" -c "import torch, safetensors; print('READY')" 2>/dev/null | grep -q "READY"; then
+        needs_install="true"
+      fi
+    fi
+
+    if [ "$needs_install" = "true" ] && [ -f "$req_file" ]; then
+      write_status ">>" "Installing/updating Python dependencies in .venv (torch, safetensors)..." "$C_CYAN"
+      if "$venv_py" -m pip install -r "$req_file" --quiet; then
+        write_status "ok" "Python dependencies (torch, safetensors) verified in .venv." "$C_GREEN"
+      else
+        write_status "!" "Some Python dependencies could not be installed in .venv." "$C_YELLOW"
+      fi
+    else
+      write_status "ok" "Python environment (.venv) verified with torch & safetensors." "$C_GREEN"
+    fi
+  fi
+}
+
 ensure_node_installed() {
+  local force_install="${1:-false}"
+
+  # First-run watchdog: once the environment is proven (node + node_modules present),
+  # later launches flat-skip the entire provisioning block unless force_install is true.
+  if [ "$force_install" != "true" ] && [ -f "$INSTALLED_FILE" ]; then
+    if [ -d "$SCRIPT_DIR/node_modules" ]; then
+      return 0
+    fi
+    rm -f "$INSTALLED_FILE"
+  fi
+
+  echo ""
+  write_status ">>" "Starting Environment Verification & Dependency Setup..." "$C_CYAN"
+  write_status ".." "[1/3] Checking Node.js runtime and environment..." "$C_GRAY"
+
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
     write_status "!" "Node.js runtime was not detected on this system." "$C_YELLOW"
     echo ""
@@ -104,11 +173,40 @@ ensure_node_installed() {
     exit 1
   fi
 
-  if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
-    write_status ">>" "node_modules not found. Installing dependencies (npm install)..." "$C_CYAN"
+  local node_ver
+  node_ver=$(node -v 2>/dev/null || echo "unknown")
+  local npm_ver
+  npm_ver=$(npm -v 2>/dev/null || echo "unknown")
+  write_status "ok" "Node.js runtime verified ($node_ver, npm $npm_ver)." "$C_GREEN"
+
+  if [ "$force_install" = "true" ] || [ ! -d "$SCRIPT_DIR/node_modules" ]; then
+    write_status ">>" "[2/3] Installing project dependencies (npm install)..." "$C_CYAN"
+    echo -e "      ${C_GRAY}Downloading packages & compiling native modules (please wait)...${C_RESET}"
     (cd "$SCRIPT_DIR" && npm install)
     write_status "ok" "Dependencies installed successfully." "$C_GREEN"
+  else
+    write_status "ok" "[2/3] Project dependencies (node_modules) verified." "$C_GREEN"
   fi
+
+  write_status ".." "[3/3] Checking Python runtime and .venv environment..." "$C_GRAY"
+  ensure_python_environment "$force_install"
+
+  write_status "ok" "Environment verification completed." "$C_GREEN"
+  echo ""
+
+  # Stamp the completed setup so every later launch skips installer work.
+  touch "$INSTALLED_FILE"
+}
+
+install_dependencies() {
+  ensure_node_installed true
+  write_status ">>" "Building project assets..." "$C_CYAN"
+  (cd "$SCRIPT_DIR" && npm run build)
+  write_status "ok" "Build completed successfully." "$C_GREEN"
+  echo ""
+  write_status "ok" "Renegade Core Model Manager setup & installation complete!" "$C_GREEN"
+  echo -e "  Run ${C_GREEN}./cmm-mac.sh start${C_RESET} to launch the application."
+  echo ""
 }
 
 is_safe_to_kill() {
@@ -484,6 +582,9 @@ echo ""
 
 # Dispatch Command
 case "$ACTION" in
+  install|setup|init)
+    install_dependencies
+    ;;
   start)
     if [ "$CLEAN_ASSETS" = "true" ]; then
       clean_assets
@@ -515,6 +616,7 @@ case "$ACTION" in
     echo "Usage: ./cmm-mac.sh <command> [options]"
     echo ""
     echo "App Management Commands:"
+    echo "  install / setup          Verify runtime, install npm & Python .venv dependencies, build project"
     echo "  start                    Start the desktop app and Vite web server (default)"
     echo "  stop                     Stop all running CMM processes"
     echo "  restart                  Restart the application"

@@ -7,7 +7,7 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
-import { app, BrowserWindow, ipcMain, dialog, Menu, shell, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, shell, session, Tray, nativeImage } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs';
@@ -28,14 +28,51 @@ import { huggingfaceClient } from '../services/huggingfaceClient';
 import { ggufParser } from '../services/ggufParser';
 import { workflowScanner } from '../services/workflowScanner';
 import { nodeResolverService } from '../services/nodeResolverService';
+import { storageOptimizer } from '../services/storageOptimizer';
+import { precisionInspector } from '../services/precisionInspector';
+import { orphanFinder } from '../services/orphanFinder';
+import { modelConverter } from '../services/modelConverter';
+import { hardwareScanner } from '../services/hardwareScanner';
+import { swarmBridge } from '../services/swarmBridge';
 import { encryptKey, decryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
+import {
+  isAllowedOriginOrReferer,
+  isPathWithinAllowedRoots,
+  isSafeModelPath,
+  isSafeNetworkUrl,
+  parseSanitizedDeepLink,
+  sanitizePathString,
+  ALLOWED_IMAGE_EXTENSIONS,
+} from '../utils/securityValidator';
 import { AppConfig, AppUpdateCheckResult } from '../types/app';
 import { APP_VERSION, BUILD_CONFIG } from '../version';
 
+export function getAllowedModelRoots(cfg: AppConfig): string[] {
+  const roots: string[] = [];
+  if (cfg.comfyui_root) roots.push(cfg.comfyui_root);
+  if (Array.isArray(cfg.comfyui_folders)) roots.push(...cfg.comfyui_folders);
+  if (cfg.comfyui_install_dir) roots.push(cfg.comfyui_install_dir);
+  if (cfg.comfyui_custom_nodes_dir) roots.push(cfg.comfyui_custom_nodes_dir);
+  if (cfg.default_download_folder) roots.push(cfg.default_download_folder);
+  roots.push(process.cwd());
+  roots.push(os.tmpdir());
+  return roots;
+}
+
 app.setName('renegadecmm');
 
+// Register OS custom protocol handler for deep links (e.g. renegadecmm://download?modelId=...)
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('renegadecmm', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('renegadecmm');
+}
+
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let currentConfig: AppConfig = {
   comfyui_root: '',
   comfyui_folders: [],
@@ -57,6 +94,11 @@ let currentConfig: AppConfig = {
   local_api_enabled: true,
   local_api_port: 5174,
   comfyui_server_url: 'http://127.0.0.1:8188',
+  swarm_server_url: 'http://127.0.0.1:5180',
+  swarm_auto_connect: true,
+  auto_convert_pickle_to_safetensors: false,
+  delete_original_after_conversion: false,
+  custom_python_path: '',
 };
 
 function isValidFolderPath(p: string): boolean {
@@ -1291,34 +1333,25 @@ function startHttpBridgeServer() {
       return;
     }
 
-    // Origin header verification to guard against DNS rebinding & browser CSRF
+    // Origin and Referer header verification to guard against DNS rebinding & browser CSRF
     const origin = req.headers.origin;
-    let isOriginAllowed = false;
-    if (origin) {
-      try {
-        const parsedOrigin = new URL(origin);
-        if (
-          parsedOrigin.protocol === 'app:' ||
-          parsedOrigin.protocol === 'file:' ||
-          parsedOrigin.protocol === 'vscode-webview:'
-        ) {
-          isOriginAllowed = true;
-        } else if (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') {
-          const h = parsedOrigin.hostname.toLowerCase();
-          if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]') {
-            isOriginAllowed = true;
-          }
-        }
-      } catch {
-        isOriginAllowed = false;
-      }
+    const referer = req.headers.referer;
 
-      if (!isOriginAllowed) {
-        logger.warn(`Security: Blocked untrusted Origin header in HTTP bridge: ${origin}`);
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Access forbidden: Untrusted Origin' }));
-        return;
-      }
+    if (origin && !isAllowedOriginOrReferer(origin)) {
+      logger.warn(`Security: Blocked untrusted Origin header in HTTP bridge: ${origin}`);
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Access forbidden: Untrusted Origin' }));
+      return;
+    }
+
+    if (referer && !isAllowedOriginOrReferer(referer)) {
+      logger.warn(`Security: Blocked untrusted Referer header in HTTP bridge: ${referer}`);
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Access forbidden: Untrusted Referer' }));
+      return;
+    }
+
+    if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
     } else {
       res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:5173');
@@ -2017,7 +2050,21 @@ function startHttpBridgeServer() {
         }
 
         try {
-          const resolved = path.resolve(rawPath);
+          const resolved = sanitizePathString(rawPath);
+          if (!resolved) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid file path format' }));
+            return;
+          }
+
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(resolved, allowedRoots)) {
+            logger.warn(`Security: Blocked unauthorized local-image access outside permitted library directories: ${resolved}`);
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Access forbidden: Path outside permitted model directories' }));
+            return;
+          }
+
           const ext = path.extname(resolved).toLowerCase();
           const allowedExts: Record<string, string> = {
             '.jpg': 'image/jpeg',
@@ -2051,6 +2098,161 @@ function startHttpBridgeServer() {
         imageCacheService.clearPermanentLibraryCache();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
+      } else if (url === '/api/optimizer/scan' && (req.method === 'GET' || req.method === 'POST')) {
+        try {
+          const result = await storageOptimizer.scanDuplicates();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: result }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Optimizer scan failed' }));
+        }
+      } else if (url === '/api/optimizer/hardlink' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { masterPath, duplicatePath } = body || {};
+          if (!masterPath || !duplicatePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'masterPath and duplicatePath are required' }));
+            return;
+          }
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(masterPath, allowedRoots) || !isPathWithinAllowedRoots(duplicatePath, allowedRoots)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target paths must reside within permitted library directories' }));
+            return;
+          }
+          await storageOptimizer.executeHardlink(masterPath, duplicatePath);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Hardlink execution failed' }));
+        }
+      } else if (url === '/api/optimizer/package-model' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { filePath } = body || {};
+          if (!filePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+            return;
+          }
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(filePath, allowedRoots)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target model path must reside within permitted library directories' }));
+            return;
+          }
+          const result = await storageOptimizer.packageCompanionFilesForModel(filePath);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: result }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Companion packaging failed' }));
+        }
+      } else if (url === '/api/optimizer/package-all' && req.method === 'POST') {
+        try {
+          const result = await storageOptimizer.packageAllMissingCompanions();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: result }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Bulk companion packaging failed' }));
+        }
+      } else if (url === '/api/optimizer/precision-inspect' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { filePath } = body || {};
+          if (!filePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+            return;
+          }
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(filePath, allowedRoots)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target model path must reside within permitted library directories' }));
+            return;
+          }
+          const result = await precisionInspector.inspectModel(filePath);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: result }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Precision inspection failed' }));
+        }
+      } else if (url === '/api/optimizer/orphan-scan' && (req.method === 'GET' || req.method === 'POST')) {
+        try {
+          const body = req.method === 'POST' ? await getBody() : {};
+          const customPaths = body?.workflowDirectories || body?.folderPaths || body?.path;
+          const targetPaths = resolveWorkflowScanPaths(currentConfig, customPaths);
+          const result = await orphanFinder.findOrphanModels(targetPaths);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: result }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Orphan model scan failed' }));
+        }
+      } else if ((url === '/api/converter/python-status' || url === '/api/converter/status') && req.method === 'GET') {
+        try {
+          const result = await modelConverter.getPythonEnvironment(
+            currentConfig.custom_python_path,
+            currentConfig.comfyui_install_dir
+          );
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: result }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to check python environment' }));
+        }
+      } else if (url === '/api/converter/convert' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { sourcePath, deleteOriginal, targetPath } = body || {};
+          if (!sourcePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'sourcePath is required' }));
+            return;
+          }
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(sourcePath, allowedRoots) || (targetPath && !isPathWithinAllowedRoots(targetPath, allowedRoots))) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Access forbidden: Conversion paths must reside within permitted library directories' }));
+            return;
+          }
+          const result = await modelConverter.convertPickleToSafetensors(sourcePath, {
+            deleteOriginal: deleteOriginal !== undefined ? deleteOriginal : currentConfig.delete_original_after_conversion,
+            targetPath,
+            customPythonPath: currentConfig.custom_python_path,
+            comfyuiInstallDir: currentConfig.comfyui_install_dir,
+          });
+          res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Conversion execution failed' }));
+        }
+      } else if ((url === '/api/system/hardware' || url === '/api/hardware/profile') && req.method === 'GET') {
+        try {
+          const profile = await hardwareScanner.getHardwareProfile();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: profile }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to scan system hardware' }));
+        }
+      } else if ((url === '/api/converter/assess-safety' || url === '/api/hardware/assess-safety') && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const modelSizeBytes = typeof body?.modelSizeBytes === 'number' ? body.modelSizeBytes : 0;
+          const assessment = await hardwareScanner.assessConversionSafety(modelSizeBytes);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, data: assessment }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to assess conversion memory safety' }));
+        }
       } else if ((url === '/api/workflows' || url === '/api/workflow/parse' || url === '/api/parse-workflow' || url === '/api/inspect-workflow') && req.method === 'POST') {
         const body = await getBody();
 
@@ -2084,6 +2286,15 @@ function startHttpBridgeServer() {
           targetUrl = body.serverUrl || body.url;
         }
         const status = await checkComfyUIStatus(targetUrl);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(status));
+      } else if ((url === '/api/swarm/status' || url === '/api/swarm-status') && (req.method === 'GET' || req.method === 'POST')) {
+        let targetUrl: string | undefined;
+        if (req.method === 'POST') {
+          const body = await getBody();
+          targetUrl = body.serverUrl || body.url;
+        }
+        const status = await swarmBridge.checkSwarmStatus(targetUrl || currentConfig.swarm_server_url);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(status));
       } else if ((url === '/api/comfyui/save-workflow' || url === '/api/save-comfyui-workflow') && req.method === 'POST') {
@@ -2395,6 +2606,27 @@ function registerIpcHandlers() {
       );
     }
 
+    if (newConfig.auto_convert_pickle_to_safetensors !== undefined) {
+      await dbManager.run(
+        'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+        ['auto_convert_pickle_to_safetensors', JSON.stringify(newConfig.auto_convert_pickle_to_safetensors)]
+      );
+    }
+
+    if (newConfig.delete_original_after_conversion !== undefined) {
+      await dbManager.run(
+        'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+        ['delete_original_after_conversion', JSON.stringify(newConfig.delete_original_after_conversion)]
+      );
+    }
+
+    if (newConfig.custom_python_path !== undefined) {
+      await dbManager.run(
+        'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+        ['custom_python_path', JSON.stringify(newConfig.custom_python_path)]
+      );
+    }
+
     folderRouter.updateConfig({
       rootPath: currentConfig.comfyui_root,
       folderPaths: currentConfig.comfyui_folders,
@@ -2446,6 +2678,18 @@ function registerIpcHandlers() {
 
   ipcMain.handle('check-comfyui-status', async (_event: unknown, serverUrl?: string) => {
     return await checkComfyUIStatus(serverUrl);
+  });
+
+  ipcMain.handle('check-swarm-status', async (_event: unknown, serverUrl?: string) => {
+    return await swarmBridge.checkSwarmStatus(serverUrl || currentConfig.swarm_server_url);
+  });
+
+  ipcMain.handle('focus-or-open-swarm', async (_event: unknown, serverUrl?: string) => {
+    const res = await swarmBridge.focusOrOpenSwarm(serverUrl || currentConfig.swarm_server_url);
+    if (res.method === 'browser' && res.url) {
+      await shell.openExternal(res.url);
+    }
+    return res;
   });
 
   ipcMain.handle('save-comfyui-workflow', async (_event: unknown, fileName: string, data: any, fileType?: string) => {
@@ -2531,6 +2775,58 @@ function registerIpcHandlers() {
       return { valid: false, error: 'Invalid file path' };
     }
     return ggufParser.inspectGGUF(filePath.trim());
+  });
+
+  // Storage Optimizer & Precision Inspector Handlers
+  ipcMain.handle('scan-storage-optimizer', async () => {
+    return await storageOptimizer.scanDuplicates();
+  });
+
+  ipcMain.handle('execute-hardlink-optimizer', async (_event: unknown, masterPath: string, duplicatePath: string) => {
+    return await storageOptimizer.executeHardlink(masterPath, duplicatePath);
+  });
+
+  ipcMain.handle('package-companion-files', async (_event: unknown, filePath: string) => {
+    return await storageOptimizer.packageCompanionFilesForModel(filePath);
+  });
+
+  ipcMain.handle('package-all-companion-files', async () => {
+    return await storageOptimizer.packageAllMissingCompanions();
+  });
+
+  ipcMain.handle('inspect-model-precision', async (_event: unknown, filePath: string) => {
+    return await precisionInspector.inspectModel(filePath);
+  });
+
+  ipcMain.handle('scan-orphan-models', async (_event: unknown, workflowDirs?: string | string[]) => {
+    const targetPaths = resolveWorkflowScanPaths(currentConfig, workflowDirs);
+    return await orphanFinder.findOrphanModels(targetPaths);
+  });
+
+  // Model Converter Handlers
+  ipcMain.handle('get-converter-environment', async (_event: unknown, customPythonPath?: string) => {
+    return await modelConverter.getPythonEnvironment(
+      customPythonPath || currentConfig.custom_python_path,
+      currentConfig.comfyui_install_dir
+    );
+  });
+
+  ipcMain.handle('convert-model-to-safetensors', async (_event: unknown, sourcePath: string, opts?: { deleteOriginal?: boolean; targetPath?: string }) => {
+    return await modelConverter.convertPickleToSafetensors(sourcePath, {
+      deleteOriginal: opts?.deleteOriginal !== undefined ? opts.deleteOriginal : currentConfig.delete_original_after_conversion,
+      targetPath: opts?.targetPath,
+      customPythonPath: currentConfig.custom_python_path,
+      comfyuiInstallDir: currentConfig.comfyui_install_dir,
+    });
+  });
+
+  // Hardware Scanner & Conversion Safety Handlers
+  ipcMain.handle('get-hardware-profile', async (_event: unknown, forceRefresh?: boolean) => {
+    return await hardwareScanner.getHardwareProfile(forceRefresh);
+  });
+
+  ipcMain.handle('assess-conversion-safety', async (_event: unknown, modelSizeBytes: number) => {
+    return await hardwareScanner.assessConversionSafety(modelSizeBytes);
   });
 
   // Scanner Handlers
@@ -2825,14 +3121,6 @@ function registerIpcHandlers() {
     return false;
   });
 
-  // External Link & System Info
-  ipcMain.handle('open-external', async (_event: unknown, url: string) => {
-    if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
-      await shell.openExternal(url);
-      return true;
-    }
-    return false;
-  });
 
   ipcMain.handle('check-app-update', async () => {
     return await checkDevelopmentGitUpdate();
@@ -2850,6 +3138,19 @@ function registerIpcHandlers() {
       isDevBuild,
       releaseChannel: isDevBuild ? 'development' : 'stable',
     };
+  });
+
+  // External URL Navigation (Secured)
+  ipcMain.handle('open-external', async (_event: unknown, rawUrl: string) => {
+    if (!rawUrl || typeof rawUrl !== 'string') return false;
+    const trimmed = rawUrl.trim();
+    const check = isSafeNetworkUrl(trimmed);
+    if (check.safe && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+      await shell.openExternal(trimmed);
+      return true;
+    }
+    logger.warn(`Security: Refused to open unsafe external URL: ${rawUrl}`);
+    return false;
   });
 
   // App control
@@ -2968,6 +3269,53 @@ logger.onLog((logPayload) => {
   }
 });
 
+function createTray() {
+  try {
+    const iconPath = getAppIcon();
+    if (!iconPath) return;
+    const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+    tray = new Tray(icon);
+    tray.setToolTip('Renegade Core Model Manager (RenegadeCMM)');
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Show RenegadeCMM',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        },
+      },
+      {
+        label: 'Focus RenegadeSwarm',
+        click: async () => {
+          await swarmBridge.focusOrOpenSwarm(currentConfig.swarm_server_url);
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit RenegadeCMM',
+        click: () => {
+          app.quit();
+        },
+      },
+    ]);
+
+    tray.setContextMenu(contextMenu);
+    tray.on('double-click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  } catch (err: any) {
+    logger.warn('Failed to create system tray icon:', err.message);
+  }
+}
+
 // Single Instance Lock: Ensure only one instance of the app runs at a time.
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -2975,7 +3323,7 @@ if (!gotTheLock) {
   logger.info('Another instance of Renegade Core Model Manager is already running. Focusing existing window and exiting.');
   app.quit();
 } else {
-  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+  app.on('second-instance', (_event, commandLine, _workingDirectory) => {
     logger.info('Second instance detected. Restoring and focusing existing window.');
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) {
@@ -2983,6 +3331,35 @@ if (!gotTheLock) {
       }
       mainWindow.show();
       mainWindow.focus();
+
+      // Check for deep link in commandLine arguments (e.g. on Windows/Linux)
+      const protocolUrl = commandLine.find((arg) => arg.startsWith('renegadecmm://'));
+      if (protocolUrl) {
+        logger.info(`Received deep link via second instance: ${protocolUrl}`);
+        const parsed = parseSanitizedDeepLink(protocolUrl);
+        if (parsed) {
+          mainWindow.webContents.send('protocol-action', parsed);
+        } else {
+          logger.warn(`Security: Ignored malformed or unsupported deep link: ${protocolUrl}`);
+        }
+      }
+    }
+  });
+
+  // macOS open-url event
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    logger.info(`Received deep link via open-url: ${url}`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      const parsed = parseSanitizedDeepLink(url);
+      if (parsed) {
+        mainWindow.webContents.send('protocol-action', parsed);
+      } else {
+        logger.warn(`Security: Ignored malformed or unsupported deep link via open-url: ${url}`);
+      }
     }
   });
 
@@ -3014,6 +3391,7 @@ if (!gotTheLock) {
     const isHeadless = process.env.HEADLESS === 'true' || app.commandLine.hasSwitch('headless');
     if (!isHeadless) {
       await createWindow();
+      createTray();
     } else {
       logger.info('Running in headless background mode (no Electron desktop window created).');
     }

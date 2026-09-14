@@ -2,9 +2,45 @@
 
 <!-- markdownlint-disable MD024 -->
 
-All notable changes, fixes, and unversioned enhancements to **Renegade Core Model Manager** are documented in this file.
+All notable releases and migration milestones for **Renegade Core Model Manager** are documented in this file.
+
+For active, unreleased feature branches and ongoing sprint items, refer to [DEV-CHANGELOG.md](docs/DEV-CHANGELOG.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [1.6.0] - 2026-09-13
+
+### 🐝 RenegadeSwarm Sister Application Integration & Native Electron Window Management
+
+- **Intelligent RenegadeSwarm Electron Window Focus & Launcher (`swarmBridge.ts`)**:
+  - Implemented multi-tier Swarm activation engine:
+    1. First queries Swarm daemon focus API endpoints (`/api/window/focus` / `/api/focus`).
+    2. Searches for active native Electron desktop windows for Swarm on Windows (via `WScript.Shell.AppActivate`, `Get-Process`, Win32 `ShowWindow` / `SetForegroundWindow`), macOS (`osascript` activation), and Linux (`wmctrl`).
+    3. Locates and launches installed native desktop binaries (`RenegadeSwarm.exe` / `.app`) if not already open.
+    4. Provides seamless web browser fallback only when native desktop activation is unavailable.
+  - Live Swarm health monitoring badge in the header navbar and Settings tab with peer count, active seed count, daemon version, and 1-click focus.
+- **Automated Swarm Ingest Notification on Download (`downloadManager.ts`)**:
+  - Automatically notifies the local RenegadeSwarm daemon (`POST /api/ingest` or `/api/models/scan`) when a model download finishes and companion assets are written, enabling zero-latency decentralized P2P seeding.
+- **Single-Model Swarm Companion Packager (`LibraryTab.tsx` & `storageOptimizer.ts`)**:
+  - Added 1-click companion packaging action button (`Package` icon) directly on library model cards to generate missing `.sha256`, `.info`, and preview image triplets on demand.
+  - Added visual seeding readiness feedback on library model cards.
+- **OS-Level Custom Protocol Handler (`renegadecmm://`)**:
+  - Registered `app.setAsDefaultProtocolClient('renegadecmm')` across Windows, macOS, and Linux.
+  - Handled deep link arguments in `second-instance` and macOS `open-url` events for automated model downloads and actions.
+- **System Tray & Minimized Background Operation**:
+  - Added native System Tray icon with dynamic context menu (Show CMM, Focus RenegadeSwarm, Quit) and double-click window restore.
+
+### 🔄 PyTorch Pickle-to-SafeTensors Converter & Hardware Safety
+
+- **Zero-Crash Hardware Safety & OOM Assessment (`hardwareScanner.ts`)**:
+  - Probes CPU cores, available system RAM, and GPU VRAM via NVIDIA NVML / `nvidia-smi` to assess hardware capacity prior to large model conversions.
+- **Automated Pickle Converter (`modelConverter.ts`)**:
+  - In-app conversion of legacy `.ckpt`, `.pt`, and `.bin` weights into `.safetensors` format with companion file synchronization and automatic original file management.
+
+### 🎨 React Flow Visual Workflow Representation
+
+- **Interactive Node DAG Visualization (`ComfyWorkflowVisualizer.tsx`)**:
+  - Visual diagram layout for ComfyUI workflows and model dependencies utilizing React Flow with GPL-3.0 compatibility.
 
 ## [1.5.0]
 

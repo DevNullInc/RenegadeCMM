@@ -739,3 +739,107 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 ```
+
+---
+
+## 🗜️ Storage Optimizer & RenegadeSwarm Packaging API
+
+### 1. `GET /api/optimizer/scan`
+Scans the local model library to discover duplicate files matching exact SHA-256 checksums and determines potential hardlink deduplication disk savings.
+
+- **Method**: `GET` or `POST`
+- **Response `200 OK`**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalScannedFiles": 48,
+    "totalDuplicates": 4,
+    "potentialSavingsBytes": 25769803776,
+    "potentialSavingsFormatted": "24.00 GB",
+    "crossDriveIncompatibles": 0,
+    "duplicateClusters": [
+      {
+        "sha256": "8F3A2B1C...",
+        "fileSize": 6442450944,
+        "masterPath": "D:/ComfyUI/models/checkpoints/flux1-dev.safetensors",
+        "potentialSavingsBytes": 6442450944,
+        "files": [
+          {
+            "filePath": "D:/ComfyUI/models/checkpoints/flux1-dev.safetensors",
+            "isMaster": true,
+            "isHardlinked": false,
+            "canHardlink": false
+          },
+          {
+            "filePath": "D:/Forge/models/Stable-diffusion/flux1-dev.safetensors",
+            "isMaster": false,
+            "isHardlinked": false,
+            "canHardlink": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 2. `POST /api/optimizer/hardlink`
+Atomically replaces a duplicate model file with an NTFS/ext4 filesystem hardlink pointing to the master file, synchronizing companion packaging files.
+
+- **Method**: `POST`
+- **Request Body**:
+```json
+{
+  "masterPath": "D:/ComfyUI/models/checkpoints/flux1-dev.safetensors",
+  "duplicatePath": "D:/Forge/models/Stable-diffusion/flux1-dev.safetensors"
+}
+```
+- **Response `200 OK`**:
+```json
+{
+  "success": true
+}
+```
+
+### 3. `POST /api/optimizer/package-model`
+Generates companion triplet files (`.sha256`, `.civitai.info` / `.huggingface.info`, and preview image) on-demand for a single model in the library for full RenegadeSwarm P2P compatibility.
+
+- **Method**: `POST`
+- **Request Body**:
+```json
+{
+  "filePath": "D:/ComfyUI/models/checkpoints/flux1-dev.safetensors"
+}
+```
+- **Response `200 OK`**:
+```json
+{
+  "success": true,
+  "data": {
+    "filePath": "D:/ComfyUI/models/checkpoints/flux1-dev.safetensors",
+    "sha256Created": true,
+    "infoJsonCreated": true,
+    "imageCreated": true
+  }
+}
+```
+
+### 4. `POST /api/optimizer/package-all`
+Bulk scans all models in the library and generates any missing companion triplet files.
+
+- **Method**: `POST`
+- **Response `200 OK`**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalModels": 52,
+    "processed": 52,
+    "sha256CreatedCount": 14,
+    "infoJsonCreatedCount": 18,
+    "imageCreatedCount": 12,
+    "errors": []
+  }
+}
+```

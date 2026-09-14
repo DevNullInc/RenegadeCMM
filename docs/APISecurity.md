@@ -127,4 +127,4 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 
 ---
 
-*Last reviewed against source: current development build. This document accurately reflects the current machine-bound encryption, API redaction, and download token architecture.*
+*Last reviewed against source: September 13, 2026 (v1.6.0). This document accurately reflects the current machine-bound encryption, API redaction, and download token architecture.*

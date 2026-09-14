@@ -561,6 +561,50 @@ export function setupWebBridgeIfNeeded() {
         }
       },
 
+      checkSwarmStatus: async (serverUrl?: string) => {
+        try {
+          const res = await fetch(`${API_BASE}/swarm/status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serverUrl }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          // Direct fallback fetch attempt in browser if API bridge fails
+          try {
+            const fallbackUrl = (serverUrl && serverUrl.trim()) ? serverUrl.trim().replace(/\/+$/, '') : 'http://127.0.0.1:5180';
+            const direct = await fetch(`${fallbackUrl}/api/health`, { signal: AbortSignal.timeout(1500) });
+            if (direct.ok) {
+              const data = await direct.json();
+              return {
+                online: true,
+                serverUrl: fallbackUrl,
+                version: data.version || 'Active',
+                peers: data.peers ?? data.swarm?.peers ?? 0,
+                seeding: data.seeding ?? data.swarm?.seeding ?? 0,
+                status: data.status || 'ok',
+              };
+            }
+          } catch {}
+          return { online: false, serverUrl: serverUrl || 'http://127.0.0.1:5180', error: e.message };
+        }
+      },
+
+      focusOrOpenSwarm: async (serverUrl?: string) => {
+        const target = serverUrl || 'http://127.0.0.1:5180';
+        try {
+          const res = await fetch(`${API_BASE}/swarm/focus`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serverUrl: target }),
+          });
+          if (res.ok) return await res.json();
+        } catch {}
+        // In browser web mode, fallback to window.open
+        window.open(target, '_blank', 'noopener,noreferrer');
+        return { success: true, method: 'browser', url: target };
+      },
+
       saveWorkflowToComfyUI: async (fileName: string, data: any, fileType?: string) => {
         try {
           const res = await fetch(`${API_BASE}/comfyui/save-workflow`, {
@@ -741,6 +785,156 @@ export function setupWebBridgeIfNeeded() {
         return true;
       },
 
+      getConverterEnvironment: async (customPythonPath?: string) => {
+        try {
+          const queryParams = customPythonPath ? `?pythonPath=${encodeURIComponent(customPythonPath)}` : '';
+          const res = await fetch(`${API_BASE}/converter/python-status${queryParams}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (e: any) {
+          return {
+            available: false,
+            source: 'none',
+            hasTorch: false,
+            hasSafetensors: false,
+            readyForConversion: false,
+            error: e.message || 'Failed to query Python status',
+          };
+        }
+      },
+
+      convertModelToSafetensors: async (filePath: string, options?: any) => {
+        try {
+          const res = await fetch(`${API_BASE}/converter/convert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourcePath: filePath, ...options }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, sourcePath: filePath, error: e.message || 'Conversion request failed' };
+        }
+      },
+
+      getHardwareProfile: async (forceRefresh?: boolean) => {
+        try {
+          const res = await fetch(`${API_BASE}/system/hardware${forceRefresh ? '?refresh=true' : ''}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          return json.data || json;
+        } catch (e: any) {
+          return {
+            cpu: { model: 'Unknown CPU', cores: 1, speedMhz: 0, arch: 'unknown' },
+            memory: { totalBytes: 0, freeBytes: 0, usedBytes: 0, totalFormatted: '0 B', freeFormatted: '0 B', usedPercent: 0 },
+            gpus: [],
+            platform: 'web',
+            timestamp: Date.now(),
+            error: e.message || 'Failed to query hardware telemetry',
+          };
+        }
+      },
+
+      assessConversionSafety: async (modelSizeBytes: number) => {
+        try {
+          const res = await fetch(`${API_BASE}/converter/assess-safety`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelSizeBytes }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          return json.data || json;
+        } catch (e: any) {
+          return {
+            isSafe: true,
+            riskLevel: 'warning',
+            modelSizeBytes,
+            modelSizeFormatted: 'Unknown',
+            estimatedRamRequiredBytes: Math.round(modelSizeBytes * 1.5),
+            estimatedRamRequiredFormatted: 'Unknown',
+            freeRamBytes: 0,
+            freeRamFormatted: 'Unknown',
+            totalRamBytes: 0,
+            message: 'Could not fetch live telemetry; conversion will proceed.',
+          };
+        }
+      },
+
+      scanStorageOptimizer: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/optimizer/scan`);
+          const json = await res.json();
+          return json.data || json;
+        } catch (e: any) {
+          return { clusters: [], summary: { totalDuplicates: 0, potentialSavingsBytes: 0, alreadySavedBytes: 0 } };
+        }
+      },
+
+      executeHardlinkOptimizer: async (masterPath: string, duplicatePath: string) => {
+        try {
+          const res = await fetch(`${API_BASE}/optimizer/hardlink`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ masterPath, duplicatePath }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+
+      packageCompanionFiles: async (filePath: string) => {
+        try {
+          const res = await fetch(`${API_BASE}/optimizer/package-model`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+
+      packageAllCompanionFiles: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/optimizer/package-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+
+      inspectModelPrecision: async (filePath: string) => {
+        try {
+          const res = await fetch(`${API_BASE}/optimizer/precision-inspect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+
+      scanOrphanModels: async (workflowDirs?: string | string[]) => {
+        try {
+          const res = await fetch(`${API_BASE}/optimizer/orphan-scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workflowDirectories: workflowDirs }),
+          });
+          const json = await res.json();
+          return json.data || json;
+        } catch (e: any) {
+          return { orphanCount: 0, totalWorkflowsScanned: 0, orphanModels: [] };
+        }
+      },
+
       checkAppUpdate: async () => {
         try {
           const res = await fetch(`${API_BASE}/app-update`);
@@ -786,6 +980,8 @@ export function setupWebBridgeIfNeeded() {
         }
         return true;
       },
+
+      onProtocolAction: (_callback: (actionPayload: any) => void) => {},
     };
   }
 }

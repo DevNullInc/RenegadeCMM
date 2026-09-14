@@ -45,7 +45,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: 'npm'
 
       - name: Install Linux build prerequisites
@@ -69,6 +69,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Log Build Artifacts & Details
+        shell: bash
+        run: |
+          echo "### Build Artifacts (${{ matrix.platform }})" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          ls -lh release/ | while read -r line; do
+            echo "  $line"
+          done
+          find release/ -maxdepth 1 -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.tar.gz" -o -name "*.zip" -o -name "*.dmg" -o -name "*.deb" \) | while read -r f; do
+            fname=$(basename "$f")
+            fsize=$(ls -lh "$f" | awk '{print $5}')
+            echo "| \`$fname\` | $fsize |" >> $GITHUB_STEP_SUMMARY
+          done
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -103,6 +118,25 @@ jobs:
           find artifacts -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.tar.gz" -o -name "*.zip" -o -name "*.dmg" -o -name "*.deb" -o -name "latest*.yml" \) -exec cp -v {} release-binaries/ \;
           echo "Staged release binaries:"
           ls -lh release-binaries/
+
+      - name: Generate SHA-256 Checksums
+        run: |
+          cd release-binaries
+          sha256sum *.exe *.AppImage *.tar.gz *.zip *.dmg *.deb 2>/dev/null > SHA256SUMS.txt || true
+          cat SHA256SUMS.txt
+
+      - name: Publish GitHub Action Summary
+        run: |
+          echo "## 🚀 RenegadeCMM Release Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact Binary | Size | SHA-256 Checksum |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          while read -r sha file; do
+            if [ -n "$file" ] && [ -n "$sha" ]; then
+              size=$(ls -lh "release-binaries/$file" | awk '{print $5}')
+              echo "| \`$file\` | $size | \`$sha\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done < release-binaries/SHA256SUMS.txt
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2

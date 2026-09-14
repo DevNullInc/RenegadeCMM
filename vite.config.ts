@@ -17,6 +17,12 @@ import { civitaiClient } from './src/services/civitaiClient';
 import { folderRouter } from './src/services/folderRouter';
 import { downloadManager } from './src/services/downloadManager';
 import { libraryScanner } from './src/services/libraryScanner';
+import { storageOptimizer } from './src/services/storageOptimizer';
+import { precisionInspector } from './src/services/precisionInspector';
+import { orphanFinder } from './src/services/orphanFinder';
+import { modelConverter } from './src/services/modelConverter';
+import { hardwareScanner } from './src/services/hardwareScanner';
+import { swarmBridge } from './src/services/swarmBridge';
 import { encryptKey, decryptKey } from './src/utils/secureStorage';
 
 let currentConfig: any = {
@@ -30,6 +36,7 @@ let currentConfig: any = {
   conflict_strategy: 'rename',
   nsfw_max_visible_level: 5,
   nsfw_blur_enabled: true,
+  swarm_server_url: 'http://127.0.0.1:5180',
 };
 
 async function loadConfig() {
@@ -206,6 +213,137 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ error: e?.message || 'Failed to read local image' }));
             }
+          } else if (req.url?.startsWith('/api/optimizer/scan') && (req.method === 'GET' || req.method === 'POST')) {
+            try {
+              const result = await storageOptimizer.scanDuplicates();
+              res.end(JSON.stringify({ success: true, data: result }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Optimizer scan failed' }));
+            }
+          } else if (req.url === '/api/optimizer/hardlink' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const { masterPath, duplicatePath } = body || {};
+              if (!masterPath || !duplicatePath) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ success: false, error: 'masterPath and duplicatePath are required' }));
+                return;
+              }
+              await storageOptimizer.executeHardlink(masterPath, duplicatePath);
+              res.end(JSON.stringify({ success: true }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Hardlink execution failed' }));
+            }
+          } else if (req.url === '/api/optimizer/package-model' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const { filePath } = body || {};
+              if (!filePath) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+                return;
+              }
+              const result = await storageOptimizer.packageCompanionFilesForModel(filePath);
+              res.end(JSON.stringify({ success: true, data: result }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Companion packaging failed' }));
+            }
+          } else if (req.url === '/api/optimizer/package-all' && req.method === 'POST') {
+            try {
+              const result = await storageOptimizer.packageAllMissingCompanions();
+              res.end(JSON.stringify({ success: true, data: result }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Bulk companion packaging failed' }));
+            }
+          } else if (req.url === '/api/optimizer/precision-inspect' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const { filePath } = body || {};
+              if (!filePath) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+                return;
+              }
+              const result = await precisionInspector.inspectModel(filePath);
+              res.end(JSON.stringify({ success: true, data: result }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Precision inspection failed' }));
+            }
+          } else if (req.url === '/api/optimizer/orphan-scan' && (req.method === 'GET' || req.method === 'POST')) {
+            try {
+              const body = req.method === 'POST' ? await getBody() : {};
+              const customPaths = body?.workflowDirectories || body?.folderPaths || body?.path || currentConfig.comfyui_folders;
+              const result = await orphanFinder.findOrphanModels(customPaths);
+              res.end(JSON.stringify({ success: true, data: result }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Orphan model scan failed' }));
+            }
+          } else if ((req.url === '/api/converter/python-status' || req.url === '/api/converter/status') && req.method === 'GET') {
+            try {
+              const result = await modelConverter.getPythonEnvironment(
+                currentConfig.custom_python_path,
+                currentConfig.comfyui_install_dir
+              );
+              res.end(JSON.stringify({ success: true, data: result }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to check python environment' }));
+            }
+          } else if (req.url === '/api/converter/convert' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const { sourcePath, deleteOriginal, targetPath } = body || {};
+              if (!sourcePath) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ success: false, error: 'sourcePath is required' }));
+                return;
+              }
+              const result = await modelConverter.convertPickleToSafetensors(sourcePath, {
+                deleteOriginal: deleteOriginal !== undefined ? deleteOriginal : currentConfig.delete_original_after_conversion,
+                targetPath,
+                customPythonPath: currentConfig.custom_python_path,
+                comfyuiInstallDir: currentConfig.comfyui_install_dir,
+              });
+              if (!result.success) res.statusCode = 400;
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Conversion execution failed' }));
+            }
+          } else if ((req.url === '/api/system/hardware' || req.url === '/api/hardware/profile') && req.method === 'GET') {
+            try {
+              const profile = await hardwareScanner.getHardwareProfile();
+              res.end(JSON.stringify({ success: true, data: profile }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to scan system hardware' }));
+            }
+          } else if ((req.url === '/api/converter/assess-safety' || req.url === '/api/hardware/assess-safety') && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const modelSizeBytes = typeof body?.modelSizeBytes === 'number' ? body.modelSizeBytes : 0;
+              const assessment = await hardwareScanner.assessConversionSafety(modelSizeBytes);
+              res.end(JSON.stringify({ success: true, data: assessment }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to assess conversion memory safety' }));
+            }
+          } else if ((req.url === '/api/swarm/status' || req.url === '/api/swarm-status') && (req.method === 'GET' || req.method === 'POST')) {
+            try {
+              const body = req.method === 'POST' ? await getBody() : {};
+              const target = body?.serverUrl || body?.url || currentConfig.swarm_server_url;
+              const status = await swarmBridge.checkSwarmStatus(target);
+              res.end(JSON.stringify(status));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ online: false, error: e?.message || 'Swarm check failed' }));
+            }
           } else if ('/api/clear-finished-downloads' === req.url && req.method === 'POST') {
             res.end(JSON.stringify({ success: true, cleared: 0 }));
           } else {
@@ -236,16 +374,10 @@ export default defineConfig({
     emptyOutDir: false,
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
-      onwarn(warning, warn) {
-        if (warning.code === 'EVAL' && (warning.id?.includes('litegraph.js') || warning.loc?.file?.includes('litegraph.js'))) {
-          return;
-        }
-        warn(warning);
-      },
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
-          'vendor-litegraph': ['litegraph.js'],
+          'vendor-xyflow': ['@xyflow/react'],
           'vendor-icons': ['lucide-react'],
         },
       },

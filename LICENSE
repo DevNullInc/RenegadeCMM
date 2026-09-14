@@ -675,10 +675,10 @@ Public License instead of this License.  But first, please read
 
 ---
 
-This project includes LiteGraph.js (https://github.com/jagenjo/litegraph.js),
+This project includes @xyflow/react (React Flow - https://github.com/xyflow/xyflow),
 which is licensed under the MIT License:
 
-Copyright (C) 2013 by Javi Agenjo
+Copyright (C) 2019-2026 webkid GmbH / Christopher Holste, Moritz Klack
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

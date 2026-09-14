@@ -68,6 +68,8 @@ export interface CivitaiAPI {
   scanWorkflows: (folderPaths?: string | string[]) => Promise<any>;
   parseWorkflow: (workflowData: any, workflowName?: string) => Promise<any>;
   checkComfyUIStatus: (serverUrl?: string) => Promise<any>;
+  checkSwarmStatus: (serverUrl?: string) => Promise<any>;
+  focusOrOpenSwarm: (serverUrl?: string) => Promise<any>;
   saveWorkflowToComfyUI: (fileName: string, data: any, fileType?: string) => Promise<any>;
   executeComfyUIPrompt: (promptData: any, serverUrl?: string) => Promise<any>;
   testWebhook: (url: string, event: string) => Promise<any>;
@@ -92,6 +94,20 @@ export interface CivitaiAPI {
   hfSearchModels: (query: string, limit?: number) => Promise<any>;
   inspectGGUF: (filePath: string) => Promise<any>;
 
+  // Storage Optimizer & Swarm Packaging
+  scanStorageOptimizer: () => Promise<any>;
+  executeHardlinkOptimizer: (masterPath: string, duplicatePath: string) => Promise<any>;
+  packageCompanionFiles: (filePath: string) => Promise<any>;
+  packageAllCompanionFiles: () => Promise<any>;
+  inspectModelPrecision: (filePath: string) => Promise<any>;
+  scanOrphanModels: (workflowDirs?: string | string[]) => Promise<any>;
+
+  // Model Converter (Pickle to SafeTensors) & Hardware Safety
+  getConverterEnvironment: (customPythonPath?: string) => Promise<any>;
+  convertModelToSafetensors: (filePath: string, options?: any) => Promise<any>;
+  getHardwareProfile: (forceRefresh?: boolean) => Promise<any>;
+  assessConversionSafety: (modelSizeBytes: number) => Promise<any>;
+
   // External Link & System Info
   openExternal: (url: string) => Promise<any>;
   getSystemInfo: () => Promise<any>;
@@ -101,6 +117,7 @@ export interface CivitaiAPI {
   // App Control
   restartApp: () => Promise<any>;
   shutdownApp: () => Promise<any>;
+  onProtocolAction: (callback: (actionPayload: any) => void) => void;
 
   _isMock?: boolean;
 }

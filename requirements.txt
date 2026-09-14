@@ -1,0 +1,6 @@
+# Renegade Core Model Manager (RenegadeCMM)
+# Optional Python dependencies for model conversion (Pickle -> SafeTensors)
+# Licensed under GNU General Public License v3.0 (GPL-3.0)
+
+torch>=2.0.0
+safetensors>=0.4.0

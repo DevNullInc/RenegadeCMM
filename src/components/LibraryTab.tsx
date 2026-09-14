@@ -40,10 +40,13 @@ import {
   Flame,
   Download,
   Loader2,
+  Cpu,
+  Activity,
+  Package,
 } from 'lucide-react';
 import { FallbackImage } from './FallbackImage';
 import { useScan } from '../context/ScanContext';
-import { LocalModel, ModelType } from '../types/app';
+import { LocalModel, ModelType, HardwareProfile, ConversionSafetyAssessment } from '../types/app';
 
 interface LibraryTabProps {
   onCheckUpdate: (model: LocalModel) => void;
@@ -63,6 +66,19 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   const [pullingAllMissing, setPullingAllMissing] = useState<boolean>(false);
   const [pullFeedback, setPullFeedback] = useState<{ id?: string; message: string; isError?: boolean } | null>(null);
 
+  // SafeTensors Conversion State
+  const [convertingModelId, setConvertingModelId] = useState<string | null>(null);
+  const [modelToConvert, setModelToConvert] = useState<LocalModel | null>(null);
+  const [deleteOriginalOnConvert, setDeleteOriginalOnConvert] = useState<boolean>(false);
+  const [convertFeedback, setConvertFeedback] = useState<{ id?: string; message: string; isError?: boolean } | null>(null);
+  const [hardwareAssessment, setHardwareAssessment] = useState<ConversionSafetyAssessment | null>(null);
+  const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
+  const [isCheckingHardware, setIsCheckingHardware] = useState<boolean>(false);
+
+  // Swarm Companion Packaging State
+  const [packagingModelId, setPackagingModelId] = useState<string | null>(null);
+  const [packageFeedback, setPackageFeedback] = useState<{ id?: string; message: string; isError?: boolean } | null>(null);
+
   // Delete Options Modal State
   const [modelToDelete, setModelToDelete] = useState<LocalModel | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
@@ -75,7 +91,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   const [ignoredDuplicates, setIgnoredDuplicates] = useState<{ sha256: string; knownCount: number }[]>([]);
 
   // Filters with LocalStorage Persistence
-  const [filter, setFilter] = useState<'all' | 'missing' | 'matched' | 'updates' | 'unidentified' | 'duplicates'>(
+  const [filter, setFilter] = useState<'all' | 'missing' | 'matched' | 'updates' | 'unidentified' | 'duplicates' | 'pickle'>(
     () => (localStorage.getItem('civitai_lib_filter') as any) || 'all'
   );
   const [typeFilter, setTypeFilter] = useState<'all' | ModelType>(
@@ -235,6 +251,165 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
       }
     } catch (err) {
       console.error('Failed to update model NSFW status:', err);
+    }
+  };
+
+  const isPickleModel = (model: LocalModel): boolean => {
+    const fn = (model.fileName || '').toLowerCase();
+    const fp = (model.filePath || '').toLowerCase();
+    return (
+      fn.endsWith('.ckpt') ||
+      fn.endsWith('.pt') ||
+      fn.endsWith('.bin') ||
+      fp.endsWith('.ckpt') ||
+      fp.endsWith('.pt') ||
+      fp.endsWith('.bin')
+    );
+  };
+
+  useEffect(() => {
+    if (!modelToConvert) {
+      setHardwareAssessment(null);
+      setHardwareProfile(null);
+      return;
+    }
+
+    let active = true;
+    setIsCheckingHardware(true);
+
+    const evaluate = async () => {
+      try {
+        if (window.civitaiAPI && typeof window.civitaiAPI.assessConversionSafety === 'function') {
+          const [safety, profile] = await Promise.all([
+            window.civitaiAPI.assessConversionSafety(modelToConvert.fileSize),
+            typeof window.civitaiAPI.getHardwareProfile === 'function'
+              ? window.civitaiAPI.getHardwareProfile()
+              : Promise.resolve(null),
+          ]);
+          if (active) {
+            setHardwareAssessment(safety?.data || safety);
+            setHardwareProfile(profile?.data || profile);
+          }
+        } else {
+          const res = await fetch('/api/converter/assess-safety', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelSizeBytes: modelToConvert.fileSize }),
+          });
+          const json = await res.json();
+          if (active) {
+            setHardwareAssessment(json?.data || json);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to assess hardware conversion safety:', err);
+      } finally {
+        if (active) setIsCheckingHardware(false);
+      }
+    };
+
+    evaluate();
+
+    return () => {
+      active = false;
+    };
+  }, [modelToConvert]);
+
+  const handleExecuteConversion = async (model: LocalModel, deleteOriginal: boolean = false) => {
+    setConvertingModelId(model.id);
+    setModelToConvert(null);
+    setConvertFeedback({
+      id: model.id,
+      message: `Converting ${model.fileName} to SafeTensors format...`,
+    });
+
+    try {
+      let res: any;
+      if (window.civitaiAPI && typeof window.civitaiAPI.convertModelToSafetensors === 'function') {
+        res = await window.civitaiAPI.convertModelToSafetensors(model.filePath, { deleteOriginal });
+      } else {
+        const response = await fetch('/api/converter/convert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourcePath: model.filePath, deleteOriginal }),
+        });
+        res = await response.json();
+      }
+
+      if (res && res.success) {
+        const destName = res.targetPath ? res.targetPath.split(/[/\\]/).pop() : 'SafeTensors';
+        const durSec = ((res.durationMs || 0) / 1000).toFixed(1);
+        setConvertFeedback({
+          id: model.id,
+          message: `Successfully converted to ${destName}! (${durSec}s)`,
+        });
+        await loadLocalModels();
+        setTimeout(() => setConvertFeedback(null), 8000);
+      } else {
+        setConvertFeedback({
+          id: model.id,
+          isError: true,
+          message: `Conversion failed: ${res?.error || 'Unknown conversion error'}`,
+        });
+      }
+    } catch (err: any) {
+      setConvertFeedback({
+        id: model.id,
+        isError: true,
+        message: `Conversion error: ${err.message || err}`,
+      });
+    } finally {
+      setConvertingModelId(null);
+    }
+  };
+
+  const handlePackageSingleModel = async (model: LocalModel) => {
+    setPackagingModelId(model.id);
+    setPackageFeedback({
+      id: model.id,
+      message: `Generating companion triplet (.sha256, .info, preview) for ${model.fileName}...`,
+    });
+
+    try {
+      let res: any;
+      if (window.civitaiAPI && typeof window.civitaiAPI.packageCompanionFiles === 'function') {
+        res = await window.civitaiAPI.packageCompanionFiles(model.filePath);
+      } else {
+        const response = await fetch('/api/storage/package-companion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filePath: model.filePath }),
+        });
+        res = await response.json();
+      }
+
+      if (res && res.success) {
+        const generated = [];
+        if (res.hashCreated) generated.push('.sha256');
+        if (res.infoCreated) generated.push('.info');
+        if (res.imageCreated) generated.push('preview');
+        const summary = generated.length > 0 ? `Created: ${generated.join(', ')}` : 'All companion files are complete';
+        setPackageFeedback({
+          id: model.id,
+          message: `Swarm Seeding Ready! ${summary}`,
+        });
+        await loadLocalModels();
+        setTimeout(() => setPackageFeedback(null), 7000);
+      } else {
+        setPackageFeedback({
+          id: model.id,
+          isError: true,
+          message: `Packaging failed: ${res?.error || 'Unknown error'}`,
+        });
+      }
+    } catch (err: any) {
+      setPackageFeedback({
+        id: model.id,
+        isError: true,
+        message: `Packaging error: ${err.message || err}`,
+      });
+    } finally {
+      setPackagingModelId(null);
     }
   };
 
@@ -552,6 +727,8 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           if (model.isMatched) return false;
         } else if (filter === 'duplicates') {
           if (!model.isDuplicate || !model.sha256) return false;
+        } else if (filter === 'pickle') {
+          if (!isPickleModel(model)) return false;
         }
 
         // Deduplicate identical files across library views so multi-copy models appear as one master card
@@ -776,16 +953,22 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
       {/* Filter Tabs & Search */}
       <div className="glass-panel p-4 rounded-2xl flex flex-wrap gap-4 items-center justify-between text-sm shadow-xl">
         <div className="flex flex-wrap gap-2">
-          {(['all', 'missing', 'matched', 'updates', 'unidentified', 'duplicates'] as const).map((t) => {
+          {(['all', 'missing', 'matched', 'updates', 'unidentified', 'duplicates', 'pickle'] as const).map((t) => {
             let count = 0;
             if (t === 'missing') count = localModels.filter((m) => m.isMissing).length;
             else if (t === 'matched') count = localModels.filter((m) => m.isMatched).length;
             else if (t === 'updates') count = localModels.filter((m) => m.hasUpdate).length;
             else if (t === 'unidentified') count = localModels.filter((m) => !m.isMatched).length;
             else if (t === 'duplicates') count = duplicateGroups.size;
+            else if (t === 'pickle') count = localModels.filter(isPickleModel).length;
             else count = localModels.length;
 
             const isMissingFilter = t === 'missing';
+            const isPickleFilter = t === 'pickle';
+
+            let label = t as string;
+            if (isMissingFilter) label = 'Missing on Disk';
+            else if (isPickleFilter) label = 'Pickle (.ckpt/.pt)';
 
             return (
               <button
@@ -795,14 +978,19 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                   filter === t
                     ? isMissingFilter
                       ? 'bg-linear-to-r from-rose-600 to-amber-600 text-white shadow-md shadow-rose-600/30'
+                      : isPickleFilter
+                      ? 'bg-linear-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
                       : 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
                     : isMissingFilter && count > 0
                     ? 'bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-rose-500/40 animate-pulse'
+                    : isPickleFilter && count > 0
+                    ? 'bg-cyan-950/40 text-cyan-300 hover:text-cyan-200 border border-cyan-500/40'
                     : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
                 }`}
               >
                 {isMissingFilter && <AlertTriangle size={13} className={count > 0 ? 'text-rose-400' : 'text-slate-500'} />}
-                <span>{isMissingFilter ? 'Missing on Disk' : t} ({count})</span>
+                {isPickleFilter && <Sparkles size={13} className={count > 0 ? 'text-cyan-400' : 'text-slate-500'} />}
+                <span>{label} ({count})</span>
               </button>
             );
           })}
@@ -1003,6 +1191,12 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                         >
                           {model.civitaiName || model.fileName}
                         </h3>
+                        {isPickleModel(model) && (
+                          <span className="text-[10px] font-bold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                            <Sparkles size={11} className="text-cyan-400" />
+                            <span>Pickle ({model.fileName.split('.').pop()?.toUpperCase()})</span>
+                          </span>
+                        )}
                         {(model.modelType || model.civitaiType) && (
                           <span className="text-[10px] font-bold text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md">
                             {model.modelType || model.civitaiType}
@@ -1160,6 +1354,28 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       </button>
                     )}
 
+                    {/* Convert to SafeTensors Action Button */}
+                    {isPickleModel(model) && !model.isMissing && (
+                      <button
+                        onClick={() => setModelToConvert(model)}
+                        disabled={convertingModelId === model.id}
+                        className="flex items-center gap-1.5 text-cyan-200 bg-cyan-500/20 border border-cyan-500/40 hover:bg-cyan-500/30 hover:text-white px-3 py-1.5 rounded-xl transition-all font-bold glow-cyan cursor-pointer text-xs shadow-md shadow-cyan-950/40"
+                        title="Convert this PyTorch pickle model (.ckpt/.pt/.bin) to SafeTensors format"
+                      >
+                        {convertingModelId === model.id ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin text-cyan-300" />
+                            <span>Converting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={13} className="text-cyan-400" />
+                            <span>Convert to Safetensors</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
                     {/* External Link Button (Hugging Face for GGUF/blobs, CivitAI / CivitAI.red for others) */}
                     {(() => {
                       const { label, isHf, isNsfw } = getModelExternalUrl(model);
@@ -1180,6 +1396,22 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       );
                     })()}
 
+                    {/* Swarm Companion Packaging Button */}
+                    {!model.isMissing && (
+                      <button
+                        onClick={() => handlePackageSingleModel(model)}
+                        disabled={packagingModelId === model.id}
+                        className="p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition-colors cursor-pointer"
+                        title="Generate missing Swarm companion files (.sha256, .info, preview image) for P2P seeding"
+                      >
+                        {packagingModelId === model.id ? (
+                          <Loader2 size={16} className="animate-spin text-emerald-300" />
+                        ) : (
+                          <Package size={16} />
+                        )}
+                      </button>
+                    )}
+
                     <button
                       onClick={() => handleOpenFolder(model.filePath)}
                       className="text-slate-400 hover:text-amber-300 p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
@@ -1198,6 +1430,58 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     </button>
                   </div>
                 </div>
+
+                {/* Inline Companion Packaging Toast on Model Card */}
+                {packageFeedback && packageFeedback.id === model.id && (
+                  <div
+                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${
+                      packageFeedback.isError
+                        ? 'bg-rose-950/70 border-rose-500/40 text-rose-200 glow-rose'
+                        : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-200 glow-emerald'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {packageFeedback.isError ? (
+                        <AlertTriangle size={15} className="text-rose-400 shrink-0" />
+                      ) : (
+                        <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                      )}
+                      <span>{packageFeedback.message}</span>
+                    </div>
+                    <button
+                      onClick={() => setPackageFeedback(null)}
+                      className="text-slate-400 hover:text-slate-200 text-xs px-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* Inline Conversion Toast on Model Card */}
+                {convertFeedback && convertFeedback.id === model.id && (
+                  <div
+                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${
+                      convertFeedback.isError
+                        ? 'bg-rose-950/70 border-rose-500/40 text-rose-200 glow-rose'
+                        : 'bg-cyan-950/70 border-cyan-500/40 text-cyan-200 glow-cyan'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {convertFeedback.isError ? (
+                        <AlertTriangle size={15} className="text-rose-400 shrink-0" />
+                      ) : (
+                        <CheckCircle2 size={15} className="text-cyan-400 shrink-0" />
+                      )}
+                      <span>{convertFeedback.message}</span>
+                    </div>
+                    <button
+                      onClick={() => setConvertFeedback(null)}
+                      className="text-slate-400 hover:text-slate-200 text-xs px-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
 
                 {/* Inline Pull / Download Toast on Model Card */}
                 {pullFeedback && pullFeedback.id === model.id && (
@@ -1497,6 +1781,186 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert to SafeTensors Modal */}
+      {modelToConvert && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn"
+          onClick={() => {
+            if (convertingModelId !== modelToConvert.id) setModelToConvert(null);
+          }}
+        >
+          <div
+            className="glass-panel bg-slate-950 border border-cyan-500/40 p-0 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl glow-cyan animate-scaleUp"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800/80 bg-slate-900/40 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-100 text-sm">Convert Model to SafeTensors</h3>
+                  <p className="text-[11px] text-slate-400">Zero-copy, secure tensor serialization with automatic hash updating</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={convertingModelId === modelToConvert.id}
+                onClick={() => setModelToConvert(null)}
+                className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 text-xs text-slate-300">
+              <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Source Model</span>
+                <p className="font-bold text-slate-100 text-sm truncate">{modelToConvert.fileName}</p>
+                <p className="text-[11px] text-slate-400 font-mono truncate">{modelToConvert.filePath}</p>
+                <div className="pt-1 flex items-center gap-3 text-[11px] text-slate-400 font-medium">
+                  <span>Size: <strong className="text-slate-200">{(modelToConvert.fileSize / 1024 / 1024).toFixed(1)} MB</strong></span>
+                  <span>Target: <strong className="text-cyan-300 font-mono">{modelToConvert.fileName.replace(/\.(ckpt|pt|bin)$/i, '.safetensors')}</strong></span>
+                </div>
+              </div>
+
+              {/* Benefits Note */}
+              <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-800/40 text-cyan-200 text-[11px] space-y-1">
+                <p className="font-semibold text-cyan-300 flex items-center gap-1.5">
+                  <ShieldCheck size={14} className="text-cyan-400" />
+                  <span>Why convert to SafeTensors?</span>
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
+                  <li>Eliminates PyTorch pickle arbitrary code execution vulnerabilities.</li>
+                  <li>Faster load times into GPU VRAM via direct memory mapping (mmap).</li>
+                  <li>Preserves CivitAI metadata, hash associations, and preview images in library.</li>
+                </ul>
+              </div>
+
+              {/* Hardware & OOM Safety Assessment Card */}
+              <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+                    <Cpu size={14} className="text-cyan-400" />
+                    <span>Hardware & Memory Safety Assessment</span>
+                  </div>
+                  {isCheckingHardware ? (
+                    <span className="flex items-center gap-1 text-[10px] text-cyan-400">
+                      <Loader2 size={11} className="animate-spin" /> Scanning system...
+                    </span>
+                  ) : hardwareAssessment ? (
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                        hardwareAssessment.riskLevel === 'safe'
+                          ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                          : hardwareAssessment.riskLevel === 'warning'
+                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+                          : 'bg-rose-500/10 border border-rose-500/30 text-rose-400 animate-pulse'
+                      }`}
+                    >
+                      {hardwareAssessment.riskLevel === 'safe'
+                        ? 'Safe for Conversion'
+                        : hardwareAssessment.riskLevel === 'warning'
+                        ? 'Moderate Memory Risk'
+                        : 'High OOM Risk'}
+                    </span>
+                  ) : null}
+                </div>
+
+                {hardwareProfile && (
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/60">
+                      <span className="text-slate-500 block">CPU & Cores</span>
+                      <span className="text-slate-200 font-medium truncate block" title={hardwareProfile.cpu.model}>
+                        {hardwareProfile.cpu.model} ({hardwareProfile.cpu.cores} cores)
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-950/60 border border-slate-800/60">
+                      <span className="text-slate-500 block">Available RAM</span>
+                      <span className="text-slate-200 font-medium block">
+                        <strong className="text-cyan-300">{hardwareProfile.memory.freeFormatted}</strong> free / {hardwareProfile.memory.totalFormatted} ({hardwareProfile.memory.usedPercent}% used)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {hardwareAssessment && (
+                  <div
+                    className={`p-2.5 rounded-xl border text-[11px] flex items-start gap-2 ${
+                      hardwareAssessment.riskLevel === 'safe'
+                        ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
+                        : hardwareAssessment.riskLevel === 'warning'
+                        ? 'bg-amber-950/20 border-amber-800/40 text-amber-200'
+                        : 'bg-rose-950/30 border-rose-800/50 text-rose-200'
+                    }`}
+                  >
+                    {hardwareAssessment.riskLevel === 'safe' ? (
+                      <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                    ) : hardwareAssessment.riskLevel === 'warning' ? (
+                      <AlertTriangle size={15} className="text-amber-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle size={15} className="text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-0.5">
+                      <p className="font-semibold">{hardwareAssessment.message}</p>
+                      {hardwareAssessment.recommendation && (
+                        <p className="text-[10px] text-slate-400">{hardwareAssessment.recommendation}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Delete Original Toggle */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 cursor-pointer text-slate-300 hover:border-slate-700 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={deleteOriginalOnConvert}
+                  onChange={(e) => setDeleteOriginalOnConvert(e.target.checked)}
+                  className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-cyan-400 w-4 h-4 mt-0.5"
+                />
+                <div className="text-[11px]">
+                  <span className="font-bold text-slate-200 block">Delete original file after successful conversion</span>
+                  <span className="text-slate-400">Permanently removes the original {modelToConvert.fileName.split('.').pop()?.toUpperCase()} file to reclaim disk space.</span>
+                </div>
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-800/80 bg-slate-900/40 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={convertingModelId === modelToConvert.id}
+                onClick={() => setModelToConvert(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={convertingModelId === modelToConvert.id}
+                onClick={() => handleExecuteConversion(modelToConvert, deleteOriginalOnConvert)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-cyan-600/30 cursor-pointer disabled:opacity-50 active:scale-95"
+              >
+                {convertingModelId === modelToConvert.id ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Converting Model...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    <span>Convert Now</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

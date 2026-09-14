@@ -7,11 +7,44 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
-import { LGraph, LGraphCanvas, LGraphNode } from 'litegraph.js';
-import 'litegraph.js/css/litegraph.css';
-import { ZoomIn, ZoomOut, Maximize2, Crosshair, X, Workflow } from 'lucide-react';
+import {
+  ReactFlow,
+  Background,
+  MiniMap,
+  Handle,
+  Position,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
+  NodeProps,
+  Edge,
+  Node,
+  BackgroundVariant,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import {
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Minimize2,
+  Crosshair,
+  X,
+  Workflow,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Layers,
+} from 'lucide-react';
 import { CanvasGraph, CanvasNode } from '../types/app';
 
 export type NodeStatus = 'ready' | 'missing-model' | 'missing-node';
@@ -22,14 +55,171 @@ export interface WorkflowNodeMapHandle {
   zoomToNodeType: (nodeType: string | number | null) => void;
 }
 
-const STATUS_COLORS: Record<NodeStatus, { color: string; bgcolor: string }> = {
-  ready: { color: '#10b981', bgcolor: '#0b1220' },
-  'missing-model': { color: '#f59e0b', bgcolor: '#2a1608' },
-  'missing-node': { color: '#f43f5e', bgcolor: '#320a14' },
+const STATUS_THEMES: Record<
+  NodeStatus,
+  { border: string; bg: string; badgeBg: string; badgeText: string; icon: any; label: string; minimapColor: string }
+> = {
+  ready: {
+    border: 'border-emerald-500/50 shadow-emerald-950/20',
+    bg: 'bg-slate-900/90 hover:bg-slate-900',
+    badgeBg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    badgeText: 'text-emerald-400',
+    icon: CheckCircle2,
+    label: 'Ready',
+    minimapColor: '#10b981',
+  },
+  'missing-model': {
+    border: 'border-amber-500/60 shadow-amber-950/30',
+    bg: 'bg-slate-900/95 hover:bg-slate-900',
+    badgeBg: 'bg-amber-500/15 text-amber-400 border-amber-500/40',
+    badgeText: 'text-amber-400',
+    icon: AlertTriangle,
+    label: 'Missing Model',
+    minimapColor: '#f59e0b',
+  },
+  'missing-node': {
+    border: 'border-rose-500/70 shadow-rose-950/40',
+    bg: 'bg-slate-900/95 hover:bg-slate-900',
+    badgeBg: 'bg-rose-500/15 text-rose-400 border-rose-500/40',
+    badgeText: 'text-rose-400',
+    icon: XCircle,
+    label: 'Missing Node',
+    minimapColor: '#f43f5e',
+  },
 };
 
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 140;
+export interface CustomNodeData extends Record<string, unknown> {
+  canvasNode: CanvasNode;
+  status: NodeStatus;
+  onFocus: (nodeType: string | number | null) => void;
+}
+
+/**
+ * Custom High-DPI React Flow card for ComfyUI nodes.
+ */
+function ComfyUINodeComponent({ data, selected }: NodeProps<Node<CustomNodeData>>) {
+  const { canvasNode, status, onFocus } = data;
+  const theme = STATUS_THEMES[status] || STATUS_THEMES.ready;
+  const StatusIcon = theme.icon;
+
+  const nodeTitle = canvasNode?.title || canvasNode?.type || `Node #${canvasNode?.id}`;
+  const isTypeDifferent = canvasNode?.title && canvasNode?.type && canvasNode.title !== canvasNode.type;
+
+  // Widget parameters preview
+  const widgetPreview = useMemo(() => {
+    if (!canvasNode?.widgets_values || !Array.isArray(canvasNode.widgets_values)) return [];
+    return canvasNode.widgets_values
+      .filter((v) => v !== null && v !== undefined && v !== '')
+      .map((v) => {
+        if (typeof v === 'string') {
+          return v.length > 32 ? v.slice(0, 32) + '...' : v;
+        }
+        if (typeof v === 'number') {
+          return Number.isInteger(v) ? String(v) : v.toFixed(3);
+        }
+        return String(v);
+      })
+      .slice(0, 3);
+  }, [canvasNode?.widgets_values]);
+
+  const inputs = canvasNode?.inputs || [];
+  const outputs = canvasNode?.outputs || [];
+
+  return (
+    <div
+      onClick={() => onFocus(canvasNode?.type || canvasNode?.id)}
+      className={`group relative min-w-[240px] max-w-[320px] rounded-xl border backdrop-blur-md transition-all duration-150 select-none shadow-xl ${
+        theme.border
+      } ${theme.bg} ${selected ? 'ring-2 ring-indigo-500 shadow-indigo-500/20' : ''}`}
+    >
+      {/* Input Sockets */}
+      {inputs.map((inp, idx) => (
+        <Handle
+          key={`in-${idx}`}
+          type="target"
+          position={Position.Left}
+          id={`in_${idx}`}
+          style={{
+            top: `${36 + idx * 20}px`,
+            background: '#6366f1',
+            width: 10,
+            height: 10,
+            border: '2px solid #0f172a',
+          }}
+          title={inp.name || `Input ${idx}`}
+        />
+      ))}
+
+      {/* Output Sockets */}
+      {outputs.map((out, idx) => (
+        <Handle
+          key={`out-${idx}`}
+          type="source"
+          position={Position.Right}
+          id={`out_${idx}`}
+          style={{
+            top: `${36 + idx * 20}px`,
+            background: '#10b981',
+            width: 10,
+            height: 10,
+            border: '2px solid #0f172a',
+          }}
+          title={out.name || `Output ${idx}`}
+        />
+      ))}
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-800/80 px-3.5 py-2.5 bg-slate-950/40 rounded-t-xl gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Layers className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          <span className="text-xs font-semibold text-slate-200 truncate" title={nodeTitle}>
+            {nodeTitle}
+          </span>
+        </div>
+        <div
+          className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border shrink-0 ${theme.badgeBg}`}
+        >
+          <StatusIcon className="w-3 h-3 shrink-0" />
+          <span>{theme.label}</span>
+        </div>
+      </div>
+
+      {/* Body Details */}
+      <div className="p-3 space-y-2 text-xs">
+        {isTypeDifferent && (
+          <div className="text-[11px] text-slate-400 font-mono truncate" title={canvasNode?.type}>
+            type: {canvasNode?.type}
+          </div>
+        )}
+
+        {widgetPreview.length > 0 && (
+          <div className="space-y-1">
+            {widgetPreview.map((val, i) => (
+              <div
+                key={i}
+                className="text-[11px] font-mono text-slate-300 bg-slate-950/60 px-2 py-1 rounded border border-slate-800/60 truncate"
+                title={val}
+              >
+                {val}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {inputs.length > 0 && (
+          <div className="text-[10px] text-slate-500">
+            {inputs.length} input{inputs.length > 1 ? 's' : ''} &bull; {outputs.length} output
+            {outputs.length > 1 ? 's' : ''}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = {
+  comfyNode: ComfyUINodeComponent,
+};
 
 interface WorkflowNodeMapProps {
   graph?: CanvasGraph;
@@ -40,572 +230,229 @@ interface WorkflowNodeMapProps {
   onToggleExpand: () => void;
 }
 
-/**
- * Read-only LiteGraph renderer for a workflow's visual node map.
- *
- * The workflow's `canvasGraph` is already in LiteGraph's serialized format (nodes with
- * `id`/`type`/`pos`/`size`/`inputs`/`outputs`, plus `links`), so nodes carry their own
- * embedded canvas coordinates and wire definitions. Because node `type`s are arbitrary
- * ComfyUI class names (not LiteGraph-registered node classes), the graph is assembled
- * manually rather than through `LGraph.configure`.
- *
- * Editing is disabled (read-only). Pan/zoom via mouse works as expected; nodes are
- * colored by their readiness (ready / missing-model / missing-node) and clicking a node
- * focuses the resolution cards below via `onFocusNode`.
- *
- * NOTE: This component is currently read-only. Full LiteGraph editing support is tracked
- * for v1.6.0 (see ROADMAP) — to enable editing later, flip `read_only`/`allow_dragnodes`
- * below and set whole-graph moved/connect callbacks back into the app.
- */
-export const WorkflowNodeMap = forwardRef<WorkflowNodeMapHandle, WorkflowNodeMapProps>(
-  function WorkflowNodeMap(
-    { graph, getNodeStatus, onFocusNode, viewMode, isMapExpanded, onToggleExpand },
-    ref
-  ) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const canvasElRef = useRef<HTMLCanvasElement | null>(null);
-  const graphRef = useRef<LGraph | null>(null);
-  const canvasRef = useRef<LGraphCanvas | null>(null);
-  const [zoomPercent, setZoomPercent] = useState(100);
-  // Whether the map is allowed to capture pointer/wheel input. The inline (non-expanded)
-  // map must NOT swallow wheel/mouse events that the user intends for scrolling the page:
-  // it only becomes interactive after an explicit click inside, and releases when the user
-  // clicks anywhere outside. The expanded fullscreen map is always interactive.
-  const [inputActive, setInputActive] = useState(false);
+function WorkflowNodeMapInner(
+  { graph, getNodeStatus, onFocusNode, isMapExpanded, onToggleExpand }: WorkflowNodeMapProps,
+  ref: React.ForwardedRef<WorkflowNodeMapHandle>
+) {
+  const { fitView, zoomIn, zoomOut, getNodes, setCenter } = useReactFlow<Node<CustomNodeData>, Edge>();
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<CustomNodeData>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
 
-  const visible = viewMode === 'both' || viewMode === 'map';
-
-  // Create the LiteGraph graph + canvas exactly once for this component's lifetime.
+  // Transform ComfyUI CanvasGraph into React Flow nodes and edges
   useEffect(() => {
-    if (graphRef.current || !canvasElRef.current) return;
-    const g = new LGraph();
-    const c = new LGraphCanvas(canvasElRef.current, g, { autoresize: false }) as LGraphCanvas & {
-      read_only: boolean;
-      allow_connect_output_to_input: boolean;
-      setCanvas: (el: HTMLCanvasElement | null, skip?: boolean) => void;
-    };
-
-    // Read-only for now (editing tracked for v1.6.0). Keep background pan enabled.
-    c.read_only = true;
-    c.allow_dragnodes = false;
-    c.allow_connect_output_to_input = false;
-    c.allow_reconnect_links = false;
-    c.allow_interaction = false;
-    c.ds.max_scale = 2;
-    c.ds.min_scale = 0.2;
-    c.show_info = false;
-
-    // The bundled render loop dies permanently if a single draw() call throws (e.g. an
-    // aberrant workflow node/link), which freezes the canvas and makes pan/zoom/fit appear
-    // dead. Wrap draw so one bad node can never kill the whole renderer.
-    const drawImpl = c.draw.bind(c);
-    (c as any).draw = (...rest: any[]) => {
-      try {
-        return drawImpl(...rest);
-      } catch (err) {
-        console.error('WorkflowNodeMap render error:', err);
-      }
-    };
-
-    // LiteGraph's own wheel handlers zoom around the canvas CENTER (DragAndScale.onMouse)
-    // or raw client coordinates (processMouseWheel) — neither tracks the pointer inside a
-    // nested panel, so touchpad pinch / scroll visibly jumps away from the cursor. Replace
-    // the canvas wheel listeners with one anchored at the pointer's canvas-relative point.
-    //
-    // Touchpads emit wheel events far faster than any display can repaint (multiples per
-    // frame). Rather than letting each hardware tick poke the canvas, catch the wheel
-    // event on the map, accumulate deltaY into a running balance (plus the latest cursor
-    // anchor), and block the native scroll. One requestAnimationFrame flush applies the
-    // whole balance at once - collapsing the churn of micro-calls into a single smooth
-    // <=60fps canvas transform - and resets the counter. Each flush drains everything
-    // (no remainder carried across frames, which is what made zoom "coast" after the
-    // fingers stopped). On >=120 Hz displays the interval guard throttles the rAF flush
-    // itself back to <=60 applies/second.
-    const ZOOM_FRAME_MS = 1000 / 60;
-    let pendingDeltaY = 0;
-    let pendingCenter: [number, number] = [0, 0];
-    let lastZoomAppliedAt = 0;
-    let zoomRafId: number | null = null;
-
-    const flushZoom = (now: number) => {
-      zoomRafId = null;
-      if (pendingDeltaY === 0) return;
-      if (now - lastZoomAppliedAt < ZOOM_FRAME_MS) {
-        zoomRafId = requestAnimationFrame(flushZoom);
-        return;
-      }
-      lastZoomAppliedAt = now;
-      const dy = pendingDeltaY;
-      pendingDeltaY = 0;
-      const k = Math.pow(1.2, -dy / 120);
-      const next = Math.max(c.ds.min_scale, Math.min(c.ds.max_scale, c.ds.scale * k));
-      if (next !== c.ds.scale) {
-        c.ds.changeScale(next, pendingCenter);
-        setZoomPercent(Math.round(c.ds.scale * 100));
-      }
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      if (!c.graph || !c.allow_dragcanvas || !c.canvas) return;
-      let dy = e.deltaY;
-      if (e.deltaMode === 1) dy *= 16; // line-based scrolling
-      else if (e.deltaMode === 2) dy *= 100; // page-based scrolling
-      if (dy === 0) return;
-      pendingDeltaY += dy;
-      const rect = c.canvas.getBoundingClientRect();
-      pendingCenter = [e.clientX - rect.left, e.clientY - rect.top];
-      e.preventDefault();
-      e.stopPropagation();
-      if (zoomRafId == null) zoomRafId = requestAnimationFrame(flushZoom);
-    };
-    const wheelCallback = (c as any)._mousewheel_callback as ((e: Event) => void) | undefined;
-    const canvasEl = canvasElRef.current;
-    const elAny = canvasEl as any;
-    if (wheelCallback) {
-      elAny.removeEventListener('mousewheel', wheelCallback);
-      elAny.removeEventListener('DOMMouseScroll', wheelCallback);
-    }
-    // Bind only the standard "wheel" event. LiteGraph's old handlers listen on the
-    // legacy "mousewheel"/"DOMMouseScroll" too, and in Chromium those can fire in
-    // addition to "wheel", double-applying a touchpad gesture; Firefox and Chromium
-    // both deliver touchpad/pinch via "wheel", so the legacy listeners are dead weight.
-    elAny.addEventListener('wheel', onWheel, { passive: false });
-
-    graphRef.current = g;
-    canvasRef.current = c;
-
-    return () => {
-      try {
-        if (zoomRafId != null) cancelAnimationFrame(zoomRafId);
-        c.stopRendering();
-        const el = canvasEl as any;
-        el.removeEventListener('wheel', onWheel);
-        // LiteGraph's own unbindEvents() cannot remove its capture-phase listeners:
-        // bindEvents registers "down"/"up"/"keydown" with capture=true, but
-        // pointerListenerRemove()/removeEventListener default the capture flag to
-        // false (and it even passes _mousedown_callback when clearing "move"). A torn
-        // down LGraphCanvas therefore keeps its "mousedown" capture listener alive,
-        // and with this.canvas nulled it throws "Cannot read properties of null
-        // (reading 'focus')" on every canvas click (React StrictMode's dev double
-        // mount leaks exactly this). Remove the exact bound callbacks ourselves.
-        const anyC = c as any;
-        if (anyC._mousedown_callback) el.removeEventListener('mousedown', anyC._mousedown_callback, true);
-        if (anyC._mouseup_callback) el.removeEventListener('mouseup', anyC._mouseup_callback, true);
-        if (anyC._mousemove_callback) el.removeEventListener('mousemove', anyC._mousemove_callback);
-        if (anyC._key_callback) {
-          el.removeEventListener('keydown', anyC._key_callback, true);
-          document.removeEventListener('keyup', anyC._key_callback, true);
-        }
-        c.setCanvas(null, false);
-      } catch {
-        /* ignore teardown errors */
-      }
-      graphRef.current = null;
-      canvasRef.current = null;
-    };
-  }, []);
-
-  // Force an immediate synchronous redraw so view changes never depend solely on the
-  // internal requestAnimationFrame loop staying healthy.
-  const forceDraw = useCallback(() => {
-    const c = canvasRef.current;
-    if (!c) return;
-    try {
-      c.setDirty(true, true);
-      c.draw(true, true);
-    } catch (err) {
-      console.error('WorkflowNodeMap render error:', err);
-    }
-  }, []);
-
-  // Fit the whole graph into the current viewport.
-  const fitToView = useCallback(() => {
-    const c = canvasRef.current;
-    const g = graphRef.current;
-    const host = hostRef.current;
-    if (!c || !g || !host) return;
-    const nodes = (g as any)._nodes ?? [];
-    if (!nodes.length) {
-      c.ds.offset = [0, 0];
-      c.ds.scale = 1;
-      setZoomPercent(100);
-      forceDraw();
+    if (!graph || !Array.isArray(graph.nodes)) {
+      setNodes([]);
+      setEdges([]);
       return;
     }
 
-    // Keep the drawing buffer in sync with the host before computing the transform.
-    // Otherwise the graph is fitted to (and drawn into) a stale or zero-sized buffer,
-    // which makes Fit to View appear to do nothing.
-    const hostW = host.clientWidth || 0;
-    const hostH = host.clientHeight || 0;
-    if (hostW > 0 && hostH > 0) {
-      try {
-        c.resize();
-      } catch {
-        /* ignore resize errors */
-      }
-    }
+    const flowNodes: Node<CustomNodeData>[] = graph.nodes.map((n) => {
+      const status = getNodeStatus(n);
+      const posX = Array.isArray(n.pos) && typeof n.pos[0] === 'number' ? n.pos[0] : 0;
+      const posY = Array.isArray(n.pos) && typeof n.pos[1] === 'number' ? n.pos[1] : 0;
 
-    const vw = hostW || c.canvas.width || 600;
-    const vh = hostH || c.canvas.height || 400;
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const n of nodes) {
-      const x = n.pos ? n.pos[0] : 0;
-      const y = n.pos ? n.pos[1] : 0;
-      const w = n.size && n.size[0] ? n.size[0] : NODE_WIDTH;
-      const h = n.size && n.size[1] ? n.size[1] : NODE_HEIGHT;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x + w);
-      maxY = Math.max(maxY, y + h);
-    }
-    const bw = maxX - minX || 1;
-    const bh = maxY - minY || 1;
-    const pad = 80;
-    const scale = Math.max(0.1, Math.min(1, (vw - pad) / bw, (vh - pad) / bh));
-    c.ds.scale = scale;
-    c.ds.offset = [(vw - bw * scale) / 2 - minX * scale, (vh - bh * scale) / 2 - minY * scale];
-    setZoomPercent(Math.round(scale * 100));
-    forceDraw();
-  }, [forceDraw]);
-
-  // (Re)build the LiteGraph graph whenever the data or node statuses change.
-  useEffect(() => {
-    const c = canvasRef.current;
-    const g = graphRef.current;
-    if (!c || !g) return;
-    g.clear();
-    c.clear();
-
-    if (!graph?.nodes || graph.nodes.length === 0) {
-      c.setDirty(true, true);
-      return;
-    }
-
-    const nodeMap = new Map<string | number, LGraphNode>();
-    for (const cn of graph.nodes) {
-      const label = cn.title || String(cn.type ?? 'Node');
-      const lg: LGraphNode = new LGraphNode(label);
-      lg.type = String(cn.type ?? 'Node');
-      (lg as any).title = label;
-      if (Array.isArray(cn.pos)) {
-        lg.pos = [Number(cn.pos[0]) || 0, Number(cn.pos[1]) || 0];
-      }
-      if (Array.isArray(cn.size)) {
-        lg.size = [Number(cn.size[0]) || NODE_WIDTH, Number(cn.size[1]) || NODE_HEIGHT];
-      } else {
-        lg.size = [NODE_WIDTH, NODE_HEIGHT];
-      }
-      for (const inp of cn.inputs ?? []) {
-        lg.addInput(inp.name || inp.type || 'in', inp.type || 'any');
-      }
-      for (const out of cn.outputs ?? []) {
-        lg.addOutput(out.name || out.type || 'out', out.type || 'any');
-      }
-      const pal = STATUS_COLORS[getNodeStatus(cn)];
-      lg.color = pal.color;
-      lg.bgcolor = pal.bgcolor;
-      lg.onMouseDown = () => {
-        onFocusNode(cn.type);
+      return {
+        id: String(n.id),
+        type: 'comfyNode',
+        position: { x: posX, y: posY },
+        data: {
+          canvasNode: n,
+          status,
+          onFocus: onFocusNode,
+        },
       };
-      g.add(lg, true);
-      nodeMap.set(cn.id, lg);
+    });
+
+    const flowEdges: Edge[] = [];
+    if (Array.isArray(graph.links)) {
+      graph.links.forEach((l, idx) => {
+        if (!Array.isArray(l) || l.length < 5) return;
+        const [linkId, originId, originSlot, targetId, targetSlot] = l;
+        flowEdges.push({
+          id: `edge-${linkId || idx}`,
+          source: String(originId),
+          target: String(targetId),
+          sourceHandle: `out_${originSlot}`,
+          targetHandle: `in_${targetSlot}`,
+          animated: false,
+          style: { stroke: '#6366f1', strokeWidth: 2 },
+        });
+      });
     }
 
-    for (const link of graph.links ?? []) {
-      const nl = normalizeLink(link);
-      if (!nl) continue;
-      const src = nodeMap.get(nl.origin_id);
-      const dst = nodeMap.get(nl.target_id);
-      if (!src || !dst) continue;
-      try {
-        src.connect(nl.origin_slot, dst, nl.target_slot);
-      } catch {
-        /* skip malformed link */
-      }
-    }
+    setNodes(flowNodes);
+    setEdges(flowEdges);
 
-    fitToView();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, getNodeStatus, onFocusNode, visible]);
+    // Auto-fit view after rendering
+    setTimeout(() => {
+      fitView({ padding: 0.2, duration: 300 });
+    }, 50);
+  }, [graph, getNodeStatus, onFocusNode, setNodes, setEdges, fitView]);
 
-  // Re-size and re-fit whenever visibility/fullscreen changes.
-  useEffect(() => {
-    if (!visible) return;
-    fitToView();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMapExpanded, visible]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomToNodeType: (target: string | number | null) => {
+        if (!target) return;
+        const currentNodes = getNodes();
+        const targetStr = String(target).toLowerCase();
+        const found = currentNodes.find((n) => {
+          const cNode = (n.data as CustomNodeData)?.canvasNode;
+          return (
+            String(n.id) === targetStr ||
+            cNode?.type?.toLowerCase() === targetStr ||
+            cNode?.title?.toLowerCase() === targetStr
+          );
+        });
 
-  // Collapse the expanded map via the X button or the Escape key.
-  useEffect(() => {
-    if (!isMapExpanded) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Esc') {
-        e.preventDefault();
-        e.stopPropagation();
-        onToggleExpand();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [isMapExpanded, onToggleExpand]);
-
-  // Input gating for the inline map: activating on an explicit click inside the map, and
-  // releasing the grab as soon as the user clicks anywhere outside of it (so scrolling the
-  // surrounding workflow page is never blocked by the LiteGraph canvas).
-  useEffect(() => {
-    if (isMapExpanded) {
-      setInputActive(true);
-      return;
-    }
-    const onDocDown = (e: MouseEvent) => {
-      const host = hostRef.current;
-      if (host && !host.contains(e.target as Node)) setInputActive(false);
-    };
-    document.addEventListener('mousedown', onDocDown, true);
-    return () => document.removeEventListener('mousedown', onDocDown, true);
-  }, [isMapExpanded]);
-
-  // Center the first node of the requested type in the viewport so the user can see
-  // exactly which section of the workflow a resolution card refers to.
-  const zoomToNodeType = useCallback(
-    (nodeType: string | number | null) => {
-      const c = canvasRef.current;
-      const g = graphRef.current;
-      const host = hostRef.current;
-      if (!c || !g || !host || nodeType == null) return;
-      const want = String(nodeType);
-      const nodes = (g as any)._nodes as LGraphNode[];
-      const target = nodes.find((n) => String(n.type) === want);
-      if (!target) return;
-
-      let hostW = host.clientWidth || 0;
-      let hostH = host.clientHeight || 0;
-      if (hostW > 0 && hostH > 0) {
-        try {
-          c.resize();
-        } catch {
-          /* ignore resize errors */
+        if (found) {
+          setCenter(found.position.x + 150, found.position.y + 75, { zoom: 1.2, duration: 400 });
         }
-      }
-      const vw = hostW || c.canvas.width || 600;
-      const vh = hostH || c.canvas.height || 400;
-
-      const w = target.size && target.size[0] ? target.size[0] : NODE_WIDTH;
-      const h = target.size && target.size[1] ? target.size[1] : NODE_HEIGHT;
-      const [x, y] = target.pos || [0, 0];
-      const scale = Math.max(
-        c.ds.min_scale,
-        Math.min(2, (vw * 0.8) / (w || 1), (vh * 0.8) / (h || 1), 1.25)
-      );
-      c.ds.scale = scale;
-      c.ds.offset = [vw / 2 - (x + w / 2) * scale, vh / 2 - (y + h / 2) * scale];
-      setZoomPercent(Math.round(scale * 100));
-      forceDraw();
-    },
-    [forceDraw]
+      },
+    }),
+    [getNodes, setCenter]
   );
 
-  useImperativeHandle(ref, () => ({ zoomToNodeType }), [zoomToNodeType]);
-
-  const zoomBy = (delta: number) => {
-    const c = canvasRef.current;
-    const host = hostRef.current;
-    if (!c || !host) return;
-    const next = Math.max(0.2, Math.min(2, c.ds.scale + delta));
-    const prev = c.ds.scale;
-    const k = next / prev;
-    const cx = (host.clientWidth || 600) / 2;
-    const cy = (host.clientHeight || 400) / 2;
-    c.ds.scale = next;
-    c.ds.offset = [cx - (cx - c.ds.offset[0]) * k, cy - (cy - c.ds.offset[1]) * k];
-    setZoomPercent(Math.round(next * 100));
-    forceDraw();
-  };
-
-  const showButtons = visible;
-
-  const root = (
-    <div
-      className={`${
-        isMapExpanded
-          // Portaled to document.body (below) so its z-index is compared against the root
-          // stacking context: [#] > sticky footer (z-40) and scroll-to-top (z-[100]).
-          ? 'fixed inset-0 z-[150] flex flex-col bg-[#0a0d14] border border-slate-800 shadow-2xl'
-          : 'glass-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden space-y-2'
-      } ${showButtons ? '' : 'hidden'}`}
-    >
-      {/* Map Toolbar */}
-      <div
-        className={`px-6 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/40 ${
-          isMapExpanded ? 'shrink-0' : ''
-        }`}
+  return (
+    <div className="relative w-full h-full bg-slate-950/95 overflow-hidden select-none">
+      <ReactFlow<Node<CustomNodeData>, Edge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        panOnScroll={true}
+        zoomOnPinch={true}
+        zoomOnScroll={false}
+        selectionOnDrag={true}
+        panOnDrag={[1, 2]}
+        minZoom={0.1}
+        maxZoom={2.5}
+        onMove={(_e, viewport) => {
+          setZoomLevel(Math.round(viewport.zoom * 100));
+        }}
+        proOptions={{ hideAttribution: true }}
+        className="touch-none"
       >
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-200 flex-wrap">
-          <Workflow size={16} className="text-cyan-400" />
-          <span>Visual Node Map</span>
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-slate-800 text-amber-300/90 border border-amber-500/30">
-            Embedded (Read-Only)
-          </span>
-          <span className="text-[11px] text-slate-500 font-normal hidden sm:inline">
-            (Click nodes to focus resolution cards)
-          </span>
-        </div>
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#334155" />
+        <MiniMap
+          nodeColor={(n) => {
+            const data = n.data as unknown as CustomNodeData;
+            return STATUS_THEMES[data?.status]?.minimapColor || '#64748b';
+          }}
+          nodeStrokeWidth={3}
+          zoomable
+          pannable
+          className="!bg-slate-900/90 !border-slate-800 !rounded-lg"
+        />
+      </ReactFlow>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => zoomBy(-0.1)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title="Zoom Out"
-          >
-            <ZoomOut size={14} />
-          </button>
-          <span className="text-xs font-mono text-slate-400 min-w-[45px] text-center">
-            {zoomPercent}%
-          </span>
-          <button
-            onClick={() => zoomBy(0.1)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title="Zoom In"
-          >
-            <ZoomIn size={14} />
-          </button>
-          <button
-            onClick={fitToView}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors ml-1"
-            title="Fit to View"
-          >
-            <Crosshair size={14} />
-          </button>
-          {isMapExpanded ? (
-            <button
-              onClick={onToggleExpand}
-              className="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white transition-colors ml-1"
-              title="Shrink Back From Fullscreen"
-            >
-              <X size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={onToggleExpand}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors ml-1"
-              title="Expand to Fullscreen"
-            >
-              <Maximize2 size={14} />
-            </button>
-          )}
-        </div>
+      {/* Floating Canvas Controls Toolbar */}
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800 px-2.5 py-1.5 rounded-lg shadow-xl text-slate-300">
+        <button
+          type="button"
+          onClick={() => zoomIn({ duration: 200 })}
+          className="p-1.5 hover:bg-slate-800 hover:text-white rounded-md transition-colors"
+          title="Zoom In"
+        >
+          <ZoomIn className="w-4 h-4" />
+        </button>
+        <span className="text-xs font-mono px-1 text-slate-400 min-w-[42px] text-center">
+          {zoomLevel}%
+        </span>
+        <button
+          type="button"
+          onClick={() => zoomOut({ duration: 200 })}
+          className="p-1.5 hover:bg-slate-800 hover:text-white rounded-md transition-colors"
+          title="Zoom Out"
+        >
+          <ZoomOut className="w-4 h-4" />
+        </button>
+        <div className="w-px h-4 bg-slate-800 mx-1" />
+        <button
+          type="button"
+          onClick={() => fitView({ padding: 0.2, duration: 300 })}
+          className="p-1.5 hover:bg-slate-800 hover:text-white rounded-md transition-colors"
+          title="Fit to Screen"
+        >
+          <Crosshair className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          className="p-1.5 hover:bg-slate-800 hover:text-white rounded-md transition-colors"
+          title={isMapExpanded ? 'Exit Fullscreen' : 'Expand Fullscreen'}
+        >
+          {isMapExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
       </div>
 
-      {/* LiteGraph Viewport */}
-      <div
-        ref={hostRef}
-        className={`relative overflow-hidden bg-[#0a0d14] select-none ${
-          isMapExpanded ? 'flex-1 w-full min-h-0' : 'w-full h-[420px]'
-        }`}
-      >
-        <canvas
-          ref={canvasElRef}
-          className="block w-full h-full"
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'block',
-            // Until the user explicitly clicks into the inline map, keep the LiteGraph
-            // canvas out of the event path so the page scrolls freely over it.
-            pointerEvents: isMapExpanded || inputActive ? 'auto' : 'none',
-          }}
-        />
-
-        {/* Click-catcher shown only over the inactive inline map: clicking activates the
-            map (and hides this overlay), so input is never grabbed without an explicit click. */}
-        {!isMapExpanded && !inputActive && (
-          <div
-            className="absolute inset-0 z-10 cursor-crosshair bg-transparent"
-            onMouseDown={() => setInputActive(true)}
-            title="Click to interact with the map"
-          />
-        )}
-
-        {/* Expanded (fullscreen) overlay controls. These sit ON the canvas so zoom / fit /
-            close are always reachable even when the top toolbar isn't. */}
-        {isMapExpanded && (
-          <>
-            {/* Close (top-right) */}
-            <button
-              onClick={onToggleExpand}
-              className="absolute top-3 right-3 z-20 p-2.5 rounded-xl bg-slate-900/90 hover:bg-rose-600 text-slate-200 hover:text-white border border-slate-700/80 hover:border-rose-500 shadow-xl transition-all"
-              title="Close Fullscreen Map (Esc)"
-            >
-              <X size={18} />
-            </button>
-
-            {/* Zoom / Fit cluster (bottom-center) */}
-            <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1.5 rounded-2xl bg-slate-900/90 border border-slate-700/80 shadow-2xl backdrop-blur">
-              <button
-                onClick={() => zoomBy(-0.1)}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-600 text-slate-200 transition-colors"
-                title="Zoom Out"
-              >
-                <ZoomOut size={16} />
-              </button>
-              <span className="text-xs font-mono text-slate-200 min-w-[46px] text-center select-none">
-                {zoomPercent}%
-              </span>
-              <button
-                onClick={() => zoomBy(0.1)}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-600 text-slate-200 transition-colors"
-                title="Zoom In"
-              >
-                <ZoomIn size={16} />
-              </button>
-              <div className="w-px h-5 bg-slate-700 mx-1" />
-              <button
-                onClick={fitToView}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-600 text-cyan-300 transition-colors"
-                title="Fit Workflow to View"
-              >
-                <Crosshair size={16} />
-              </button>
-            </div>
-          </>
-        )}
+      {/* Map Legend Overlay */}
+      <div className="absolute bottom-4 left-4 z-10 flex items-center gap-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg shadow-xl text-[11px] text-slate-300">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+          <span>Ready</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50" />
+          <span>Missing Model</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50" />
+          <span>Missing Node</span>
+        </div>
       </div>
     </div>
   );
+}
 
-  // When expanded fullscreen, portal the overlay to <body> so it sits above the app's
-  // persistent sticky footer (which otherwise, living at a higher root z-index, paints
-  // over the map's bottom controls).
-  return isMapExpanded ? createPortal(root, document.body) : root;
-});
+const WorkflowNodeMapInnerWithRef = forwardRef(WorkflowNodeMapInner);
+
+export const WorkflowNodeMap = forwardRef<WorkflowNodeMapHandle, WorkflowNodeMapProps>(
+  function WorkflowNodeMap(props, ref) {
+    const { viewMode, isMapExpanded, onToggleExpand } = props;
+    const visible = viewMode === 'both' || viewMode === 'map';
+
+    if (!visible) return null;
+
+    if (isMapExpanded) {
+      return createPortal(
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0">
+            <div className="flex items-center gap-2">
+              <Workflow className="w-4 h-4 text-indigo-400" />
+              <span className="text-sm font-semibold text-slate-200">
+                Visual Workflow Node Map (Offline React Flow)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
+              title="Close Fullscreen Map"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 w-full h-full relative">
+            <ReactFlowProvider>
+              <WorkflowNodeMapInnerWithRef {...props} ref={ref} />
+            </ReactFlowProvider>
+          </div>
+        </div>,
+        document.body
+      );
+    }
+
+    return (
+      <div className="w-full h-[480px] rounded-xl border border-slate-800 overflow-hidden shadow-2xl relative">
+        <ReactFlowProvider>
+          <WorkflowNodeMapInnerWithRef {...props} ref={ref} />
+        </ReactFlowProvider>
+      </div>
+    );
+  }
+);
 
 export default WorkflowNodeMap;
-
-function normalizeLink(
-  link: any
-): { origin_id: string | number; origin_slot: number; target_id: string | number; target_slot: number } | null {
-  if (Array.isArray(link)) {
-    // LiteGraph serialized link array: [id, origin_id, origin_slot, target_id, target_slot, type]
-    if (link.length >= 5) {
-      return {
-        origin_id: link[1],
-        origin_slot: Number(link[2]) || 0,
-        target_id: link[3],
-        target_slot: Number(link[4]) || 0,
-      };
-    }
-  } else if (link && typeof link === 'object') {
-    return {
-      origin_id: link.origin_id,
-      origin_slot: Number(link.origin_slot) || 0,
-      target_id: link.target_id,
-      target_slot: Number(link.target_slot) || 0,
-    };
-  }
-  return null;
-}

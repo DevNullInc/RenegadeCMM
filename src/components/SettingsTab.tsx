@@ -45,6 +45,8 @@ import {
   Package,
   Wifi,
   Radio,
+  Share2,
+  Cpu,
 } from 'lucide-react';
 import {
   AppConfig,
@@ -52,6 +54,9 @@ import {
   FilenamePatternRule,
   ComfyUIInstallInfo,
   ComfyUIStatus,
+  SwarmStatus,
+  PythonEnvironmentStatus,
+  HardwareProfile,
   DEFAULT_FOLDER_MAP,
   DEFAULT_FILENAME_PATTERNS,
 } from '../types/app';
@@ -86,12 +91,24 @@ export const SettingsTab: React.FC = () => {
     local_api_enabled: true,
     local_api_port: 5174,
     comfyui_server_url: 'http://127.0.0.1:8188',
+    swarm_server_url: 'http://127.0.0.1:5180',
+    swarm_auto_connect: true,
+    auto_convert_pickle_to_safetensors: false,
+    delete_original_after_conversion: false,
+    custom_python_path: '',
   });
 
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [pythonStatus, setPythonStatus] = useState<PythonEnvironmentStatus | null>(null);
+  const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
+  const [checkingPython, setCheckingPython] = useState(false);
   const [comfyStatus, setComfyStatus] = useState<ComfyUIStatus | null>(null);
   const [isCheckingComfyStatus, setIsCheckingComfyStatus] = useState(false);
+  const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null);
+  const [isCheckingSwarmStatus, setIsCheckingSwarmStatus] = useState(false);
+  const [isPackagingSwarmCompanions, setIsPackagingSwarmCompanions] = useState(false);
+  const [swarmPackageResult, setSwarmPackageResult] = useState<string | null>(null);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isImportingBackup, setIsImportingBackup] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
@@ -445,14 +462,66 @@ export const SettingsTab: React.FC = () => {
             local_api_enabled: loaded.local_api_enabled !== false,
             local_api_port: loaded.local_api_port || 5174,
             comfyui_server_url: loaded.comfyui_server_url || 'http://127.0.0.1:8188',
+            swarm_server_url: loaded.swarm_server_url || 'http://127.0.0.1:5180',
+            swarm_auto_connect: loaded.swarm_auto_connect !== false,
+            auto_convert_pickle_to_safetensors: !!loaded.auto_convert_pickle_to_safetensors,
+            delete_original_after_conversion: !!loaded.delete_original_after_conversion,
+            custom_python_path: loaded.custom_python_path || '',
           });
           checkInstallDir(loaded.comfyui_install_dir);
           checkComfyConnection(loaded.comfyui_server_url || 'http://127.0.0.1:8188');
+          checkSwarmConnection(loaded.swarm_server_url || 'http://127.0.0.1:5180');
+          probePythonEnv(loaded.custom_python_path, loaded.comfyui_install_dir);
         }
       }
     };
     loadConfig();
   }, []);
+
+  const probePythonEnv = async (customPath?: string, installDir?: string, forceRefresh = false) => {
+    setCheckingPython(true);
+    try {
+      let status: PythonEnvironmentStatus | null = null;
+      let hw: HardwareProfile | null = null;
+
+      if (window.civitaiAPI && typeof window.civitaiAPI.getConverterEnvironment === 'function') {
+        const [envRes, hwRes] = await Promise.all([
+          window.civitaiAPI.getConverterEnvironment(customPath),
+          typeof window.civitaiAPI.getHardwareProfile === 'function'
+            ? window.civitaiAPI.getHardwareProfile(forceRefresh)
+            : Promise.resolve(null),
+        ]);
+        status = envRes;
+        hw = hwRes?.data || hwRes;
+      } else {
+        const queryParams = new URLSearchParams();
+        if (customPath) queryParams.set('pythonPath', customPath);
+        const effectiveInstallDir = installDir || config.comfyui_install_dir;
+        if (effectiveInstallDir) {
+          queryParams.set('comfyuiInstallDir', effectiveInstallDir);
+        }
+        const [res, hwRes] = await Promise.all([
+          fetch(`/api/converter/python-status?${queryParams.toString()}`),
+          fetch('/api/system/hardware').catch(() => null),
+        ]);
+        status = await res.json();
+        if (hwRes && hwRes.ok) {
+          const hwJson = await hwRes.json();
+          hw = hwJson?.data || hwJson;
+        }
+      }
+      if (status) {
+        setPythonStatus(status);
+      }
+      if (hw) {
+        setHardwareProfile(hw);
+      }
+    } catch (err: any) {
+      console.warn('Failed to probe Python environment or hardware:', err);
+    } finally {
+      setCheckingPython(false);
+    }
+  };
 
   const checkComfyConnection = async (targetUrl?: string) => {
     const url = targetUrl || config.comfyui_server_url || 'http://127.0.0.1:8188';
@@ -466,6 +535,55 @@ export const SettingsTab: React.FC = () => {
       setComfyStatus({ online: false, serverUrl: url, error: err?.message || 'Failed to connect' });
     } finally {
       setIsCheckingComfyStatus(false);
+    }
+  };
+
+  const checkSwarmConnection = async (targetUrl?: string) => {
+    const url = targetUrl || config.swarm_server_url || 'http://127.0.0.1:5180';
+    setIsCheckingSwarmStatus(true);
+    try {
+      if (window.civitaiAPI?.checkSwarmStatus) {
+        const res = await window.civitaiAPI.checkSwarmStatus(url);
+        setSwarmStatus(res);
+      } else {
+        const res = await fetch('/api/swarm/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverUrl: url }),
+        });
+        const data = await res.json();
+        setSwarmStatus(data);
+      }
+    } catch (err: any) {
+      setSwarmStatus({ online: false, serverUrl: url, error: err?.message || 'Failed to connect' });
+    } finally {
+      setIsCheckingSwarmStatus(false);
+    }
+  };
+
+  const handlePackageAllSwarmCompanions = async () => {
+    setIsPackagingSwarmCompanions(true);
+    setSwarmPackageResult(null);
+    try {
+      if (window.civitaiAPI?.packageAllCompanionFiles) {
+        const res = await window.civitaiAPI.packageAllCompanionFiles();
+        if (res.success && res.data) {
+          setSwarmPackageResult(`Successfully packaged companion files for ${res.data.totalProcessed} model(s): ${res.data.sha256Created} hash(es), ${res.data.infoJsonCreated} metadata file(s), ${res.data.imageCreated} preview(s) created.`);
+        } else {
+          setSwarmPackageResult(res.error || 'Failed to package companions');
+        }
+      } else {
+        const res = await fetch('/api/optimizer/package-all', { method: 'POST' });
+        const json = await res.json();
+        if (json.success && json.data) {
+          setSwarmPackageResult(`Successfully packaged companion files for ${json.data.totalProcessed} model(s): ${json.data.sha256Created} hash(es), ${json.data.infoJsonCreated} metadata file(s).`);
+        }
+      }
+    } catch (err: any) {
+      setSwarmPackageResult(`Error packaging companions: ${err?.message || err}`);
+    } finally {
+      setIsPackagingSwarmCompanions(false);
+      setTimeout(() => setSwarmPackageResult(null), 10000);
     }
   };
 
@@ -758,7 +876,7 @@ export const SettingsTab: React.FC = () => {
     try {
       const exportData = {
         _format: 'renegadecmm-settings',
-        version: '1.5.0',
+        version: '1.6.0',
         exportedAt: new Date().toISOString(),
         settings: config,
       };
@@ -2082,6 +2200,378 @@ export const SettingsTab: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* RenegadeSwarm Sister Application Integration */}
+      <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-5 shadow-xl">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5 text-slate-100 font-bold text-base">
+            <Share2 className="text-cyan-400" size={20} />
+            <h2>RenegadeSwarm Sister App Integration</h2>
+          </div>
+          <span
+            className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
+              swarmStatus?.online
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}
+          >
+            {swarmStatus?.online ? `Swarm Active (${swarmStatus.version || 'Connected'})` : 'Daemon Offline'}
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed">
+          <strong className="text-slate-200">RenegadeSwarm</strong> is the decentralized peer-to-peer distribution sister application to RenegadeCMM. When active, Swarm enables high-speed P2P torrent seeding, automatic companion file synchronization (<code className="text-cyan-300 font-mono text-[11px]">.sha256</code>, <code className="text-cyan-300 font-mono text-[11px]">.civitai.info</code>, preview images), and verified model transfers.
+        </p>
+
+        <div className="space-y-4 pt-1">
+          {/* Swarm Endpoint Configuration & Test Connection */}
+          <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Radio size={14} className="text-cyan-400" />
+                <span>RenegadeSwarm Daemon Endpoint URL</span>
+              </label>
+              {swarmStatus && (
+                <span
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    swarmStatus.online
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      swarmStatus.online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                    }`}
+                  />
+                  <span>
+                    {swarmStatus.online
+                      ? `Connected (${swarmStatus.version || 'Online'}${swarmStatus.peers !== undefined ? ` • ${swarmStatus.peers} peer(s)` : ''})`
+                      : 'Offline / Unreachable'}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                placeholder="http://127.0.0.1:5180"
+                value={config.swarm_server_url || ''}
+                onChange={(e) => setConfig((prev) => ({ ...prev, swarm_server_url: e.target.value }))}
+                className="flex-1 bg-slate-950/80 border border-slate-700/80 rounded-xl px-4 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => checkSwarmConnection()}
+                disabled={isCheckingSwarmStatus}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 border border-slate-700 text-cyan-300 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer shrink-0 active:scale-95"
+                title="Ping and probe local RenegadeSwarm daemon status"
+              >
+                {isCheckingSwarmStatus ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin text-cyan-300" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Wifi size={13} />
+                    <span>Test Connection</span>
+                  </>
+                )}
+              </button>
+              {swarmStatus?.online && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.civitaiAPI?.focusOrOpenSwarm) {
+                      await window.civitaiAPI.focusOrOpenSwarm(config.swarm_server_url);
+                    } else {
+                      window.open(config.swarm_server_url || 'http://127.0.0.1:5180', '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-linear-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 border border-cyan-500/40 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer shrink-0 active:scale-95"
+                  title="Focus or open active RenegadeSwarm window"
+                >
+                  <ExternalLink size={13} />
+                  <span>Open Swarm</span>
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Default is <code className="font-mono text-cyan-300">http://127.0.0.1:5180</code>. Both applications communicate over secure localhost IPC/HTTP bridges.
+            </p>
+          </div>
+
+          {/* Swarm Live Telemetry Cards */}
+          {swarmStatus?.online && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-800/40 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 block">Daemon Status</span>
+                <span className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                  <CheckCircle2 size={14} className="text-emerald-400" />
+                  {swarmStatus.status || 'Active'}
+                </span>
+                <span className="text-[10px] text-slate-400 block">v{swarmStatus.version || '1.0.0'}</span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-800/40 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 block">Connected Swarm Peers</span>
+                <span className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                  <Radio size={14} className="text-cyan-400" />
+                  {swarmStatus.peers ?? 0}
+                </span>
+                <span className="text-[10px] text-slate-400 block">Active DHT & Tracker mesh</span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-800/40 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 block">Seeding Models</span>
+                <span className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                  <Package size={14} className="text-purple-400" />
+                  {swarmStatus.seeding ?? 0}
+                </span>
+                <span className="text-[10px] text-slate-400 block">Packaged & seeding</span>
+              </div>
+            </div>
+          )}
+
+          {/* Companion Packaging for Swarm */}
+          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-slate-200 block">
+                Package Companion Files for Swarm P2P
+              </span>
+              <p className="text-[11px] text-slate-400 leading-relaxed max-w-xl">
+                Scans your model library to ensure every model has the required companion triplet (<code className="text-slate-300 font-mono text-[10px]">.sha256</code> hash, <code className="text-slate-300 font-mono text-[10px]">.civitai.info</code>, preview image) for zero-configuration Swarm seeding.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handlePackageAllSwarmCompanions}
+              disabled={isPackagingSwarmCompanions}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-linear-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 border border-cyan-500/40 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-cyan-950/40 cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
+            >
+              {isPackagingSwarmCompanions ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Packaging...</span>
+                </>
+              ) : (
+                <>
+                  <Package size={14} />
+                  <span>Package All Models</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Swarm Packaging Feedback Toast */}
+          {swarmPackageResult && (
+            <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/40 text-cyan-200 text-xs flex items-center gap-2 animate-fadeIn">
+              <CheckCircle2 size={15} className="text-cyan-400 shrink-0" />
+              <span>{swarmPackageResult}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Pickle to SafeTensors Conversion & Python Environment */}
+      <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-5 shadow-xl">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5 text-slate-100 font-bold text-base">
+            <Sparkles className="text-cyan-400" size={20} />
+            <h2>Pickle to SafeTensors Conversion</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => probePythonEnv(config.custom_python_path, config.comfyui_install_dir, true)}
+            disabled={checkingPython}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700/80 hover:border-cyan-500/50 text-cyan-300 hover:text-cyan-200 text-xs font-semibold transition-all cursor-pointer shadow-sm disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={checkingPython ? 'animate-spin text-cyan-400' : 'text-cyan-400'} />
+            <span>{checkingPython ? 'Probing...' : 'Re-probe Python'}</span>
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Convert legacy PyTorch pickle checkpoints (<code className="text-cyan-300 font-mono text-[11px]">.ckpt</code>, <code className="text-cyan-300 font-mono text-[11px]">.pt</code>, <code className="text-cyan-300 font-mono text-[11px]">.bin</code>) into high-performance, secure <code className="text-cyan-200 font-mono text-[11px]">.safetensors</code> format to prevent arbitrary code execution vulnerabilities and achieve faster zero-copy GPU loading.
+        </p>
+
+        {/* Python Environment Status Card */}
+        <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3.5 shadow-inner">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="text-xs font-bold text-slate-200 flex items-center gap-2">
+              <Terminal size={16} className="text-cyan-400" />
+              <span>Python Runtime & Dependencies</span>
+            </span>
+            {pythonStatus?.readyForConversion ? (
+              <span className="text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                <CheckCircle2 size={12} className="text-emerald-400" />
+                <span>Conversion Ready</span>
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                <AlertCircle size={12} className="text-amber-400" />
+                <span>Dependencies Required</span>
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Interpreter Path</span>
+              <p className="font-mono text-slate-200 text-[11px] truncate" title={pythonStatus?.pythonPath || 'Not found'}>
+                {pythonStatus?.pythonPath || 'No Python interpreter detected'}
+              </p>
+              <div className="flex items-center gap-2 pt-1">
+                {pythonStatus?.version && (
+                  <span className="text-[10px] text-slate-400 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                    v{pythonStatus.version}
+                  </span>
+                )}
+                {pythonStatus?.source && (
+                  <span className="text-[10px] font-bold text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60 uppercase">
+                    {pythonStatus.source.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Required Libraries</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
+                    pythonStatus?.hasTorch
+                      ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300'
+                      : 'bg-rose-950/70 border-rose-500/60 text-rose-300'
+                  }`}
+                >
+                  {pythonStatus?.hasTorch ? <Check size={12} /> : <XCircle size={12} />}
+                  <span>PyTorch (torch)</span>
+                </span>
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
+                    pythonStatus?.hasSafetensors
+                      ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300'
+                      : 'bg-rose-950/70 border-rose-500/60 text-rose-300'
+                  }`}
+                >
+                  {pythonStatus?.hasSafetensors ? <Check size={12} /> : <XCircle size={12} />}
+                  <span>safetensors</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {pythonStatus?.error && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+              <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-[11px] leading-relaxed">
+                <span>{pythonStatus.error}</span>
+                <span className="block text-slate-400 mt-1">
+                  Tip: Point ComfyUI root in settings to use ComfyUI's embedded Python (<code className="text-amber-200 font-mono text-[10px]">python_embeded</code> or <code className="text-amber-200 font-mono text-[10px]">venv</code>), or install dependencies via <code className="text-cyan-300 font-mono text-[10px]">pip install torch safetensors</code>.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {hardwareProfile && (
+            <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2 text-xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Cpu size={13} className="text-cyan-400" />
+                <span>Detected Host Hardware & Memory</span>
+              </span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">CPU</span>
+                  <span className="text-slate-200 font-medium truncate block" title={hardwareProfile.cpu.model}>
+                    {hardwareProfile.cpu.model} ({hardwareProfile.cpu.cores} cores)
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">Host Memory (RAM)</span>
+                  <span className="text-slate-200 font-medium block">
+                    <strong className="text-cyan-300">{hardwareProfile.memory.freeFormatted}</strong> free / {hardwareProfile.memory.totalFormatted} ({hardwareProfile.memory.usedPercent}% used)
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">GPU / Accelerators</span>
+                  <span className="text-slate-200 font-medium truncate block" title={hardwareProfile.gpus.map((g) => g.name).join(', ') || 'Integrated / Generic GPU'}>
+                    {hardwareProfile.gpus.length > 0
+                      ? hardwareProfile.gpus.map((g) => `${g.name}${g.vramFormatted ? ` (${g.vramFormatted})` : ''}`).join(', ')
+                      : 'Standard Display Adapter'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Custom Python Path Override */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            Custom Python Executable Path (Optional Override)
+          </label>
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              placeholder="e.g. C:\ComfyUI_windows_portable\python_embeded\python.exe or /usr/bin/python3"
+              value={config.custom_python_path || ''}
+              onChange={(e) => setConfig({ ...config, custom_python_path: e.target.value })}
+              className="flex-1 bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => probePythonEnv(config.custom_python_path, config.comfyui_install_dir, true)}
+              disabled={checkingPython}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors cursor-pointer"
+            >
+              Test Path
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">
+            Leave blank to auto-detect Python from your ComfyUI installation directory, local .venv, or system PATH.
+          </p>
+        </div>
+
+        {/* Conversion Automation Options */}
+        <div className="space-y-2.5 pt-1">
+          <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={config.auto_convert_pickle_to_safetensors || false}
+              onChange={(e) =>
+                setConfig({ ...config, auto_convert_pickle_to_safetensors: e.target.checked })
+              }
+              className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-cyan-400 w-4 h-4 mt-0.5"
+            />
+            <div>
+              <span className="font-bold text-slate-200 block">Auto-convert Pickle models on library scan</span>
+              <span className="text-[11px] text-slate-400">
+                Automatically converts detected <code className="text-cyan-300 font-mono text-[10px]">.ckpt</code>, <code className="text-cyan-300 font-mono text-[10px]">.pt</code>, and <code className="text-cyan-300 font-mono text-[10px]">.bin</code> files to SafeTensors during library scans and updates.
+              </span>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={config.delete_original_after_conversion || false}
+              onChange={(e) =>
+                setConfig({ ...config, delete_original_after_conversion: e.target.checked })
+              }
+              className="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-cyan-400 w-4 h-4 mt-0.5"
+            />
+            <div>
+              <span className="font-bold text-slate-200 block">Delete original file after successful conversion</span>
+              <span className="text-[11px] text-slate-400">
+                Permanently deletes the original pickle checkpoint after successful SafeTensors creation to reclaim storage space.
+              </span>
+            </div>
+          </label>
         </div>
       </div>
 

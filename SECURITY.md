@@ -97,7 +97,7 @@ The local HTTP bridge exposes dedicated endpoints categorized by function. All e
 | **Backups** | `/api/import-backup-zip` | `POST` | In-memory buffer inspection; path traversal guards on entry extraction. |
 
 #### Path Traversal Defenses (`sanitizeFolderPath` & `sanitizeFileName`)
-All user-supplied filesystem paths (`comfyui_root`, `comfyui_folders`, `comfyui_install_dir`, `comfyui_custom_nodes_dir`, `targetRoot`, and download filenames) are normalized and sanitized through [pathUtils.ts](file:///home/stygianrenegade/Projects/manager/Civitai-manager-ComfyUI/src/utils/pathUtils.ts):
+All user-supplied filesystem paths (`comfyui_root`, `comfyui_folders`, `comfyui_install_dir`, `comfyui_custom_nodes_dir`, `targetRoot`, and download filenames) are normalized and sanitized through [pathUtils.ts](src/utils/pathUtils.ts):
 - Null bytes, control characters, and dangerous shell metacharacters are stripped.
 - Path traversal sequences (`../`, `..\`) are resolved and rejected if attempting to escape designated root boundaries.
 - Windows volume drive patterns and POSIX absolute roots are validated against strict canonical structures.
@@ -142,7 +142,7 @@ RenegadeCMM enforces a hardened Electron security model:
   ```http
   default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https://civitai.com https://*.civitai.com https://huggingface.co https://*.huggingface.co http://127.0.0.1:* http://localhost:*;
   ```
-- **Process Isolation**: The renderer window runs with `contextIsolation: true` and `nodeIntegration: false`. The renderer communicates with the backend exclusively via typed IPC channels defined in [preload.ts](file:///home/stygianrenegade/Projects/manager/Civitai-manager-ComfyUI/src/main/preload.ts).
+- **Process Isolation**: The renderer window runs with `contextIsolation: true` and `nodeIntegration: false`. The renderer communicates with the backend exclusively via typed IPC channels defined in [preload.ts](src/main/preload.ts).
 - **Navigation Guards & External Links**: Window navigation away from the local bundle is blocked. Window creation requests (`window.open`, `<a target="_blank">`) are intercepted via `setWindowOpenHandler` and forwarded to the user's default OS browser using `shell.openExternal`.
 - **Embedded Webview Sandboxing**: Attached `<webview>` elements (used for embedding the ComfyUI workspace) have preload scripts stripped, enforcing `contextIsolation: true` and `nodeIntegration: false`.
 
@@ -152,7 +152,7 @@ RenegadeCMM enforces a hardened Electron security model:
 
 RenegadeCMM allows users to resolve missing custom nodes and install them into ComfyUI:
 
-- **Git Argument Injection Defenses**: All Git execution routines (`git clone`, `git checkout`) in [nodeResolverService.ts](file:///home/stygianrenegade/Projects/manager/Civitai-manager-ComfyUI/src/services/nodeResolverService.ts) enforce positional parameter boundaries (`--`) to prevent flag injection attacks (e.g. `--upload-pack`, `-u`).
+- **Git Argument Injection Defenses**: All Git execution routines (`git clone`, `git checkout`) in [nodeResolverService.ts](src/services/nodeResolverService.ts) enforce positional parameter boundaries (`--`) to prevent flag injection attacks (e.g. `--upload-pack`, `-u`).
 - **Target Folder Boundaries**: Cloned repositories are restricted to validated subdirectories within `comfyui_custom_nodes_dir`.
 - **Python Execution Disclosure**: Installing node dependencies invokes `pip install -r requirements.txt` and `python install.py` within the target ComfyUI environment. Users are advised to only install custom nodes from trusted authors.
 
@@ -171,7 +171,7 @@ RenegadeCMM allows users to resolve missing custom nodes and install them into C
 - **Advisory Disclosure (adm-zip `GHSA-vwc7-r8mq-g2x9` / CVE-2026-76845)**: Dependency scanners may flag advisory `GHSA-vwc7-r8mq-g2x9` regarding symlink traversal during archive extraction.
   - **Non-Exploitable Context**: RenegadeCMM utilizes `adm-zip` exclusively for creating backup archives (`zip.toBuffer()`) and reading entry buffers in memory (`getData()`). CMM never extracts archive contents directly to disk via `extractAllTo` or follows destination symlinks on the filesystem, neutralizing this attack vector.
 - **Resolved Advisory (Vitest `GHSA-82fw-gwwq-j7x9` / CVE-2026-84373)**: Addressed via upgrading `vitest` to `^4.1.11` in devDependencies, eliminating the path traversal / arbitrary file read vulnerability in `@vitest/mocker`.
-- **URL Substring Sanitization Hardening (CodeQL `js/incomplete-url-substring-sanitization`)**: Replaced loose `.includes('civitai.com')` substring checks in [downloadManager.ts](file:///home/stygianrenegade/Projects/manager/Civitai-manager-ComfyUI/src/services/downloadManager.ts) with strict WHATWG URL parsing (`isCivitaiUrl` / `attachCivitaiToken`). Authenticated tokens are dynamically appended only to verified `https://civitai.com`, `https://civitai.red`, or legitimate CivitAI subdomains over TLS, preventing SSRF and credential leakage to attacker-controlled domains.
+- **URL Substring Sanitization Hardening (CodeQL `js/incomplete-url-substring-sanitization`)**: Replaced loose `.includes('civitai.com')` substring checks in [downloadManager.ts](src/services/downloadManager.ts) with strict WHATWG URL parsing (`isCivitaiUrl` / `attachCivitaiToken`). Authenticated tokens are dynamically appended only to verified `https://civitai.com`, `https://civitai.red`, or legitimate CivitAI subdomains over TLS, preventing SSRF and credential leakage to attacker-controlled domains.
 
 ---
 
@@ -192,4 +192,24 @@ Starting with release `v1.5.0`, RenegadeCMM implements native Hugging Face downl
   - **Case-Insensitive AWS S3 LFS Redirect Scrubbing**: When downloading gated weights, Hugging Face responds with HTTP 302 redirects to pre-signed AWS S3 LFS URLs (`cdn-lfs.huggingface.co`). Axios `beforeRedirect` hooks inspect the destination hostname and case-insensitively delete all `Authorization` headers. This prevents token exposure to third-party CDNs and avoids AWS S3 `HTTP 400 Bad Request` ("Only one auth mechanism allowed") errors.
 - **Repository Identifier Regex Sanitization**:
   - The Hugging Face API client validates all user-supplied repository strings against strict alphanumeric patterns (`^[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)?$`), preventing path traversal and URL injection in API requests.
+
+---
+
+### 9. Storage Optimizer, SafeTensors Converter & Outbound Webhook Security Architecture
+
+Starting with release `v1.6.0`, RenegadeCMM implements native hardlink deduplication, isolated PyTorch model conversions, and authenticated webhook event dispatching:
+
+- **Storage Optimizer & Hardlink Deduplication (`storageOptimizer.ts`)**:
+  - **Volume Boundary Verification**: Pre-flight verification (`canHardlinkFiles`) confirms that master and target files reside on identical filesystem volume drives (e.g. `C:\` vs `D:\` on Windows, or distinct mount points on Linux/macOS) before attempting link creation, preventing cross-device linking exceptions.
+  - **Atomic Deduplication & Replacement**: Executes hardlink creation to temporary filenames (`.cmm-tmp-link`) followed by atomic rename (`fs.renameSync`), ensuring zero file corruption or data loss even if system processes are interrupted.
+- **PyTorch Model Converter & Memory Safety (`modelConverter.ts` & `hardwareScanner.ts`)**:
+  - **Isolated Worker Execution**: Conversion scripts (`scripts/convert_to_safetensors.py`) run inside isolated Python sub-processes without direct access to the Node.js main thread.
+  - **OOM Prevention**: Probes available host RAM and GPU VRAM via NVIDIA NVML / `nvidia-smi` to ensure adequate memory headroom before initiating multi-gigabyte tensor conversions.
+- **Outbound Webhook Integrity**:
+  - **HMAC-SHA256 Payload Signing**: Outbound webhook requests include an `X-CMM-Signature-256` header calculated using user-configured webhook secrets, allowing receivers to verify payload authenticity.
+
+---
+
+**Last Updated:** September 13, 2026  
+**Applicable Release:** RenegadeCMM v1.6.0 and subsequent releases
 

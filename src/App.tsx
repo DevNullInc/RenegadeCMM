@@ -23,6 +23,7 @@ import {
   ExternalLink,
   Heart,
   WifiOff,
+  Radio,
 } from 'lucide-react';
 import { BrowseTab } from './components/BrowseTab';
 import { LibraryTab } from './components/LibraryTab';
@@ -36,7 +37,7 @@ import { DownloadFolderPromptModal } from './components/DownloadFolderPromptModa
 import { DevelopmentUpdateBanner } from './components/DevelopmentUpdateBanner';
 import { ScanProvider, useScan } from './context/ScanContext';
 import { CivitAIModel, CivitAIModelVersion } from './types/civitai';
-import { LocalModel } from './types/app';
+import { LocalModel, SwarmStatus } from './types/app';
 
 type Tab = 'browse' | 'library' | 'workflows' | 'downloads' | 'settings' | 'about';
 
@@ -67,6 +68,7 @@ function AppContent() {
   const [hasFoldersConfigured, setHasFoldersConfigured] = useState<boolean>(true);
   const [isBackendOnline, setIsBackendOnline] = useState<boolean>(true);
   const [isComfyOnline, setIsComfyOnline] = useState<boolean>(false);
+  const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [browseInitialQuery, setBrowseInitialQuery] = useState<string>('');
   const [browseInitialModelId, setBrowseInitialModelId] = useState<number | null>(null);
@@ -101,6 +103,18 @@ function AppContent() {
             );
             setHasFoldersConfigured(hasFolders);
           }
+          if (window.civitaiAPI?.checkSwarmStatus) {
+            try {
+              const swarm = await window.civitaiAPI.checkSwarmStatus(cfg?.swarm_server_url);
+              if (isMounted) {
+                setSwarmStatus(swarm);
+              }
+            } catch {
+              if (isMounted) {
+                setSwarmStatus({ online: false, serverUrl: cfg?.swarm_server_url || 'http://127.0.0.1:5180' });
+              }
+            }
+          }
         } else {
           const res = await fetch('http://127.0.0.1:5174/api/health', {
             method: 'GET',
@@ -109,10 +123,27 @@ function AppContent() {
           if (isMounted) {
             setIsBackendOnline(res.ok);
           }
+          try {
+            const swarmRes = await fetch('http://127.0.0.1:5174/api/swarm/status', {
+              method: 'GET',
+              signal: AbortSignal.timeout(2000),
+            });
+            if (isMounted && swarmRes.ok) {
+              const swarmData = await swarmRes.json();
+              setSwarmStatus(swarmData);
+            } else if (isMounted) {
+              setSwarmStatus({ online: false, serverUrl: 'http://127.0.0.1:5180' });
+            }
+          } catch {
+            if (isMounted) {
+              setSwarmStatus({ online: false, serverUrl: 'http://127.0.0.1:5180' });
+            }
+          }
         }
       } catch {
         if (isMounted) {
           setIsBackendOnline(false);
+          setSwarmStatus({ online: false, serverUrl: 'http://127.0.0.1:5180' });
         }
       }
     };
@@ -153,6 +184,24 @@ function AppContent() {
         );
         setActiveDownloadsCount(downloading.length);
       });
+
+      if (window.civitaiAPI.onProtocolAction) {
+        window.civitaiAPI.onProtocolAction((actionPayload) => {
+          if (!actionPayload || typeof actionPayload !== 'object') return;
+          if (actionPayload.action === 'navigate' && actionPayload.tab) {
+            setActiveTab(actionPayload.tab as Tab);
+          } else if (actionPayload.action === 'model' && actionPayload.modelId) {
+            setActiveTab('browse');
+            setBrowseInitialModelId(actionPayload.modelId);
+          } else if (actionPayload.action === 'search' && actionPayload.query) {
+            setActiveTab('browse');
+            setBrowseInitialQuery(actionPayload.query);
+          } else if (actionPayload.action === 'download' && actionPayload.modelId) {
+            setActiveTab('browse');
+            setBrowseInitialModelId(actionPayload.modelId);
+          }
+        });
+      }
     }
 
     const handleScroll = () => {
@@ -287,6 +336,19 @@ function AppContent() {
     }
   };
 
+  const handleFocusOrOpenSwarm = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!swarmStatus?.online) {
+      setActiveTab('settings');
+      return;
+    }
+    if (window.civitaiAPI?.focusOrOpenSwarm) {
+      await window.civitaiAPI.focusOrOpenSwarm(swarmStatus.serverUrl);
+    } else {
+      window.open(swarmStatus.serverUrl || 'http://127.0.0.1:5180', '_blank', 'noopener,noreferrer');
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-[#07090e] text-slate-100 overflow-hidden select-none">
       {/* Development Update Notice Banner */}
@@ -396,82 +458,117 @@ function AppContent() {
           </button>
         </nav>
 
-        {/* Multi-Purpose Dynamic Header Status Badge */}
-        {(() => {
-          if (!isBackendOnline) {
-            return (
-              <div
-                className="flex items-center gap-2 shrink-0 bg-rose-500/15 border border-rose-500/40 px-3.5 py-1.5 rounded-xl text-[11px] font-bold text-rose-400 shadow-sm"
-                title="Renegade Core Model Manager backend is offline or disconnected. Start the application with ./cmm.sh"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
-                </span>
-                <WifiOff size={13} className="text-rose-400" />
-                <span>Offline</span>
-              </div>
-            );
-          }
+        {/* Right Status Indicators (Swarm Sister App + CMM Dynamic Badge) */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          {/* RenegadeSwarm Sister Application Status Badge */}
+          <button
+            onClick={handleFocusOrOpenSwarm}
+            className={`flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all cursor-pointer border ${
+              swarmStatus?.online
+                ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25 shadow-sm shadow-cyan-500/20 active:scale-95'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/60'
+            }`}
+            title={
+              swarmStatus?.online
+                ? `RenegadeSwarm P2P Sister App Connected (${swarmStatus.version || 'Active'}${swarmStatus.peers !== undefined ? ` • ${swarmStatus.peers} peer(s)` : ''}${swarmStatus.seeding !== undefined ? ` • ${swarmStatus.seeding} seeding` : ''}). Click to focus or open Swarm window.`
+                : 'RenegadeSwarm P2P Daemon Offline. Click to configure in Settings.'
+            }
+          >
+            <span className="relative flex h-2 w-2">
+              {swarmStatus?.online && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+              )}
+              <span
+                className={`relative inline-flex rounded-full h-2 w-2 ${
+                  swarmStatus?.online ? 'bg-cyan-400' : 'bg-slate-500'
+                }`}
+              />
+            </span>
+            <Radio size={13} className={swarmStatus?.online ? 'text-cyan-400' : 'text-slate-500'} />
+            <span>
+              {swarmStatus?.online
+                ? `Swarm: Online${swarmStatus.peers ? ` (${swarmStatus.peers}p)` : ''}`
+                : 'Swarm: Offline'}
+            </span>
+          </button>
 
-          if (isScanning) {
-            const pct = scanProgress?.totalFiles
-              ? Math.round((scanProgress.scannedFiles / scanProgress.totalFiles) * 100)
-              : 0;
-            return (
-              <button
-                onClick={() => setActiveTab('library')}
-                className="flex items-center gap-2 shrink-0 bg-amber-500/10 border border-amber-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm animate-pulse"
-                title="Library scan in progress. Click to view Library."
-              >
-                <Activity size={14} className="text-amber-400 animate-spin" />
-                <span>Scanning Library {pct > 0 ? `(${pct}%)` : '...'}</span>
-              </button>
-            );
-          }
+          {/* Multi-Purpose Dynamic Header Status Badge */}
+          {(() => {
+            if (!isBackendOnline) {
+              return (
+                <div
+                  className="flex items-center gap-2 shrink-0 bg-rose-500/15 border border-rose-500/40 px-3.5 py-1.5 rounded-xl text-[11px] font-bold text-rose-400 shadow-sm"
+                  title="Renegade Core Model Manager backend is offline or disconnected. Start the application with ./cmm.sh"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                  </span>
+                  <WifiOff size={13} className="text-rose-400" />
+                  <span>Offline</span>
+                </div>
+              );
+            }
 
-          if (activeDownloadsCount > 0) {
-            return (
-              <button
-                onClick={() => setActiveTab('downloads')}
-                className="flex items-center gap-2 shrink-0 bg-purple-500/15 border border-purple-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-purple-300 hover:bg-purple-500/25 transition-all cursor-pointer shadow-sm glow-purple"
-                title={`${activeDownloadsCount} download(s) in progress. Click to view Downloads.`}
-              >
-                <Download size={14} className="text-purple-400 animate-bounce" />
-                <span>
-                  {activeDownloadsCount} {activeDownloadsCount === 1 ? 'Download' : 'Downloads'} Active
-                </span>
-              </button>
-            );
-          }
+            if (isScanning) {
+              const pct = scanProgress?.totalFiles
+                ? Math.round((scanProgress.scannedFiles / scanProgress.totalFiles) * 100)
+                : 0;
+              return (
+                <button
+                  onClick={() => setActiveTab('library')}
+                  className="flex items-center gap-2 shrink-0 bg-amber-500/10 border border-amber-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm animate-pulse"
+                  title="Library scan in progress. Click to view Library."
+                >
+                  <Activity size={14} className="text-amber-400 animate-spin" />
+                  <span>Scanning Library {pct > 0 ? `(${pct}%)` : '...'}</span>
+                </button>
+              );
+            }
 
-          if (!hasFoldersConfigured) {
+            if (activeDownloadsCount > 0) {
+              return (
+                <button
+                  onClick={() => setActiveTab('downloads')}
+                  className="flex items-center gap-2 shrink-0 bg-purple-500/15 border border-purple-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-purple-300 hover:bg-purple-500/25 transition-all cursor-pointer shadow-sm glow-purple"
+                  title={`${activeDownloadsCount} download(s) in progress. Click to view Downloads.`}
+                >
+                  <Download size={14} className="text-purple-400 animate-bounce" />
+                  <span>
+                    {activeDownloadsCount} {activeDownloadsCount === 1 ? 'Download' : 'Downloads'} Active
+                  </span>
+                </button>
+              );
+            }
+
+            if (!hasFoldersConfigured) {
+              return (
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className="flex items-center gap-2 shrink-0 bg-amber-500/10 border border-amber-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-amber-400 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm"
+                  title="No ComfyUI model folder paths configured. Click to configure in Settings."
+                >
+                  <Layers size={14} className="text-amber-400" />
+                  <span>Configure Folders</span>
+                </button>
+              );
+            }
+
             return (
               <button
                 onClick={() => setActiveTab('settings')}
-                className="flex items-center gap-2 shrink-0 bg-amber-500/10 border border-amber-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-amber-400 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm"
-                title="No ComfyUI model folder paths configured. Click to configure in Settings."
+                className="flex items-center gap-2 shrink-0 bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/80 px-3.5 py-1.5 rounded-xl text-[11px] font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
+                title="ComfyUI Auto-Sorter active & ready. Click to manage Folder Mappings in Settings."
               >
-                <Layers size={14} className="text-amber-400" />
-                <span>Configure Folders</span>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <Activity size={13} className="text-emerald-400" />
+                <span>Auto-Sorter Ready</span>
               </button>
             );
-          }
-
-          return (
-            <button
-              onClick={() => setActiveTab('settings')}
-              className="flex items-center gap-2 shrink-0 bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800/80 px-3.5 py-1.5 rounded-xl text-[11px] font-medium text-slate-300 hover:text-white transition-all cursor-pointer"
-              title="ComfyUI Auto-Sorter active & ready. Click to manage Folder Mappings in Settings."
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              <Activity size={13} className="text-emerald-400" />
-              <span>Auto-Sorter Ready</span>
-            </button>
-          );
-        })()}
+          })()}
+        </div>
       </header>
 
       {/* Scrollable Container */}

@@ -1,6 +1,6 @@
 {
   "name": "renegadecmm",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "desktopName": "renegadecmm.desktop",
   "description": "Renegade Core Model Manager - the missing model manager for ComfyUI with verified CivitAI API integration and intelligent auto-sorting.",
   "engines": {
@@ -78,13 +78,13 @@
   "homepage": "https://github.com/DevNullInc/RenegadeCMM#readme",
   "license": "GPL-3.0-or-later",
   "dependencies": {
+    "@xyflow/react": "^12.11.6",
     "adm-zip": "^0.6.0",
     "axios": "^1.7.9",
     "chokidar": "^4.0.3",
     "electron-log": "^5.3.0",
     "electron-updater": "^6.8.9",
     "keytar": "^7.9.0",
-    "litegraph.js": "^0.7.18",
     "lucide-react": "^0.475.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -150,6 +150,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "showDetails": true,
+      "include": "build/installer.nsh",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "portable": {

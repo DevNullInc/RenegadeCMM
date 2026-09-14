@@ -10,6 +10,7 @@
 import axios from 'axios';
 import { DownloadTask, WebhookConfig } from '../types/app';
 import { logger } from '../utils/logger';
+import { isSafeNetworkUrl } from '../utils/securityValidator';
 
 export class WebhookService {
   private config: WebhookConfig = {};
@@ -20,7 +21,13 @@ export class WebhookService {
 
   async triggerDownloadComplete(task: DownloadTask): Promise<boolean> {
     const url = this.config.on_download_complete;
-    if (!url || typeof url !== 'string' || !url.trim().startsWith('http')) {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+
+    const check = isSafeNetworkUrl(url);
+    if (!check.safe) {
+      logger.warn(`Security: Blocked unsafe webhook URL [${url}]:`, check.reason);
       return false;
     }
 
@@ -47,7 +54,13 @@ export class WebhookService {
 
   async triggerUpdateAvailable(updates: any[]): Promise<boolean> {
     const url = this.config.on_update_available;
-    if (!url || typeof url !== 'string' || !url.trim().startsWith('http') || updates.length === 0) {
+    if (!url || typeof url !== 'string' || updates.length === 0) {
+      return false;
+    }
+
+    const check = isSafeNetworkUrl(url);
+    if (!check.safe) {
+      logger.warn(`Security: Blocked unsafe webhook URL [${url}]:`, check.reason);
       return false;
     }
 
@@ -67,8 +80,9 @@ export class WebhookService {
     url: string,
     event: 'on_download_complete' | 'on_update_available' = 'on_download_complete'
   ): Promise<{ success: boolean; status?: number; error?: string }> {
-    if (!url || !url.trim().startsWith('http')) {
-      return { success: false, error: 'Invalid webhook URL (must start with http:// or https://)' };
+    const check = isSafeNetworkUrl(url);
+    if (!check.safe) {
+      return { success: false, error: `Invalid webhook URL: ${check.reason}` };
     }
 
     const testPayload = {
@@ -101,6 +115,12 @@ export class WebhookService {
   }
 
   private async sendWebhook(url: string, payload: any): Promise<boolean> {
+    const check = isSafeNetworkUrl(url);
+    if (!check.safe) {
+      logger.warn(`Security: Blocked unsafe webhook URL [${url}]:`, check.reason);
+      return false;
+    }
+
     try {
       logger.info(`Dispatching webhook [${payload.event}] to: ${url}`);
       await axios.post(url.trim(), payload, {

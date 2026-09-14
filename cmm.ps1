@@ -26,7 +26,7 @@
 
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'restart', 'status', 'update', 'package', 'publish', 'dist', 'scan', 'download', 'check-updates', 'export', 'hf', 'workflows', 'clean-assets', 'help')]
+  [ValidateSet('start', 'stop', 'restart', 'status', 'update', 'package', 'publish', 'dist', 'scan', 'download', 'check-updates', 'export', 'hf', 'workflows', 'clean-assets', 'install', 'setup', 'init', 'help')]
   [string]$Action = 'start',
 
   [int]$Port = 5173,
@@ -321,17 +321,102 @@ function Clean-Assets {
   }
 }
 
-function Ensure-NodeInstalled {
+function Ensure-PythonEnvironment {
+  param([switch]$ForceInstall)
+
+  $venvDir = Join-Path $ProjectRoot '.venv'
+  $venvPython = Join-Path $venvDir 'Scripts\python.exe'
+  $venvPip = Join-Path $venvDir 'Scripts\pip.exe'
+  $reqFile = Join-Path $ProjectRoot 'requirements.txt'
+
+  $venvExists = Test-Path $venvPython
+
+  if (-not $venvExists) {
+    # Find system Python 3
+    $systemPy = $null
+    $pyCandidates = @('python', 'py', 'python3')
+    foreach ($cand in $pyCandidates) {
+      $cmd = Get-Command $cand -ErrorAction SilentlyContinue
+      if ($cmd) {
+        try {
+          $verTest = & $cmd.Source --version 2>&1
+          if ($verTest -match 'Python\s+3\.') {
+            $systemPy = $cmd.Source
+            break
+          }
+        } catch { }
+      }
+    }
+
+    if ($systemPy) {
+      Write-Status '>>' "Creating Python virtual environment (.venv) using $systemPy..." 'Cyan'
+      try {
+        & $systemPy -m venv $venvDir
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $venvPython)) {
+          Write-Status 'ok' 'Python virtual environment created (.venv).' 'Green'
+          $venvExists = $true
+        } else {
+          Write-Status '!' 'Failed to create .venv virtual environment.' 'Yellow'
+        }
+      } catch {
+        Write-Status '!' "Virtual environment creation error: $_" 'Yellow'
+      }
+    } else {
+      Write-Status '!' 'Python 3 runtime not detected on system PATH.' 'Yellow'
+      Write-Host '      (Optional: Python with torch/safetensors is only needed for Pickle -> SafeTensors model conversion).' -ForegroundColor DarkGray
+      Write-Host '      To install: winget install Python.Python.3.11  or visit https://www.python.org/' -ForegroundColor DarkGray
+      return
+    }
+  }
+
+  if ($venvExists -and (Test-Path $venvPython)) {
+    # Probe if torch and safetensors are installed and functional
+    $needsInstall = $ForceInstall
+    if (-not $needsInstall) {
+      try {
+        $probe = & $venvPython -c "import torch, safetensors; print('READY')" 2>&1
+        if ($probe -notmatch 'READY') {
+          $needsInstall = $true
+        }
+      } catch {
+        $needsInstall = $true
+      }
+    }
+
+    if ($needsInstall -and (Test-Path $reqFile)) {
+      Write-Status '>>' 'Installing/updating Python dependencies in .venv (torch, safetensors)...' 'Cyan'
+      Write-Host '      This enables local model conversion (Pickle .ckpt/.pt/.bin -> SafeTensors)...' -ForegroundColor DarkGray
+      try {
+        & $venvPython -m pip install -r $reqFile --quiet
+        if ($LASTEXITCODE -eq 0) {
+          Write-Status 'ok' 'Python dependencies (torch, safetensors) verified in .venv.' 'Green'
+        } else {
+          Write-Status '!' 'Some Python dependencies could not be installed in .venv.' 'Yellow'
+        }
+      } catch {
+        Write-Status '!' "Python package installation error: $_" 'Yellow'
+      }
+    } else {
+      Write-Status 'ok' 'Python environment (.venv) verified with torch & safetensors.' 'Green'
+    }
+  }
+}
+
+function Ensure-Environment {
+  param([switch]$ForceInstall)
+
   $nodeModulesDir = Join-Path $ProjectRoot 'node_modules'
 
   # First-run watchdog: once the environment is proven (Node + node_modules present),
-  # later launches flat-skip the entire provisioning block — no node/npm/npx PATH
-  # probing, no winget/MSI fallback, no npm install. The only exception is a wiped
-  # ./node_modules, which falls through to a full re-provision (and re-stamp).
-  if (Test-Path $InstalledMarker) {
+  # later launches flat-skip the entire provisioning block unless ForceInstall is passed.
+  if (-not $ForceInstall -and (Test-Path $InstalledMarker)) {
     if (Test-Path $nodeModulesDir) { return }
     Remove-Item $InstalledMarker -Force -ErrorAction SilentlyContinue
   }
+
+  Write-Host ''
+  Write-Status '>>' 'Starting Environment Verification & Dependency Setup...' 'Cyan'
+  Write-Status '..' '[1/3] Checking Node.js runtime and package managers...' 'DarkGray'
 
   $nodeCmd = Get-Command 'node' -ErrorAction SilentlyContinue
   $npmCmd = Get-Command 'npm' -ErrorAction SilentlyContinue
@@ -344,7 +429,6 @@ function Ensure-NodeInstalled {
     Write-Host ''
 
     $installed = $false
-    # Check if winget is available
     $wingetCmd = Get-Command 'winget' -ErrorAction SilentlyContinue
     if ($wingetCmd) {
       Write-Status '>>' 'Attempting automatic Node.js installation via Windows Package Manager (winget)...' 'Cyan'
@@ -358,7 +442,6 @@ function Ensure-NodeInstalled {
       }
     }
 
-    # If winget was not available or failed, download and run official MSI installer from nodejs.org
     if (-not $installed) {
       Write-Status '>>' 'Downloading official Node.js LTS installer from nodejs.org...' 'Cyan'
       $tempMsi = Join-Path $env:TEMP 'node-lts-installer.msi'
@@ -378,7 +461,6 @@ function Ensure-NodeInstalled {
       }
     }
 
-    # Refresh current PowerShell session environment PATH
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $env:Path = "$machinePath;$userPath"
@@ -390,11 +472,16 @@ function Ensure-NodeInstalled {
     } else {
       Write-Status '!' 'Node.js was installed. If commands fail, please restart your PowerShell terminal.' 'Yellow'
     }
+  } else {
+    $nodeVer = & node -v
+    $npmVer = & npm -v
+    Write-Status 'ok' "Node.js runtime verified ($nodeVer, npm $npmVer)." 'Green'
   }
 
   # Check if project dependencies (node_modules) are installed
-  if (-not (Test-Path $nodeModulesDir)) {
-    Write-Status '>>' 'node_modules not found. Installing project dependencies (npm install)...' 'Cyan'
+  if ($ForceInstall -or (-not (Test-Path $nodeModulesDir))) {
+    Write-Status '>>' '[2/3] Installing project dependencies (npm install)...' 'Cyan'
+    Write-Host '      Downloading packages & compiling native modules (please wait)...' -ForegroundColor DarkGray
     Push-Location $ProjectRoot
     try {
       & npm install
@@ -405,10 +492,22 @@ function Ensure-NodeInstalled {
     } finally {
       Pop-Location
     }
+  } else {
+    Write-Status 'ok' '[2/3] Project dependencies (node_modules) verified.' 'Green'
   }
 
-  # Stamp the completed first-run setup so every later launch skips installer work.
+  # Check Python runtime & .venv
+  Write-Status '..' '[3/3] Checking Python runtime and .venv environment...' 'DarkGray'
+  Ensure-PythonEnvironment -ForceInstall:$ForceInstall
+
+  Write-Status 'ok' 'Environment verification completed.' 'Green'
+  Write-Host ''
+
   $null = New-Item -Path $InstalledMarker -ItemType File -Force
+}
+
+function Ensure-NodeInstalled {
+  Ensure-Environment
 }
 
 function Check-GitUpdates {
@@ -745,9 +844,67 @@ Write-Host '  |     Renegade Core Model Manager     |' -ForegroundColor Magenta
 Write-Host '  +-------------------------------------+' -ForegroundColor Magenta
 Write-Host ''
 
+function Install-Dependencies {
+  Ensure-Environment -ForceInstall
+  Write-Status '>>' 'Building project assets...' 'Cyan'
+  Push-Location $ProjectRoot
+  try {
+    & npx.cmd vite build --base ./ --emptyOutDir false
+    & npx.cmd tsc --project tsconfig.main.json
+    Write-Status 'ok' 'Build completed successfully.' 'Green'
+  } finally {
+    Pop-Location
+  }
+  Write-Host ''
+  Write-Status 'ok' 'Renegade Core Model Manager setup & installation complete!' 'Green'
+  Write-Host '  Run .\cmm.ps1 start to launch the application.' -ForegroundColor Green
+  Write-Host ''
+}
+
+function Show-Help {
+  Write-Host 'Usage: .\cmm.ps1 <command> [options]'
+  Write-Host ''
+  Write-Host 'App Management Commands:' -ForegroundColor Yellow
+  Write-Host '  install / setup          Verify runtime, install npm & Python .venv dependencies, build project'
+  Write-Host '  start                    Start the desktop app and Vite web server (default)'
+  Write-Host '  stop                     Stop all running CMM processes'
+  Write-Host '  restart                  Restart the application'
+  Write-Host '  clean-assets             Prune orphaned hashed bundles from dist\assets'
+  Write-Host '  update                   Pull latest development commits and rebuild'
+  Write-Host '  status                   Show running process status & endpoints'
+  Write-Host '  package / dist           Package standalone Windows binaries (.exe)'
+  Write-Host ''
+  Write-Host 'CLI Commands:' -ForegroundColor Yellow
+  Write-Host '  scan                     Scan ComfyUI model directories'
+  Write-Host '  download                 Download model from CivitAI'
+  Write-Host '  check-updates            Check installed models for new versions'
+  Write-Host '  export                   Export model database & configuration'
+  Write-Host '  hf check <repo_id>       Inspect Hugging Face model repository'
+  Write-Host '  hf whoami                Check Hugging Face CLI login status'
+  Write-Host '  workflows                Scan workflows for referenced models'
+  Write-Host ''
+  Write-Host 'Options:' -ForegroundColor Yellow
+  Write-Host '  -Port <int>              Custom web port (default: 5173)'
+  Write-Host '  -ApiPort <int>           Custom HTTP API Bridge port (default: 5174)'
+  Write-Host '  -Headless, -NoWindow     Run in background without Electron GUI window'
+  Write-Host ''
+}
+
 # -- Dispatch --------------------------------------------------------------
 
 switch ($Action) {
+  'install' {
+    Install-Dependencies
+  }
+  'setup' {
+    Install-Dependencies
+  }
+  'init' {
+    Install-Dependencies
+  }
+  'help' {
+    Show-Help
+  }
   'start' {
     Start-App
   }

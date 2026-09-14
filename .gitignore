@@ -32,3 +32,6 @@ ReleaseNotesDraft.md
 releasenotesdraft.md
 .github/ReleaseNotesDraft.md
 .github/releasenotesdraft.md
+.venv/
+__pycache__/
+*.pyc

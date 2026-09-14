@@ -1,38 +1,36 @@
 # Contributing to Renegade Core Model Manager
 
-Thank you for your interest in contributing to **Renegade Core Model Manager**! 🎉
+Thank you for your interest in contributing to **Renegade Core Model Manager**!
 
-This project is an open-source, community-driven desktop application built with Electron, React, TypeScript, and SQLite, designed to streamline model management, workflow dependency resolution, and automated downloads for ComfyUI.
-
----
-
-## 📜 Table of Contents
-
-- [Contributing to Renegade Core Model Manager](#contributing-to-renegade-core-model-manager)
-  - [📜 Table of Contents](#-table-of-contents)
-  - [🤝 Code of Conduct](#-code-of-conduct)
-  - [💡 How Can I Contribute?](#-how-can-i-contribute)
-    - [Reporting Bugs](#reporting-bugs)
-    - [Suggesting Features \& Enhancements](#suggesting-features--enhancements)
-    - [Submitting a Pull Request](#submitting-a-pull-request)
-  - [🛠️ Development Setup](#️-development-setup)
-    - [Prerequisites](#prerequisites)
-    - [Quick Start](#quick-start)
-  - [🏛️ Project Architecture](#️-project-architecture)
-  - [📐 Code Style \& Guidelines](#-code-style--guidelines)
-  - [🧪 Testing \& Verification](#-testing--verification)
-  - [📝 Commit Message Conventions](#-commit-message-conventions)
-  - [📄 License](#-license)
+This project is an open-source, community-driven desktop application built with Electron, React, TypeScript, and SQLite, designed to streamline model management, workflow dependency resolution, automated downloads, and storage optimization for ComfyUI.
 
 ---
 
-## 🤝 Code of Conduct
+## Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [How Can I Contribute?](#how-can-i-contribute)
+  - [Reporting Bugs](#reporting-bugs)
+  - [Suggesting Features & Enhancements](#suggesting-features--enhancements)
+  - [Submitting a Pull Request](#submitting-a-pull-request)
+- [Development Setup](#development-setup)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+- [Project Architecture](#project-architecture)
+- [Code Style & Guidelines](#code-style--guidelines)
+- [Testing & Verification](#testing--verification)
+- [Commit Message Conventions](#commit-message-conventions)
+- [License](#license)
+
+---
+
+## Code of Conduct
 
 We are committed to providing a welcoming, inclusive, and harassment-free environment for everyone. Please be respectful, constructive, and collaborative in all issues, pull requests, and discussions.
 
 ---
 
-## 💡 How Can I Contribute?
+## How Can I Contribute?
 
 ### Reporting Bugs
 
@@ -41,14 +39,14 @@ If you discover a bug, please check the [existing issues](https://github.com/Dev
 - **A clear, descriptive title.**
 - **Steps to reproduce the issue.**
 - **Expected vs. actual behavior.**
-- **Environment details:** Available in the "Settings" tab with your OS (Linux/Windows/macOS), Node.js version, Electron version, ComfyUI installation type (Portable vs. Standard venv).
-- **Relevant logs or screenshots** (App logs can be found in-app under the settings tab or via terminal or developer console).
+- **Environment details:** OS (Linux/Windows/macOS), Node.js version, Electron version, ComfyUI installation type (Portable vs. Standard venv).
+- **Relevant logs or screenshots** (App logs can be viewed in the Settings tab or terminal).
 
 ### Suggesting Features & Enhancements
 
 Feature requests are always welcome! Before opening a feature request:
 
-- Check [`ROADMAP.md`](ROADMAP.md) to see if the feature is already planned.
+- Check [`docs/ROADMAP.md`](docs/ROADMAP.md) to see if the feature is already planned.
 - Explain the **use case**, **why it is valuable**, and any proposed interface designs or workflow implications.
 
 ### Submitting a Pull Request
@@ -68,78 +66,89 @@ Feature requests are always welcome! Before opening a feature request:
    npm run build
    ```
 
-5. **Update documentation and [`CHANGELOG.md`](CHANGELOG.md)** for any notable additions or fixes.
-6. **Push to your fork** and submit a Pull Request to `main`.
-
 ---
 
-## 🛠️ Development Setup
+## Development Setup
 
 ### Prerequisites
 
-- **Node.js**: `v18.0.0` or higher (Recommended: `v20.x` or `v22.x` LTS)
-- **npm**: `v9.0.0` or higher
-- **Git**
-- Optional: ComfyUI local installation (for testing live model paths & workflow scanner)
+- **Node.js**: `v20+` or `v22+ LTS` recommended (`node --version`)
+- **npm**: `v10+` (`npm --version`)
+- **Python 3**: (Optional, for PyTorch Pickle-to-SafeTensors converter) `python --version`
+- **Git**: (`git --version`)
 
 ### Quick Start
 
 ```bash
-# 1. Clone your fork
+# 1. Clone the repository
 git clone https://github.com/DevNullInc/RenegadeCMM.git
 cd RenegadeCMM
 
-# 2. Install dependencies
-npm install
-
-# 3. Launch development environment:
-# On Linux / macOS:
-./cmm.sh
-
+# 2. Automated environment provisioning (Node.js + Python .venv + PyTorch + SafeTensors)
 # On Windows (PowerShell):
-.\cmm.ps1
+.\cmm.ps1 install
+# On Linux / macOS:
+./cmm.sh install
 
-# Or run Vite + Electron manually:
-npm run dev
+# 3. Launch the development environment
+# Windows:
+.\cmm.ps1 start
+# Linux:
+./cmm.sh start
+# macOS:
+./cmm-mac.sh start
 ```
 
 ---
 
-## 🏛️ Project Architecture
+## Project Architecture
 
 ```text
 RenegadeCMM/
 ├── src/
-│   ├── main/                 # Electron main process (lifecycle, IPC, window management)
-│   │   ├── index.ts          # Main process entry & HTTP API server bridge
-│   │   └── preload.ts        # Context bridge exposing safe IPC methods
-│   ├── services/             # Core backend services
-│   │   ├── civitaiClient.ts  # CivitAI REST API client & proxy
-│   │   ├── downloadManager.ts# Multi-threaded chunked downloader with speed limits
-│   │   ├── libraryScanner.ts # SQLite local model indexer & SHA256 hasher
+│   ├── main/                 # Electron main process & privileged host bridge
+│   │   ├── index.ts          # Main entry, IPC handlers, HTTP API Bridge (:5174)
+│   │   └── preload.ts        # contextBridge API exposing window.civitaiAPI
+│   ├── services/             # Core backend business logic & subsystems
+│   │   ├── civitaiClient.ts  # CivitAI REST API v1 client
+│   │   ├── huggingfaceClient.ts # Hugging Face Hub metadata & chunked download pipeline
+│   │   ├── downloadManager.ts# Persistent chunked download queue
+│   │   ├── libraryScanner.ts # Recursive folder scanner & 64MB SHA-256 accelerator
+│   │   ├── storageOptimizer.ts # Hardlink deduplicator & companion packager
+│   │   ├── modelConverter.ts # PyTorch Pickle to SafeTensors converter engine
+│   │   ├── precisionInspector.ts # Tensor precision & optimizer state analyzer
+│   │   ├── orphanFinder.ts   # Unused library model discovery engine
+│   │   ├── hardwareScanner.ts# Host CPU/RAM/VRAM hardware telemetry
+│   │   ├── swarmBridge.ts    # RenegadeSwarm sister daemon integration & window focus
 │   │   ├── nodeResolverService.ts # 4-Tier custom node resolver & Git installer
-│   │   ├── workflowScanner.ts# In-memory & disk JSON/PNG workflow metadata parser
-│   │   ├── backupService.ts  # SQLite & config backup creator (via adm-zip)
-│   │   └── imageCacheService.ts # Local preview image caching
+│   │   ├── workflowScanner.ts# In-memory & disk JSON/PNG workflow parser
+│   │   └── backupService.ts  # SQLite & config backup creator (via adm-zip)
 │   ├── components/           # React UI tabs & components
-│   │   ├── BrowseTab.tsx     # CivitAI model browser with filters & tag selector
+│   │   ├── BrowseTab.tsx     # Dual-source model browser (CivitAI + HF Hub)
 │   │   ├── LibraryTab.tsx    # Local models manager, duplicate inspector & updates
-│   │   ├── WorkflowsTab.tsx  # Interactive visual node map & dependency matrix
+│   │   ├── WorkflowsTab.tsx  # React Flow visual node map & dependency matrix
 │   │   ├── DownloadsTab.tsx  # Live download queue with speed graphs
-│   │   ├── SettingsTab.tsx   # ComfyUI paths, auto-sorter & API bridge configuration
-│   │   └── NodeResolutionCard.tsx # 1-click custom node installer UI
+│   │   └── SettingsTab.tsx   # ComfyUI paths, auto-sorter & API bridge configuration
 │   ├── types/                # TypeScript interfaces and shared type definitions
-│   └── utils/                # Web bridge, logger, formatters, and helpers
-├── tests/                    # Vitest unit and integration test suite
-├── docs/                     # Technical documentation & API references
-│   └── APISecurity.md        # API key / token encryption & storage security
-├── ROADMAP.md                # Product milestones and development roadmap
-└── CHANGELOG.md              # Historical log of notable changes
+│   └── utils/                # Web bridge, logger, formatters, and security validator
+├── tests/                    # Vitest unit and integration test suite (19 suites, 107 tests)
+├── docs/                     # Technical documentation & architecture specifications
+│   ├── ARCHITECTURE.md       # Multi-process architecture & system design
+│   ├── FEATURES.md           # Technical feature reference
+│   ├── API_REFERENCE.md      # Local REST API documentation & examples
+│   ├── APISecurity.md        # API key / token encryption & storage security
+│   ├── ROADMAP.md            # Product milestones and development roadmap
+│   └── DEV-CHANGELOG.md      # Rolling developer changelog for active sprint
+├── CHANGELOG.md              # Historical log of notable releases
+├── LEGAL.md                  # Statutory terms & third-party license notices
+├── LICENSE                   # GNU General Public License v3.0
+├── PRIVACY.md                # Privacy policy & local-first data guarantees
+└── SECURITY.md               # Vulnerability disclosure policy & reporting
 ```
 
 ---
 
-## 📐 Code Style & Guidelines
+## Code Style & Guidelines
 
 - **TypeScript**: Strict mode is enabled. Avoid `any` where possible and define clear interfaces in `src/types/`.
 - **Styling**: Use curated, harmonious dark-mode palettes, smooth gradients, and glassmorphism styling consistent with the existing UI.
@@ -150,7 +159,7 @@ RenegadeCMM/
 
 ---
 
-## 🧪 Testing & Verification
+## Testing & Verification
 
 All contributions must pass the test suite and TypeScript build without errors:
 
@@ -166,7 +175,7 @@ When implementing new features or resolving bugs, please add corresponding unit 
 
 ---
 
-## 📝 Commit Message Conventions
+## Commit Message Conventions
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
 
@@ -183,12 +192,12 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 ```git
 feat: add interactive visual node map to Workflows tab
 
-- Preserves LiteGraph canvas coordinates and bezier wiring
+- Preserves React Flow canvas coordinates and bezier wiring
 - Adds 1-click node installation and dependency status badges
 ```
 
 ---
 
-## 📄 License
+## License
 
 By contributing to **Renegade Core Model Manager**, you agree that your contributions will be licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** without additional restrictions. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for full statutory terms and source availability disclosures.

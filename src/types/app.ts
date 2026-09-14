@@ -134,6 +134,77 @@ export interface AppConfig {
   local_api_enabled?: boolean;
   local_api_port?: number;
   comfyui_server_url?: string;
+  swarm_server_url?: string;
+  swarm_auto_connect?: boolean;
+  auto_convert_pickle_to_safetensors?: boolean;
+  delete_original_after_conversion?: boolean;
+  custom_python_path?: string;
+}
+
+export interface PythonEnvironmentStatus {
+  available: boolean;
+  pythonPath?: string;
+  version?: string;
+  source: 'comfyui_embedded' | 'comfyui_venv' | 'cmm_venv' | 'system' | 'custom' | 'none';
+  hasTorch: boolean;
+  hasSafetensors: boolean;
+  readyForConversion: boolean;
+  error?: string;
+}
+
+export interface ModelConversionResult {
+  success: boolean;
+  sourcePath: string;
+  targetPath?: string;
+  originalSize?: number;
+  convertedSize?: number;
+  newSha256?: string;
+  timeTakenMs?: number;
+  deletedOriginal?: boolean;
+  error?: string;
+}
+
+export interface GpuInfo {
+  name: string;
+  vramTotalBytes?: number;
+  vramFreeBytes?: number;
+  vramFormatted?: string;
+  driverVersion?: string;
+  vendor?: string;
+}
+
+export interface HardwareProfile {
+  cpu: {
+    model: string;
+    cores: number;
+    speedMhz: number;
+    arch: string;
+  };
+  memory: {
+    totalBytes: number;
+    freeBytes: number;
+    usedBytes: number;
+    totalFormatted: string;
+    freeFormatted: string;
+    usedPercent: number;
+  };
+  gpus: GpuInfo[];
+  platform: string;
+  timestamp: number;
+}
+
+export interface ConversionSafetyAssessment {
+  isSafe: boolean;
+  riskLevel: 'safe' | 'warning' | 'critical';
+  modelSizeBytes: number;
+  modelSizeFormatted: string;
+  estimatedRamRequiredBytes: number;
+  estimatedRamRequiredFormatted: string;
+  freeRamBytes: number;
+  freeRamFormatted: string;
+  totalRamBytes: number;
+  message: string;
+  recommendation?: string;
 }
 
 export interface WorkflowModelReference {
@@ -381,9 +452,135 @@ export interface ComfyUIStatus {
   error?: string;
 }
 
+export interface SwarmStatus {
+  online: boolean;
+  serverUrl: string;
+  version?: string;
+  peers?: number;
+  seeding?: number;
+  status?: string;
+  error?: string;
+}
+
 export interface SaveWorkflowResult {
   success: boolean;
   filePath?: string;
   fileName?: string;
   error?: string;
 }
+
+export interface DuplicateModelFile {
+  id?: number;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  sha256?: string;
+  modelType: string;
+  baseModel: string;
+  civitaiName?: string;
+  isMaster: boolean;
+  isHardlinked: boolean;
+  inode?: number;
+  dev?: number;
+  canHardlink: boolean;
+  reason?: string;
+}
+
+export interface DuplicateCluster {
+  sha256: string;
+  fileSize: number;
+  masterPath: string;
+  files: DuplicateModelFile[];
+  potentialSavingsBytes: number;
+}
+
+export interface StorageOptimizerScanResult {
+  totalScannedFiles: number;
+  duplicateClusters: DuplicateCluster[];
+  totalDuplicates: number;
+  potentialSavingsBytes: number;
+  potentialSavingsFormatted: string;
+  crossDriveIncompatibles: number;
+}
+
+export interface HardlinkExecutionResult {
+  success: boolean;
+  processedCount: number;
+  bytesReclaimed: number;
+  errors: Array<{ filePath: string; error: string }>;
+}
+
+export interface CompanionPackageResult {
+  filePath: string;
+  sha256Created: boolean;
+  infoJsonCreated: boolean;
+  imageCreated: boolean;
+  error?: string;
+}
+
+export interface BulkCompanionPackageResult {
+  totalModels: number;
+  processed: number;
+  sha256CreatedCount: number;
+  infoJsonCreatedCount: number;
+  imageCreatedCount: number;
+  errors: Array<{ filePath: string; error: string }>;
+}
+
+export interface TensorPrecisionSummary {
+  f32Count: number;
+  f16Count: number;
+  bf16Count: number;
+  i8Count: number;
+  otherCount: number;
+  totalTensors: number;
+  totalParameters: number;
+  primaryPrecision: 'FP32' | 'FP16' | 'BF16' | 'Mixed FP32/FP16' | 'Quantized / GGUF' | 'Unknown';
+  hasOptimizerStates: boolean;
+  optimizerTensorCount: number;
+  estimatedOptimizerBytes: number;
+  prunableBytesEstimate: number;
+  prunablePercentageEstimate: number;
+}
+
+export interface ModelPrecisionInfo {
+  filePath: string;
+  fileName: string;
+  format: 'safetensors' | 'gguf' | 'pickle/bin' | 'unknown';
+  fileSize: number;
+  fileSizeFormatted: string;
+  precisionSummary: TensorPrecisionSummary;
+  quantization?: string;
+  architecture?: string;
+  metadata?: Record<string, string>;
+  error?: string;
+}
+
+export interface ModelUsageInfo {
+  id: number;
+  fileName: string;
+  filePath: string;
+  modelType: string;
+  baseModel: string;
+  fileSize: number;
+  fileSizeFormatted: string;
+  referenceCount: number;
+  referencedWorkflows: Array<{
+    filePath: string;
+    fileName: string;
+    fileType: 'json' | 'png';
+  }>;
+  isOrphan: boolean;
+}
+
+export interface OrphanScanResult {
+  totalScannedModels: number;
+  totalScannedWorkflows: number;
+  orphanCount: number;
+  activeCount: number;
+  orphanBytesTotal: number;
+  orphanBytesFormatted: string;
+  orphans: ModelUsageInfo[];
+  activelyUsed: ModelUsageInfo[];
+}
+

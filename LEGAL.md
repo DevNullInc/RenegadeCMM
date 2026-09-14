@@ -3,7 +3,7 @@
 **Project:** Renegade Core Model Manager (RenegadeCMM)  
 **Maintainer:** TheStygianRenegade / /dev/null Inc  
 **Legal Contact:** <legal@renegadeinc.net> (CC: <contact-us@renegadeinc.net>)  
-**Source Repository:** <https://github.com/DevNullInc/RenegadeCMM>  
+**Source Repository:** <https://github.com/DevNullInc/RenegadeCMM>
 
 ---
 
@@ -41,6 +41,8 @@ In accordance with Section 15 of the GNU General Public License v3.0:
 Without limiting the statutory disclaimer above:
 
 - **Filesystem & Data Integrity:** RenegadeCMM modifies local files, moves downloaded weights, unpacks archive entries, and updates ComfyUI directory trees. You assume full responsibility for maintaining backups of your files, workflows, and custom node directories.
+- **PyTorch Pickle to SafeTensors Conversion:** Model conversion executes local Python scripts using PyTorch and SafeTensors libraries to serialize legacy `.ckpt`, `.pt`, and `.bin` files into `.safetensors`. While the Application performs local hardware telemetry and memory safety checks to prevent Out-Of-Memory (OOM) crashes, conversions depend on host memory availability. Opting to delete original files permanently removes the legacy checkpoint once verified.
+- **Storage Optimizer & Hardlink Deduplication:** Hardlinking utilizes native filesystem allocation links (NTFS hardlinks on Windows, ext4/btrfs on Linux, APFS on macOS). Hardlinked files share identical disk blocks; modifying or overwriting one path alters all referencing instances on that volume.
 - **ComfyUI Compatibility:** ComfyUI and third-party custom nodes evolve independently. We do not guarantee uninterrupted compatibility with all ComfyUI releases, custom node packages, Python environments, or operating system updates.
 - **Local Security Environment:** While stored API credentials are encrypted at rest using machine-and-user bound AES-256-GCM, the software cannot protect against active keyloggers, rootkits, compromised Node.js dependencies, or administrative access under your operating system account.
 
@@ -61,6 +63,7 @@ To the maximum extent permitted by applicable law, /dev/null Inc, TheStygianRene
 - Interruption, modification, or termination of third-party APIs or download endpoints (CivitAI, Hugging Face, GitHub).
 - Unintentional loss, corruption, or overwriting of models, workflows, generated images, or custom configurations.
 - Any actions taken by third-party custom node installation scripts (`requirements.txt`, `install.py`) executed within your local ComfyUI environment.
+- Out-of-memory terminations or hardware resource pressure during PyTorch model conversions.
 
 ---
 
@@ -71,7 +74,7 @@ RenegadeCMM is an automation and management tool. **It does not host, curate, st
 - **CivitAI Integration:** Model downloads and metadata queries communicate directly with civitai.com. Models retrieved from CivitAI are created by third parties and governed by the respective creator's license (e.g., OpenRAIL, Creative Commons, or custom permissions). Users are solely responsible for verifying and complying with model usage rights.
 - **Hugging Face Integration:** Model repository queries and gated downloads connect directly to huggingface.co. Access to gated or restricted models requires compliance with individual repository licenses and user agreements established on Hugging Face.
 - **GitHub Integration:** Custom node resolution references public repositories on github.com. Cloned repositories are licensed under terms set by their respective authors.
-- **Trademark Notice:** "ComfyUI", "CivitAI", "Hugging Face", "GitHub", "Electron", "SQLite", and other product names or marks referenced herein are trademarks or registered trademarks of their respective owners. RenegadeCMM is an independent open-source project and is not affiliated with, sponsored by, or endorsed by any of these organizations.
+- **Trademark Notice:** "ComfyUI", "CivitAI", "Hugging Face", "GitHub", "Electron", "SQLite", "React Flow", "PyTorch", and other product names or marks referenced herein are trademarks or registered trademarks of their respective owners. RenegadeCMM is an independent open-source project and is not affiliated with, sponsored by, or endorsed by any of these organizations.
 
 ---
 
@@ -93,7 +96,7 @@ RenegadeCMM incorporates, bundles, or links with several open-source libraries. 
 | Component | Upstream License | FSF GPL-3.0 Compatibility | Role in RenegadeCMM |
 | :--- | :--- | :--- | :--- |
 | **Electron** | MIT (Chromium: BSD/MIT/LGPL) | Compatible | Cross-platform desktop runtime framework |
-| **LiteGraph.js** | MIT | Compatible | Node canvas workflow rendering & graph inspection |
+| **@xyflow/react (React Flow)** | MIT | Compatible | Offline interactive visual node canvas & workflow inspection |
 | **SQLite (Core Engine)** | Public Domain | Compatible | Embedded database storage engine |
 | **sqlite3 (npm package)** | BSD 3-Clause | Compatible | Node.js native binding layer for SQLite |
 | **lucide-react** | ISC | Compatible | UI icons and interface visual assets |
@@ -107,9 +110,12 @@ RenegadeCMM incorporates, bundles, or links with several open-source libraries. 
 | **keytar** | MIT | Compatible | Native OS credential store interface layer |
 | **Vite** | MIT | Compatible | Frontend build tooling and local preview server |
 | **TypeScript** | Apache-2.0 | Compatible | Type system and static analysis compiler |
-| **TailwindCSS** | MIT | Compatible | Utility-first CSS styling framework |
 | **Vitest** | MIT | Compatible | Unit and integration test runner suite |
+| **PyTorch (torch)\*** | BSD 3-Clause | Compatible | Optional runtime dependency for pickle tensor conversion |
+| **safetensors\*** | Apache-2.0 | Compatible | Optional runtime dependency for zero-copy tensor writing |
 | **ComfyUI** | GPL-3.0 | Compatible | External integration target for model directories |
+
+*\*Note: PyTorch and SafeTensors are external Python runtime dependencies utilized in conversion tasks and are not statically linked into the Node.js/Electron application binary.*
 
 Full license texts for all bundled open-source dependencies are preserved in the `node_modules` manifests of binary release distributions and acknowledged in [LICENSE](LICENSE).
 
@@ -117,7 +123,7 @@ Full license texts for all bundled open-source dependencies are preserved in the
 
 ## 7. Code Signing & Digital Certificates
 
-Code signing integration for official release binaries of RenegadeCMM is currently in progress through the **[SignPath Foundation](https://signpath.org)** and **[SignPath.io](https://signpath.io)**:
+Code signing integration for official release binaries of RenegadeCMM is in progress through the **[SignPath Foundation](https://signpath.org)** and **[SignPath.io](https://signpath.io)**:
 
 - Once fully integrated, code signing certificates will verify binary integrity and attest that release packages have not been tampered with or modified since compilation in the official CI/CD pipeline.
 - Digital signatures provide binary provenance and do not constitute an endorsement, warranty, or assumption of liability by the SignPath Foundation.
@@ -137,5 +143,5 @@ These legal notices and disclaimers shall be governed by and construed in accord
 
 We may update these notices periodically as the project and its legal context evolve. Updates will be reflected in this file with a revised "Last Updated" timestamp. Continued use of the software after such revisions signifies your acknowledgment of the updated terms.
 
-**Last Updated:** September 9, 2026  
-**Applicable Release:** RenegadeCMM v1.5.0 and subsequent releases
+**Last Updated:** September 13, 2026  
+**Applicable Release:** RenegadeCMM v1.5.0, v1.6.0, and subsequent releases

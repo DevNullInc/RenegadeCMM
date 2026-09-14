@@ -42,6 +42,8 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
+    "showDetails": true,
+    "include": "build/installer.nsh",
     "artifactName": "${productName}-Setup-${version}.${ext}"
   },
   "portable": {

@@ -83,6 +83,10 @@ const api = {
     ipcRenderer.invoke('parse-workflow', workflowData, workflowName),
   checkComfyUIStatus: (serverUrl?: string) =>
     ipcRenderer.invoke('check-comfyui-status', serverUrl),
+  checkSwarmStatus: (serverUrl?: string) =>
+    ipcRenderer.invoke('check-swarm-status', serverUrl),
+  focusOrOpenSwarm: (serverUrl?: string) =>
+    ipcRenderer.invoke('focus-or-open-swarm', serverUrl),
   saveWorkflowToComfyUI: (fileName: string, data: any, fileType?: string) =>
     ipcRenderer.invoke('save-comfyui-workflow', fileName, data, fileType),
   executeComfyUIPrompt: (promptData: any, serverUrl?: string) =>
@@ -110,6 +114,29 @@ const api = {
   hfSearchModels: (query: string, limit?: number) => ipcRenderer.invoke('hf-search-models', query, limit),
   inspectGGUF: (filePath: string) => ipcRenderer.invoke('inspect-gguf', filePath),
 
+  // Storage Optimizer & Swarm Packaging
+  scanStorageOptimizer: () => ipcRenderer.invoke('scan-storage-optimizer'),
+  executeHardlinkOptimizer: (masterPath: string, duplicatePath: string) =>
+    ipcRenderer.invoke('execute-hardlink-optimizer', masterPath, duplicatePath),
+  packageCompanionFiles: (filePath: string) =>
+    ipcRenderer.invoke('package-companion-files', filePath),
+  packageAllCompanionFiles: () =>
+    ipcRenderer.invoke('package-all-companion-files'),
+  inspectModelPrecision: (filePath: string) =>
+    ipcRenderer.invoke('inspect-model-precision', filePath),
+  scanOrphanModels: (workflowDirs?: string | string[]) =>
+    ipcRenderer.invoke('scan-orphan-models', workflowDirs),
+
+  // Model Converter (Pickle to SafeTensors) & Hardware Safety
+  getConverterEnvironment: (customPythonPath?: string) =>
+    ipcRenderer.invoke('get-converter-environment', customPythonPath),
+  convertModelToSafetensors: (filePath: string, options?: any) =>
+    ipcRenderer.invoke('convert-model-to-safetensors', filePath, options),
+  getHardwareProfile: (forceRefresh?: boolean) =>
+    ipcRenderer.invoke('get-hardware-profile', forceRefresh),
+  assessConversionSafety: (modelSizeBytes: number) =>
+    ipcRenderer.invoke('assess-conversion-safety', modelSizeBytes),
+
   // External Link & System Info
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
@@ -120,6 +147,9 @@ const api = {
   // App control
   restartApp: () => ipcRenderer.invoke('restart-app'),
   shutdownApp: () => ipcRenderer.invoke('shutdown-app'),
+  onProtocolAction: (callback: (actionPayload: any) => void) => {
+    ipcRenderer.on('protocol-action', (_event: unknown, payload: any) => callback(payload));
+  },
 };
 
 contextBridge.exposeInMainWorld('civitaiAPI', api);
