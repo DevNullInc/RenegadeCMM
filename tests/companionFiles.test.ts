@@ -12,11 +12,13 @@ import { dbManager } from '../src/db/db';
 import { DownloadTask } from '../src/types/app';
 import { imageCacheService } from '../src/services/imageCacheService';
 
+const realpath = (p: string) => (fs.realpathSync.native ? fs.realpathSync.native(p) : fs.realpathSync(p));
+
 describe('Companion Files (.sha256, .civitai.info, preview images)', () => {
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-companion-test-')));
+    tempDir = realpath(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-companion-test-')));
     await dbManager.init(':memory:');
   });
 
@@ -193,8 +195,8 @@ describe('Companion Files (.sha256, .civitai.info, preview images)', () => {
       expect(companion.companionHash).toBe('1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF');
       expect(companion.companionInfo?.id).toBe(999123);
       expect(companion.companionInfo?.name).toBe('Cyberpunk LoRA v2');
-      expect(companion.companionInfoPath).toBe(infoPath);
-      expect(companion.localImagePath).toBe(imgPath);
+      expect(realpath(companion.companionInfoPath!)).toBe(realpath(infoPath));
+      expect(realpath(companion.localImagePath!)).toBe(realpath(imgPath));
       expect(companion.localImageUrl).toContain('/api/local-image?path=');
     });
   });
@@ -237,8 +239,8 @@ describe('Companion Files (.sha256, .civitai.info, preview images)', () => {
       expect(model.modelType).toBe('Checkpoint');
       expect(model.nsfw).toBe(true);
       expect(model.previewUrl).toContain('/api/local-image?path=');
-      expect(model.localPreviewPath).toBe(imgPath);
-      expect(model.companionInfoPath).toBe(infoPath);
+      expect(realpath(model.localPreviewPath!)).toBe(realpath(imgPath));
+      expect(realpath(model.companionInfoPath!)).toBe(realpath(infoPath));
     });
   });
 });
