@@ -16,7 +16,7 @@ describe('Companion Files (.sha256, .civitai.info, preview images)', () => {
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-companion-test-'));
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-companion-test-')));
     await dbManager.init(':memory:');
   });
 

@@ -358,8 +358,8 @@ function AppContent() {
       <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80 backdrop-blur-xl px-6 py-3 shadow-2xl flex items-center justify-between gap-6 w-full shrink-0">
         {/* Left: Brand Logo & Title */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="p-2.5 rounded-2xl bg-linear-to-tr from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 flex items-center justify-center">
-            <Layers size={22} />
+          <div className="w-9 h-9 rounded-xl overflow-hidden shadow-lg shadow-purple-600/30 flex items-center justify-center shrink-0 border border-purple-500/30 bg-slate-900/90 p-0.5">
+            <img src="./icon.svg" alt="RenegadeCMM" className="w-full h-full object-contain" />
           </div>
           <div>
             <h1 className="font-extrabold text-sm text-slate-100 tracking-tight leading-none">

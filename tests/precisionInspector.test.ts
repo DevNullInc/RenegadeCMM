@@ -28,7 +28,7 @@ describe('PrecisionInspector Service', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-prec-test-'));
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-prec-test-')));
   });
 
   afterEach(() => {

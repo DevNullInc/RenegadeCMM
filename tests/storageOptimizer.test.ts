@@ -24,7 +24,7 @@ describe('Storage Optimizer & Swarm Packaging Service', () => {
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-opt-test-'));
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-opt-test-')));
     const dbPath = path.join(tempDir, 'opt.sqlite');
     await dbManager.init(dbPath);
     await dbManager.run('DELETE FROM local_models;');

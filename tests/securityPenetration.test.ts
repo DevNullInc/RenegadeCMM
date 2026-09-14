@@ -39,7 +39,7 @@ describe('Penetration Testing & Security Hardening Suite', () => {
   let outsideDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-pentest-'));
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-pentest-')));
     modelDir = path.join(tempDir, 'models');
     outsideDir = path.join(tempDir, 'outside_system');
     fs.mkdirSync(modelDir, { recursive: true });

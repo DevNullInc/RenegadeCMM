@@ -145,8 +145,8 @@ export function AboutTab() {
 
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
-            <div className="p-4 rounded-3xl bg-linear-to-tr from-purple-600 via-indigo-600 to-blue-600 text-white shadow-xl shadow-purple-600/30 flex items-center justify-center">
-              <Layers size={36} />
+            <div className="w-16 h-16 rounded-3xl overflow-hidden shadow-xl shadow-purple-600/30 flex items-center justify-center shrink-0 border border-purple-500/30 bg-slate-900/90 p-1">
+              <img src="./icon.svg" alt="RenegadeCMM" className="w-full h-full object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">

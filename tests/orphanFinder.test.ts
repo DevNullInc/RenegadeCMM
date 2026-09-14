@@ -21,7 +21,7 @@ describe('OrphanFinder Service', () => {
   let modelsDir: string;
 
   beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-orphan-fx-'));
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmm-orphan-fx-')));
     workflowDir = path.join(tempDir, 'workflows');
     modelsDir = path.join(tempDir, 'models');
     fs.mkdirSync(workflowDir, { recursive: true });

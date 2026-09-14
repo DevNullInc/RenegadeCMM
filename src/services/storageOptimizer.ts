@@ -50,6 +50,16 @@ export function canHardlinkFiles(
   stat1?: fs.Stats,
   stat2?: fs.Stats
 ): { canLink: boolean; reason?: string } {
+  // Cross-platform Windows drive letter check (e.g. C:\ vs D:\ even on Linux/macOS CI runners)
+  const winDrive1 = path1.match(/^([a-zA-Z]:)/)?.[1]?.toUpperCase();
+  const winDrive2 = path2.match(/^([a-zA-Z]:)/)?.[1]?.toUpperCase();
+  if (winDrive1 && winDrive2 && winDrive1 !== winDrive2) {
+    return {
+      canLink: false,
+      reason: `Cross-drive links not supported by filesystem (${winDrive1} vs ${winDrive2}).`,
+    };
+  }
+
   const resolved1 = path.resolve(path1);
   const resolved2 = path.resolve(path2);
 

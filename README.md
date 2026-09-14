@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD033 -->
 <p align="center">
-  <img src="build/icon.svg" alt="Renegade CMM Logo" width="96" height="96" />
+  <img src="build/icon.svg" alt="Renegade CMM Logo" width="128" height="128" />
 </p>
 <!-- markdownlint-enable MD033 -->
 
