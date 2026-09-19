@@ -146,6 +146,6 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha')
-          body: ${{ github.event.inputs.release_notes }}
+          body_path: .github/releases/${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

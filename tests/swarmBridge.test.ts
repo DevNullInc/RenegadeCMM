@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { swarmBridge } from '../src/services/swarmBridge';
+import { swarmAuthToken } from '../src/services/swarmAuthToken';
 import axios from 'axios';
 
 vi.mock('axios');
@@ -25,6 +26,7 @@ const mockedAxios = vi.mocked(axios, true);
 describe('SwarmBridge Sister Application Health Tracking', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(swarmAuthToken, 'loadSwarmDaemonToken').mockReturnValue('a'.repeat(64));
   });
 
   describe('normalizeUrl', () => {
