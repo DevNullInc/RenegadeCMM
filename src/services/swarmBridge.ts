@@ -313,8 +313,15 @@ export class SwarmBridge {
       logger.debug('Attempt to launch installed desktop executable failed:', err.message);
     }
 
-    // 4. Last fallback: instruct client to open browser URL
-    return { success: true, method: 'browser', url };
+    // 4. Last fallback: all native activation & daemon focus attempts failed
+    return {
+      success: false,
+      method: 'browser',
+      url,
+      error:
+        swarmAuthToken.getSwarmAuthStatus().lastAuthError ||
+        'Failed to activate or launch RenegadeSwarm desktop window',
+    };
   }
 
   /**
@@ -376,6 +383,14 @@ export class SwarmBridge {
               error: 'Swarm daemon rejected auth (missing or stale token)',
             };
           }
+        } else if (err.response?.status === 403) {
+          const errorMsg = "Model path is outside Swarm's allowed folder roots (Path Confinement)";
+          logger.warn(`RenegadeSwarm ingest rejected (403): ${errorMsg} for ${filePath}`);
+          return {
+            success: false,
+            statusCode: 403,
+            error: errorMsg,
+          };
         } else {
           // Fallback to /api/models/scan with the same Bearer header
           res = await axios.post(`${url}/api/models/scan`, payload, {
@@ -397,6 +412,15 @@ export class SwarmBridge {
           success: false,
           statusCode: 401,
           error: 'Swarm daemon rejected auth (missing or stale token)',
+        };
+      }
+      if (status === 403) {
+        const errorMsg = "Model path is outside Swarm's allowed folder roots (Path Confinement)";
+        logger.warn(`RenegadeSwarm ingest rejected (403): ${errorMsg} for ${filePath}`);
+        return {
+          success: false,
+          statusCode: 403,
+          error: errorMsg,
         };
       }
       logger.debug(`Could not notify Swarm daemon of model ingest on ${url}:`, err.message);

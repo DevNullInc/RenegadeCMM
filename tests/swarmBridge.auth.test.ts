@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { swarmBridge } from '../src/services/swarmBridge';
 import { swarmAuthToken } from '../src/services/swarmAuthToken';
 import axios from 'axios';
+import fs from 'fs';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -143,6 +144,20 @@ describe('SwarmBridge Auth Handshake & Security Protocol', () => {
       expect(res.statusCode).toBe(401);
       expect(res.error).toContain('rejected auth');
     });
+    it('should return specific Path Confinement error on 403 response', async () => {
+      vi.spyOn(swarmAuthToken, 'loadSwarmDaemonToken').mockReturnValue(validToken);
+      mockedAxios.post.mockRejectedValueOnce({ response: { status: 403 } });
+
+      const res = await swarmBridge.notifySwarmModelIngest(
+        'E:/ExternalDrive/untrusted_model.safetensors',
+        { fileName: 'untrusted_model.safetensors' },
+        'http://127.0.0.1:5180'
+      );
+
+      expect(res.success).toBe(false);
+      expect(res.statusCode).toBe(403);
+      expect(res.error).toBe("Model path is outside Swarm's allowed folder roots (Path Confinement)");
+    });
   });
 
   describe('focusOrOpenSwarm (Bearer Auth & POST only)', () => {
@@ -185,5 +200,17 @@ describe('SwarmBridge Auth Handshake & Security Protocol', () => {
       expect(res.method).toBe('daemon_focus');
       expect(mockedAxios.post).toHaveBeenCalledTimes(2);
     });
+
+    it('should return success: false when daemon focus, native OS focus, and executable launch all fail', async () => {
+      vi.spyOn(swarmAuthToken, 'loadSwarmDaemonToken').mockReturnValue(null);
+      vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+      const res = await swarmBridge.focusOrOpenSwarm('http://127.0.0.1:5180');
+
+      expect(res.success).toBe(false);
+      expect(res.method).toBe('browser');
+      expect(res.error).toBeDefined();
+    });
   });
 });
+
