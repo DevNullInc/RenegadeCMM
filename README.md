@@ -282,6 +282,9 @@ npm install
 
 #### 🚀 Recommended: Launch with `cmm.ps1` (Windows), `cmm.sh` (Linux), or `cmm-mac.sh` (macOS)
 
+> [!TIP]
+> **Quick Onboarding**: Double-click `cmm.bat` (Windows) or run `./cmm.sh` (Linux) / `./cmm-mac.sh` (macOS). First run automatically verifies Node.js and installs npm dependencies. It will **not** install Node or PyTorch unless you pass `setup`. Model conversion tools are optional.
+
 The included `cmm.ps1` (PowerShell), `cmm.sh` (Linux Bash), and `cmm-mac.sh` (macOS Bash) scripts are the primary launchers for starting, stopping, restarting, and managing background processes.
 
 **Windows (PowerShell):**

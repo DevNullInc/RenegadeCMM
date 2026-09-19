@@ -144,12 +144,10 @@ function Test-IsSafeToKill([System.Diagnostics.Process]$Proc, [hashtable]$CmdLin
     }
   } catch { }
 
-  # Must be node or electron
+  # Must be node or electron strictly belonging to this project workspace
   if ($name -eq 'electron' -or $name -eq 'node' -or $name -like '*civitai*') {
-    # Check if CommandLine or arguments contain protected browser names. The caller
-    # passes a pre-fetched PID -> command-line map (one batched CIM round trip instead
-    # of ~1s per PID); a direct query is the fallback for a cache miss.
     try {
+      $procPath = $Proc.MainModule.FileName
       $cmd = $CmdLines[$Proc.Id]
       if ([string]::IsNullOrWhiteSpace($cmd)) {
         $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($Proc.Id)" -ErrorAction SilentlyContinue).CommandLine
@@ -159,9 +157,14 @@ function Test-IsSafeToKill([System.Diagnostics.Process]$Proc, [hashtable]$CmdLin
         foreach ($prot in $ProtectedBrowsers) {
           if ($cmdLower -like "*$prot*") { return $false }
         }
+        $rootLower = $ProjectRoot.ToLower()
+        if ($cmdLower -like "*$rootLower*" -or ($procPath -and $procPath.ToLower() -like "*$rootLower*")) {
+          return $true
+        }
+      } elseif ($procPath -and $procPath.ToLower() -like "*$($ProjectRoot.ToLower())*") {
+        return $true
       }
     } catch { }
-    return $true
   }
 
   return $false
@@ -172,10 +175,6 @@ function Get-CommandLineCache([int[]]$ProcessIds) {
   $unique = @($ProcessIds | Where-Object { $_ -gt 4 } | Select-Object -Unique)
   if ($unique.Count -gt 0) {
     try {
-      # The Win32_Process IN(...) filter silently returns no rows on some machines, and
-      # a per-PID query costs ~1s each. One unfiltered WMI round trip for the whole
-      # process table (~1s regardless of size) is the reliable way to cover every
-      # candidate in a single call.
       Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object { $unique -contains [int]$_.ProcessId } |
         ForEach-Object { $cache[[int]$_.ProcessId] = [string]$_.CommandLine }
@@ -211,11 +210,11 @@ function Get-RunningProcs {
     }
   }
 
-  # 3. Check any Electron processes associated with this workspace
+  # 3. Check any Electron processes associated strictly with this workspace
   $electronProcs = Get-Process -Name 'electron' -ErrorAction SilentlyContinue
   foreach ($ep in $electronProcs) {
     try {
-      if ($ep.Path -like "*$ProjectRoot*" -or $ep.Path -like "*node_modules\electron*") {
+      if ($ep.Path -like "*$ProjectRoot*") {
         if ($seenPids.Add($ep.Id)) { $candidates.Add([pscustomobject]@{ Pid = $ep.Id; Proc = $ep }) }
       }
     } catch { }
@@ -402,21 +401,38 @@ function Ensure-PythonEnvironment {
   }
 }
 
+function Get-LockfileHash {
+  $lockFile = Join-Path $ProjectRoot 'package-lock.json'
+  if (Test-Path $lockFile) {
+    try {
+      return (Get-FileHash -Path $lockFile -Algorithm SHA256).Hash
+    } catch { }
+  }
+  return ''
+}
+
 function Ensure-Environment {
-  param([switch]$ForceInstall)
+  param([switch]$ForceInstall, [switch]$IncludePython)
 
   $nodeModulesDir = Join-Path $ProjectRoot 'node_modules'
+  $currentLockHash = Get-LockfileHash
 
-  # First-run watchdog: once the environment is proven (Node + node_modules present),
+  # First-run watchdog: once the environment is proven (Node + node_modules with matching lockfile hash),
   # later launches flat-skip the entire provisioning block unless ForceInstall is passed.
   if (-not $ForceInstall -and (Test-Path $InstalledMarker)) {
-    if (Test-Path $nodeModulesDir) { return }
+    $stampedHash = (Get-Content $InstalledMarker -Raw -ErrorAction SilentlyContinue).Trim()
+    if ((Test-Path $nodeModulesDir) -and ($stampedHash -eq $currentLockHash)) {
+      if ($IncludePython) {
+        Ensure-PythonEnvironment -ForceInstall:$ForceInstall
+      }
+      return
+    }
     Remove-Item $InstalledMarker -Force -ErrorAction SilentlyContinue
   }
 
   Write-Host ''
   Write-Status '>>' 'Starting Environment Verification & Dependency Setup...' 'Cyan'
-  Write-Status '..' '[1/3] Checking Node.js runtime and package managers...' 'DarkGray'
+  Write-Status '..' '[1/2] Checking Node.js runtime and environment...' 'DarkGray'
 
   $nodeCmd = Get-Command 'node' -ErrorAction SilentlyContinue
   $npmCmd = Get-Command 'npm' -ErrorAction SilentlyContinue
@@ -425,53 +441,11 @@ function Ensure-Environment {
   if (-not $nodeCmd -or -not $npmCmd -or -not $npxCmd) {
     Write-Status '!' 'Node.js runtime was not detected on this system.' 'Yellow'
     Write-Host ''
-    Write-Host '  Renegade Core Model Manager requires Node.js (v20+ LTS recommended).' -ForegroundColor Yellow
+    Write-Host '  Renegade Core Model Manager requires Node.js (v20+ or v22+ LTS recommended).' -ForegroundColor Yellow
+    Write-Host '  Please download and install Node.js from: https://nodejs.org/' -ForegroundColor Cyan
+    Write-Host '  Or install via Windows Package Manager: winget install OpenJS.NodeJS.LTS' -ForegroundColor DarkGray
     Write-Host ''
-
-    $installed = $false
-    $wingetCmd = Get-Command 'winget' -ErrorAction SilentlyContinue
-    if ($wingetCmd) {
-      Write-Status '>>' 'Attempting automatic Node.js installation via Windows Package Manager (winget)...' 'Cyan'
-      try {
-        & winget install --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
-        if ($LASTEXITCODE -eq 0) {
-          $installed = $true
-        }
-      } catch {
-        Write-Status '!!' "Winget installation encountered an issue: $_" 'Red'
-      }
-    }
-
-    if (-not $installed) {
-      Write-Status '>>' 'Downloading official Node.js LTS installer from nodejs.org...' 'Cyan'
-      $tempMsi = Join-Path $env:TEMP 'node-lts-installer.msi'
-      try {
-        $nodeDownloadUrl = 'https://nodejs.org/dist/v22.14.0/node-v22.14.0-x64.msi'
-        Invoke-WebRequest -Uri $nodeDownloadUrl -OutFile $tempMsi -UseBasicParsing
-        Write-Status '>>' 'Running Node.js installer (passive mode)...' 'Cyan'
-        $installerProc = Start-Process msiexec.exe -ArgumentList "/i `"$tempMsi`" /passive /norestart" -PassThru -Wait
-        if ($installerProc.ExitCode -eq 0) {
-          $installed = $true
-        }
-      } catch {
-        Write-Status '!!' "Failed downloading Node.js installer: $_" 'Red'
-        Write-Host ''
-        Write-Host '  Please download and install Node.js manually from: https://nodejs.org/' -ForegroundColor Cyan
-        throw 'Node.js is required to run Renegade Core Model Manager.'
-      }
-    }
-
-    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $env:Path = "$machinePath;$userPath"
-
-    $recheck = Get-Command 'node' -ErrorAction SilentlyContinue
-    if ($recheck) {
-      $nodeVer = & node -v
-      Write-Status 'ok' "Node.js environment verified ($nodeVer)!" 'Green'
-    } else {
-      Write-Status '!' 'Node.js was installed. If commands fail, please restart your PowerShell terminal.' 'Yellow'
-    }
+    exit 1
   } else {
     $nodeVer = & node -v
     $npmVer = & npm -v
@@ -479,8 +453,8 @@ function Ensure-Environment {
   }
 
   # Check if project dependencies (node_modules) are installed
-  if ($ForceInstall -or (-not (Test-Path $nodeModulesDir))) {
-    Write-Status '>>' '[2/3] Installing project dependencies (npm install)...' 'Cyan'
+  if ($ForceInstall -or (-not (Test-Path $nodeModulesDir)) -or ((Test-Path $InstalledMarker) -and ((Get-Content $InstalledMarker -Raw -ErrorAction SilentlyContinue).Trim() -ne $currentLockHash))) {
+    Write-Status '>>' '[2/2] Installing project dependencies (npm install)...' 'Cyan'
     Write-Host '      Downloading packages & compiling native modules (please wait)...' -ForegroundColor DarkGray
     Push-Location $ProjectRoot
     try {
@@ -493,21 +467,28 @@ function Ensure-Environment {
       Pop-Location
     }
   } else {
-    Write-Status 'ok' '[2/3] Project dependencies (node_modules) verified.' 'Green'
+    Write-Status 'ok' '[2/2] Project dependencies (node_modules) verified.' 'Green'
   }
 
-  # Check Python runtime & .venv
-  Write-Status '..' '[3/3] Checking Python runtime and .venv environment...' 'DarkGray'
-  Ensure-PythonEnvironment -ForceInstall:$ForceInstall
+  if ($IncludePython) {
+    Write-Status '..' '[3/3] Checking Python runtime and .venv environment...' 'DarkGray'
+    Ensure-PythonEnvironment -ForceInstall:$ForceInstall
+  } else {
+    $venvPy = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path $venvPy)) {
+      Write-Host '      (Optional: Run .\cmm.ps1 setup to install Python & PyTorch for model conversion)' -ForegroundColor DarkGray
+    }
+  }
 
   Write-Status 'ok' 'Environment verification completed.' 'Green'
   Write-Host ''
 
-  $null = New-Item -Path $InstalledMarker -ItemType File -Force
+  $currentLockHash | Set-Content -Path $InstalledMarker -Force
 }
 
 function Ensure-NodeInstalled {
-  Ensure-Environment
+  param([switch]$IncludePython)
+  Ensure-Environment -IncludePython:$IncludePython
 }
 
 function Check-GitUpdates {
@@ -547,7 +528,7 @@ function Check-GitUpdates {
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
         $gitProc = [System.Diagnostics.Process]::Start($psi)
-        if ($gitProc.WaitForExit(4000)) {
+        if ($gitProc.WaitForExit(2000)) {
           $remoteOutput = $gitProc.StandardOutput.ReadToEnd().Trim()
           if ($remoteOutput) {
             $fullSha = ($remoteOutput.Split("`t")[0]).Trim()
@@ -845,7 +826,7 @@ Write-Host '  +-------------------------------------+' -ForegroundColor Magenta
 Write-Host ''
 
 function Install-Dependencies {
-  Ensure-Environment -ForceInstall
+  Ensure-Environment -ForceInstall -IncludePython
   Write-Status '>>' 'Building project assets...' 'Cyan'
   Push-Location $ProjectRoot
   try {

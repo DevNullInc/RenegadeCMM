@@ -146,13 +146,60 @@ ensure_python_environment() {
   fi
 }
 
+get_lockfile_hash() {
+  local lock_file="$SCRIPT_DIR/package-lock.json"
+  if [ -f "$lock_file" ]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$lock_file" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 "$lock_file" | awk '{print $1}'
+    elif command -v cksum >/dev/null 2>&1; then
+      cksum "$lock_file" | awk '{print $1}'
+    fi
+  fi
+}
+
+wait_tcp_port_ready() {
+  local port="$1"
+  local max_wait_sec="${2:-10}"
+  local start_time
+  start_time=$(date +%s 2>/dev/null || echo 0)
+
+  while true; do
+    if command -v nc >/dev/null 2>&1; then
+      if nc -z 127.0.0.1 "$port" 2>/dev/null; then return 0; fi
+    elif command -v curl >/dev/null 2>&1; then
+      if curl -s "http://127.0.0.1:$port" >/dev/null 2>&1; then return 0; fi
+    elif (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
+      return 0
+    fi
+
+    if [ "$start_time" -gt 0 ]; then
+      local now
+      now=$(date +%s 2>/dev/null || echo 0)
+      if [ $((now - start_time)) -ge "$max_wait_sec" ]; then
+        return 1
+      fi
+    fi
+    sleep 0.2
+  done
+}
+
 ensure_node_installed() {
   local force_install="${1:-false}"
+  local include_python="${2:-false}"
+  local current_hash
+  current_hash="$(get_lockfile_hash)"
 
-  # First-run watchdog: once the environment is proven (node + node_modules present),
+  # First-run watchdog: once the environment is proven (node + node_modules matching lockfile hash),
   # later launches flat-skip the entire provisioning block unless force_install is true.
   if [ "$force_install" != "true" ] && [ -f "$INSTALLED_FILE" ]; then
-    if [ -d "$SCRIPT_DIR/node_modules" ]; then
+    local stamped_hash
+    stamped_hash="$(cat "$INSTALLED_FILE" 2>/dev/null || true)"
+    if [ -d "$SCRIPT_DIR/node_modules" ] && [ "$stamped_hash" = "$current_hash" ]; then
+      if [ "$include_python" = "true" ]; then
+        ensure_python_environment "$force_install"
+      fi
       return 0
     fi
     rm -f "$INSTALLED_FILE"
@@ -160,7 +207,7 @@ ensure_node_installed() {
 
   echo ""
   write_status ">>" "Starting Environment Verification & Dependency Setup..." "$C_CYAN"
-  write_status ".." "[1/3] Checking Node.js runtime and environment..." "$C_GRAY"
+  write_status ".." "[1/2] Checking Node.js runtime and environment..." "$C_GRAY"
 
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
     write_status "!" "Node.js runtime was not detected on this system." "$C_YELLOW"
@@ -179,27 +226,33 @@ ensure_node_installed() {
   npm_ver=$(npm -v 2>/dev/null || echo "unknown")
   write_status "ok" "Node.js runtime verified ($node_ver, npm $npm_ver)." "$C_GREEN"
 
-  if [ "$force_install" = "true" ] || [ ! -d "$SCRIPT_DIR/node_modules" ]; then
-    write_status ">>" "[2/3] Installing project dependencies (npm install)..." "$C_CYAN"
+  if [ "$force_install" = "true" ] || [ ! -d "$SCRIPT_DIR/node_modules" ] || [ "$stamped_hash" != "$current_hash" ]; then
+    write_status ">>" "[2/2] Installing project dependencies (npm install)..." "$C_CYAN"
     echo -e "      ${C_GRAY}Downloading packages & compiling native modules (please wait)...${C_RESET}"
     (cd "$SCRIPT_DIR" && npm install)
     write_status "ok" "Dependencies installed successfully." "$C_GREEN"
   else
-    write_status "ok" "[2/3] Project dependencies (node_modules) verified." "$C_GREEN"
+    write_status "ok" "[2/2] Project dependencies (node_modules) verified." "$C_GREEN"
   fi
 
-  write_status ".." "[3/3] Checking Python runtime and .venv environment..." "$C_GRAY"
-  ensure_python_environment "$force_install"
+  if [ "$include_python" = "true" ]; then
+    write_status ".." "[3/3] Checking Python runtime and .venv environment..." "$C_GRAY"
+    ensure_python_environment "$force_install"
+  else
+    if [ ! -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+      echo -e "      ${C_GRAY}(Optional: Run ./cmm-mac.sh setup to install Python & PyTorch for model conversion)${C_RESET}"
+    fi
+  fi
 
   write_status "ok" "Environment verification completed." "$C_GREEN"
   echo ""
 
-  # Stamp the completed setup so every later launch skips installer work.
-  touch "$INSTALLED_FILE"
+  # Stamp the completed setup hash so later launches skip installer work unless lockfile changes.
+  printf '%s' "$current_hash" > "$INSTALLED_FILE"
 }
 
 install_dependencies() {
-  ensure_node_installed true
+  ensure_node_installed true true
   write_status ">>" "Building project assets..." "$C_CYAN"
   (cd "$SCRIPT_DIR" && npm run build)
   write_status "ok" "Build completed successfully." "$C_GREEN"
@@ -398,22 +451,13 @@ start_app() {
   # Check for Git development updates
   check_git_updates
 
-  # 1. Build project
-  write_status ">>" "Building project..." "$C_CYAN"
-
-  write_status ">>" "Building renderer with Vite..." "$C_GRAY"
-  if ! npx vite build --base ./ --emptyOutDir false; then
-    write_status "!!" "Renderer build failed!" "$C_RED"
-    exit 1
-  fi
-  write_status "ok" "Renderer built successfully." "$C_GREEN"
-
-  write_status ">>" "Building Electron main process with TypeScript..." "$C_GRAY"
+  # 1. Compile main process TypeScript (if dist/main/index.js is missing or updated)
+  write_status ">>" "Verifying main process compilation (TypeScript)..." "$C_GRAY"
   if ! npx tsc --project tsconfig.main.json; then
     write_status "!!" "TypeScript main process compilation failed!" "$C_RED"
     exit 1
   fi
-  write_status "ok" "TypeScript compilation succeeded." "$C_GREEN"
+  write_status "ok" "Main process ready." "$C_GREEN"
 
   if [ ! -f "$SCRIPT_DIR/dist/main/index.js" ]; then
     write_status "!!" "Main entry point NOT FOUND: dist/main/index.js" "$C_RED"
@@ -428,7 +472,12 @@ start_app() {
 
   npx vite --port "$PORT" --host 127.0.0.1 >/dev/null 2>&1 &
   VITE_PID=$!
-  sleep 2
+  
+  if wait_tcp_port_ready "$PORT" 10; then
+    write_status "ok" "Vite dev server ready on port $PORT (http://127.0.0.1:$PORT)." "$C_GREEN"
+  else
+    write_status "!" "Vite server still starting up; proceeding to launch Electron..." "$C_YELLOW"
+  fi
 
   # 3. Launch Electron app (macOS Electron.app bundle path)
   local ELECTRON_CMD=()
