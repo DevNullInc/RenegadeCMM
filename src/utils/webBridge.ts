@@ -605,6 +605,14 @@ export function setupWebBridgeIfNeeded() {
         return { success: true, method: 'browser', url: target };
       },
 
+      getSwarmAuthStatus: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/swarm/auth-status`);
+          if (res.ok) return await res.json();
+        } catch {}
+        return { tokenFound: false, primaryExpectedPath: 'Browser Mode (IPC Not Available)' };
+      },
+
       saveWorkflowToComfyUI: async (fileName: string, data: any, fileType?: string) => {
         try {
           const res = await fetch(`${API_BASE}/comfyui/save-workflow`, {

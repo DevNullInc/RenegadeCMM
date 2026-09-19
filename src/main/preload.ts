@@ -87,6 +87,8 @@ const api = {
     ipcRenderer.invoke('check-swarm-status', serverUrl),
   focusOrOpenSwarm: (serverUrl?: string) =>
     ipcRenderer.invoke('focus-or-open-swarm', serverUrl),
+  getSwarmAuthStatus: () =>
+    ipcRenderer.invoke('get-swarm-auth-status'),
   saveWorkflowToComfyUI: (fileName: string, data: any, fileType?: string) =>
     ipcRenderer.invoke('save-comfyui-workflow', fileName, data, fileType),
   executeComfyUIPrompt: (promptData: any, serverUrl?: string) =>

@@ -80,11 +80,13 @@ This document provides a concise, categorized breakdown of all technical capabil
 
 ## RenegadeSwarm Sister Application Integration
 
-- **Native Electron Window Activation (`swarmBridge.ts`)**:
+- **Authenticated Local Interop (`swarmAuthToken.ts` & `swarmBridge.ts`)**:
+  - CMM automatically discovers and reads RenegadeSwarm's well-known `daemon.token` (64-hex bearer token) from platform data directories (`%APPDATA%`, `Library/Application Support`, `~/.config`), transmitting `Authorization: Bearer <token>` on model ingest and window focus calls. Health checks remain public. The secret token is never exposed to the UI renderer or stored in settings.
+- **Native Electron Window Activation**:
   - Automatically locates, launches, or focuses active native Electron windows for the **RenegadeSwarm** sister application across Windows, macOS, and Linux.
   - Displays real-time Swarm daemon status, active peer counts, and seeding statistics in the header navbar and Settings tab.
 - **Decentralized Ingestion Notifications**:
-  - Automatically notifies the local RenegadeSwarm daemon (`http://127.0.0.1:5180/api/ingest`) when model downloads and companion files are finalized.
+  - Automatically notifies the local RenegadeSwarm daemon (`POST /api/ingest` / `/api/models/scan`) when model downloads and companion files are finalized.
 - **One-Click Companion Packaging**:
   - Generates standardized `.sha256`, `.info`, preview image, and `.swarm` manifest packages directly from library model cards.
 

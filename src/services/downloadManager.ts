@@ -705,10 +705,19 @@ export class DownloadManager {
       this.persistTask(id).catch(() => {});
       logger.info(`Successfully completed download: ${task.fileName} -> ${resolvedPath}`);
       this.registerCompletedFile(task).catch(() => {});
-      webhookService.triggerDownloadComplete(task).catch((err) => {
-        logger.warn('Error triggering download complete webhook:', err);
-      });
-      swarmBridge.notifySwarmModelIngest(resolvedPath, task).catch(() => {});
+      // Trigger Swarm sister app ingest notification (asynchronous, non-blocking)
+      try {
+        const ingestRes = await swarmBridge.notifySwarmModelIngest(resolvedPath, task);
+        if (!ingestRes.success) {
+          logger.warn(`RenegadeSwarm ingest notification failed for ${task.fileName}:`, ingestRes.error);
+          task.swarmIngestError = ingestRes.error;
+        } else {
+          task.swarmIngested = true;
+          logger.info(`RenegadeSwarm successfully ingested model: ${task.fileName}`);
+        }
+      } catch (swarmErr: any) {
+        logger.warn(`RenegadeSwarm ingest exception for ${task.fileName}:`, swarmErr.message);
+      }
     } catch (err: any) {
       this.activeDownloads.delete(id);
       if (axios.isCancel(err)) {

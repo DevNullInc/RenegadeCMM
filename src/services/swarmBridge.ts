@@ -23,6 +23,7 @@ import path from 'path';
 import { SwarmStatus } from '../types/app';
 import { logger } from '../utils/logger';
 import { isSafeNetworkUrl } from '../utils/securityValidator';
+import { swarmAuthToken } from './swarmAuthToken';
 
 export class SwarmBridge {
   private static instance: SwarmBridge;
@@ -61,6 +62,7 @@ export class SwarmBridge {
 
   /**
    * Probes the local RenegadeSwarm sister daemon for health & swarm state.
+   * Public unauthenticated endpoint.
    */
   public async checkSwarmStatus(targetUrl?: string): Promise<SwarmStatus> {
     const url = this.normalizeUrl(targetUrl);
@@ -154,7 +156,7 @@ export class SwarmBridge {
 
   /**
    * Intelligently searches for and activates the running RenegadeSwarm Electron window.
-   * 1. First tries daemon window focus endpoint (/api/window/focus or /api/focus)
+   * 1. First tries daemon window focus endpoint (POST /api/window/focus with Bearer token)
    * 2. Searches for active Electron window via OS process/window APIs and activates it
    * 3. If no active window is found, checks for installed desktop executable and launches it
    * 4. Only falls back to browser if native window activation/launch is unavailable
@@ -162,16 +164,53 @@ export class SwarmBridge {
   public async focusOrOpenSwarm(targetUrl?: string): Promise<{ success: boolean; method: 'daemon_focus' | 'os_window' | 'browser'; url: string; error?: string }> {
     const url = this.normalizeUrl(targetUrl);
 
-    // 1. Try daemon focus API endpoint
-    try {
-      const res = await axios.post(`${url}/api/window/focus`, {}, { timeout: 1000 }).catch(async () => {
-        return await axios.post(`${url}/api/focus`, {}, { timeout: 1000 });
-      });
-      if (res?.status === 200) {
-        logger.info('Successfully focused RenegadeSwarm window via daemon focus API');
-        return { success: true, method: 'daemon_focus', url };
+    // 1. Try daemon focus API endpoint (POST only with Bearer token)
+    let token = swarmAuthToken.loadSwarmDaemonToken();
+    if (token) {
+      try {
+        const headers = {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        };
+        let res;
+        try {
+          res = await axios.post(`${url}/api/window/focus`, {}, { timeout: 1500, headers });
+        } catch (err: any) {
+          if (err.response?.status === 401) {
+            // Token may have refreshed; reload and retry once
+            token = swarmAuthToken.loadSwarmDaemonToken(true);
+            if (token) {
+              res = await axios.post(`${url}/api/window/focus`, {}, {
+                timeout: 1500,
+                headers: { ...headers, 'Authorization': `Bearer ${token}` }
+              });
+            } else {
+              swarmAuthToken.setLastAuthError('Swarm daemon rejected auth (missing or stale token)');
+            }
+          } else {
+            // Fallback to /api/focus with the same Bearer header (POST only)
+            res = await axios.post(`${url}/api/focus`, {}, { timeout: 1500, headers }).catch((fallbackErr) => {
+              if (fallbackErr.response?.status === 401) {
+                swarmAuthToken.setLastAuthError('Swarm daemon rejected auth (missing or stale token)');
+              }
+              return null;
+            });
+          }
+        }
+        if (res?.status === 200) {
+          logger.info('Successfully focused RenegadeSwarm window via daemon focus API');
+          return { success: true, method: 'daemon_focus', url };
+        }
+      } catch (err: any) {
+        if (err.response?.status === 401) {
+          swarmAuthToken.setLastAuthError('Swarm daemon rejected auth (missing or stale token)');
+        }
+        logger.debug('Swarm daemon focus endpoint returned non-200, attempting OS window fallback:', err.message);
       }
-    } catch {}
+    } else {
+      logger.debug('Swarm daemon bearer token not found; falling back to native OS window focus');
+    }
 
     // 2. Search for active Electron window and bring to foreground
     try {
@@ -281,34 +320,99 @@ export class SwarmBridge {
   /**
    * Notifies the local RenegadeSwarm daemon about newly downloaded / packaged model files
    * so Swarm can immediately begin seeding without requiring a manual rescan.
+   * Requires Bearer authentication with Swarm's daemon.token.
    */
-  public async notifySwarmModelIngest(filePath: string, metadata?: any, targetUrl?: string): Promise<{ success: boolean; error?: string }> {
+  public async notifySwarmModelIngest(
+    filePath: string,
+    metadata?: any,
+    targetUrl?: string
+  ): Promise<{ success: boolean; statusCode?: number; error?: string }> {
     const url = this.normalizeUrl(targetUrl);
-    try {
-      const payload = {
-        filePath,
-        fileName: metadata?.fileName || filePath.split(/[/\\]/).pop(),
-        sha256: metadata?.sha256,
-        modelType: metadata?.modelType,
-        timestamp: new Date().toISOString(),
-      };
+    let token = swarmAuthToken.loadSwarmDaemonToken();
 
-      const res = await axios.post(`${url}/api/ingest`, payload, {
-        timeout: 2000,
-        headers: { 'Content-Type': 'application/json' },
-      }).catch(async () => {
-        return await axios.post(`${url}/api/models/scan`, payload, { timeout: 2000 });
-      });
+    if (!token) {
+      logger.warn('Cannot notify Swarm of model ingest: Swarm daemon token missing (SWARM_TOKEN_MISSING)');
+      return {
+        success: false,
+        error: 'SWARM_TOKEN_MISSING: Start RenegadeSwarm once so it can write the daemon token.',
+      };
+    }
+
+    const payload = {
+      filePath,
+      fileName: metadata?.fileName || filePath.split(/[/\\]/).pop(),
+      sha256: metadata?.sha256,
+      modelType: metadata?.modelType,
+      timestamp: new Date().toISOString(),
+    };
+
+    const makeHeaders = (t: string) => ({
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${t}`,
+    });
+
+    try {
+      let res;
+      try {
+        res = await axios.post(`${url}/api/ingest`, payload, {
+          timeout: 2500,
+          headers: makeHeaders(token),
+        });
+      } catch (err: any) {
+        if (err.response?.status === 401) {
+          // Retry once with reloaded token
+          token = swarmAuthToken.loadSwarmDaemonToken(true);
+          if (token) {
+            res = await axios.post(`${url}/api/ingest`, payload, {
+              timeout: 2500,
+              headers: makeHeaders(token),
+            });
+          } else {
+            swarmAuthToken.setLastAuthError('Swarm daemon rejected auth (missing or stale token)');
+            return {
+              success: false,
+              statusCode: 401,
+              error: 'Swarm daemon rejected auth (missing or stale token)',
+            };
+          }
+        } else {
+          // Fallback to /api/models/scan with the same Bearer header
+          res = await axios.post(`${url}/api/models/scan`, payload, {
+            timeout: 2500,
+            headers: makeHeaders(token),
+          });
+        }
+      }
 
       if (res && (res.status === 200 || res.status === 201)) {
         logger.info(`Successfully notified RenegadeSwarm of new model ingest: ${payload.fileName}`);
-        return { success: true };
+        return { success: true, statusCode: res.status };
       }
     } catch (err: any) {
+      const status = err.response?.status;
+      if (status === 401) {
+        swarmAuthToken.setLastAuthError('Swarm daemon rejected auth (missing or stale token)');
+        return {
+          success: false,
+          statusCode: 401,
+          error: 'Swarm daemon rejected auth (missing or stale token)',
+        };
+      }
       logger.debug(`Could not notify Swarm daemon of model ingest on ${url}:`, err.message);
+      return {
+        success: false,
+        statusCode: status,
+        error: err.message || 'Swarm daemon unavailable or did not accept ingest notification',
+      };
     }
-    return { success: false, error: 'Swarm daemon unavailable or did not accept ingest notification' };
+
+    return {
+      success: false,
+      error: 'Swarm daemon unavailable or did not accept ingest notification',
+    };
   }
 }
 
 export const swarmBridge = SwarmBridge.getInstance();
+

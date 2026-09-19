@@ -384,6 +384,8 @@ export interface DownloadTask {
   note?: string;
   previewUrl?: string;
   versionMetadata?: any;
+  swarmIngested?: boolean;
+  swarmIngestError?: string;
 }
 
 export interface LocalModel {
@@ -460,6 +462,12 @@ export interface SwarmStatus {
   seeding?: number;
   status?: string;
   error?: string;
+}
+
+export interface SwarmAuthStatus {
+  tokenFound: boolean;
+  lastAuthError?: string;
+  primaryExpectedPath?: string;
 }
 
 export interface SaveWorkflowResult {

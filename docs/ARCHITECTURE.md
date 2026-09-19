@@ -123,8 +123,9 @@ All catalog indexes, download task states, configuration settings, and duplicate
 - Background keep-alive engine: offscreen DOM mounting and `backgroundThrottling: false` ensure active image generations continue uninterrupted during navigation.
 - 4-Tier Node Resolution engine automatically queries local directories, registry caches, and GitHub to clone and install missing ComfyUI custom nodes.
 
-### RenegadeSwarm Sister App Integration (`swarmBridge.ts`)
+### RenegadeSwarm Sister App Integration (`swarmBridge.ts` & `swarmAuthToken.ts`)
 - Inter-process health tracking and window management for the decentralized **RenegadeSwarm** P2P seeding daemon on port `5180`.
+- Secure main-process authentication: CMM discovers and reads Swarm's well-known `daemon.token` from local OS app data directories, attaching `Authorization: Bearer <64-hex>` headers to privileged `POST /api/ingest` and `POST /api/window/focus` requests. Health telemetry (`/api/health`) remains public. The token is never exposed across the IPC boundary to the renderer.
 - Native window focus heuristics search for active Electron window handles across Windows (`Win32`), macOS (`osascript`), and Linux (`wmctrl`).
 - Automated ingest webhook triggers on download completion for instant zero-latency P2P seeding.
 

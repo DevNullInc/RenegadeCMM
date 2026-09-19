@@ -70,6 +70,7 @@ export interface CivitaiAPI {
   checkComfyUIStatus: (serverUrl?: string) => Promise<any>;
   checkSwarmStatus: (serverUrl?: string) => Promise<any>;
   focusOrOpenSwarm: (serverUrl?: string) => Promise<any>;
+  getSwarmAuthStatus: () => Promise<any>;
   saveWorkflowToComfyUI: (fileName: string, data: any, fileType?: string) => Promise<any>;
   executeComfyUIPrompt: (promptData: any, serverUrl?: string) => Promise<any>;
   testWebhook: (url: string, event: string) => Promise<any>;

@@ -47,6 +47,7 @@ import {
   Radio,
   Share2,
   Cpu,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   AppConfig,
@@ -55,6 +56,7 @@ import {
   ComfyUIInstallInfo,
   ComfyUIStatus,
   SwarmStatus,
+  SwarmAuthStatus,
   PythonEnvironmentStatus,
   HardwareProfile,
   DEFAULT_FOLDER_MAP,
@@ -106,6 +108,8 @@ export const SettingsTab: React.FC = () => {
   const [comfyStatus, setComfyStatus] = useState<ComfyUIStatus | null>(null);
   const [isCheckingComfyStatus, setIsCheckingComfyStatus] = useState(false);
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null);
+  const [swarmAuthStatus, setSwarmAuthStatus] = useState<SwarmAuthStatus | null>(null);
+  const [copiedTokenPath, setCopiedTokenPath] = useState(false);
   const [isCheckingSwarmStatus, setIsCheckingSwarmStatus] = useState(false);
   const [isPackagingSwarmCompanions, setIsPackagingSwarmCompanions] = useState(false);
   const [swarmPackageResult, setSwarmPackageResult] = useState<string | null>(null);
@@ -553,6 +557,17 @@ export const SettingsTab: React.FC = () => {
         });
         const data = await res.json();
         setSwarmStatus(data);
+      }
+
+      if (window.civitaiAPI?.getSwarmAuthStatus) {
+        const auth = await window.civitaiAPI.getSwarmAuthStatus();
+        setSwarmAuthStatus(auth);
+      } else {
+        const authRes = await fetch('/api/swarm/auth-status');
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          setSwarmAuthStatus(authData);
+        }
       }
     } catch (err: any) {
       setSwarmStatus({ online: false, serverUrl: url, error: err?.message || 'Failed to connect' });
@@ -2303,6 +2318,37 @@ export const SettingsTab: React.FC = () => {
             <p className="text-[11px] text-slate-500">
               Default is <code className="font-mono text-cyan-300">http://127.0.0.1:5180</code>. Both applications communicate over secure localhost IPC/HTTP bridges.
             </p>
+
+            {/* Swarm Auth Status Banner */}
+            {swarmStatus?.online && swarmAuthStatus && (!swarmAuthStatus.tokenFound || swarmAuthStatus.lastAuthError) && (
+              <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl flex flex-col gap-1.5 text-xs text-amber-200">
+                <div className="flex items-center gap-2 font-bold text-amber-300">
+                  <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                  <span>Swarm online, auth failed — is daemon.token present?</span>
+                </div>
+                <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                  RenegadeSwarm requires a 64-hex bearer token for model ingest notifications and desktop window focus. Ensure RenegadeSwarm has been launched at least once on this machine to write its local token file.
+                </p>
+                {swarmAuthStatus.primaryExpectedPath && (
+                  <div className="flex items-center gap-2 mt-1 bg-slate-950/60 p-2 rounded-lg border border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-mono flex-1 truncate select-all">
+                      {swarmAuthStatus.primaryExpectedPath}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(swarmAuthStatus.primaryExpectedPath || '');
+                        setCopiedTokenPath(true);
+                        setTimeout(() => setCopiedTokenPath(false), 2000);
+                      }}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer transition-all"
+                    >
+                      {copiedTokenPath ? 'Copied Path' : 'Copy Expected Path'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Swarm Live Telemetry Cards */}

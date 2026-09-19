@@ -34,6 +34,7 @@ import { orphanFinder } from '../services/orphanFinder';
 import { modelConverter } from '../services/modelConverter';
 import { hardwareScanner } from '../services/hardwareScanner';
 import { swarmBridge } from '../services/swarmBridge';
+import { swarmAuthToken } from '../services/swarmAuthToken';
 import { encryptKey, decryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
 import {
@@ -2297,6 +2298,16 @@ function startHttpBridgeServer() {
         const status = await swarmBridge.checkSwarmStatus(targetUrl || currentConfig.swarm_server_url);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(status));
+      } else if ((url === '/api/swarm/focus' || url === '/api/swarm-focus') && req.method === 'POST') {
+        const body = await getBody();
+        const targetUrl = body.serverUrl || body.url || currentConfig.swarm_server_url;
+        const result = await swarmBridge.focusOrOpenSwarm(targetUrl);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/swarm/auth-status' && req.method === 'GET') {
+        const authStatus = swarmAuthToken.getSwarmAuthStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(authStatus));
       } else if ((url === '/api/comfyui/save-workflow' || url === '/api/save-comfyui-workflow') && req.method === 'POST') {
         const body = await getBody();
         const result = await saveComfyUIWorkflow(body.fileName, body.data, body.fileType);
@@ -2690,6 +2701,10 @@ function registerIpcHandlers() {
       await shell.openExternal(res.url);
     }
     return res;
+  });
+
+  ipcMain.handle('get-swarm-auth-status', async () => {
+    return swarmAuthToken.getSwarmAuthStatus();
   });
 
   ipcMain.handle('save-comfyui-workflow', async (_event: unknown, fileName: string, data: any, fileType?: string) => {
