@@ -13,7 +13,8 @@ graph LR
     v141 --> v142["✅ v1.4.2<br/>CI Modernization, Desktop & Test Tracking"]
     v142 --> v15["✅ v1.5.0<br/>Native HF & GGUF Engine"]
     v15 --> v16["✅ v1.6.0<br/>Hardlink Storage Optimizer & SafeTensors Engine"]
-    v16 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
+    v16 --> v161["✅ v1.6.1<br/>Swarm Daemon Auth & Security Handshake"]
+    v161 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
     v17 --> v20["🎯 v2.0.0<br/>Unified Multi-Gen & Package Launch Hub"]
 ```
 
@@ -112,6 +113,25 @@ graph LR
 - [x] **RenegadeSwarm Sister Application Integration (`swarmBridge.ts`)**:
   - Automatic focus, launch, and health monitoring of the native **RenegadeSwarm** Electron desktop window (daemon port 5180).
   - Automated decentralized ingestion notifications and single-model companion asset packager.
+
+---
+
+### Phase 3.1: v1.6.1 — RenegadeSwarm Daemon Bearer Auth Handshake & Security Protocol
+
+> **Goal**: Establish a cryptographically authenticated, zero-trust inter-process communication bridge between RenegadeCMM and RenegadeSwarm with strict token hygiene, error diagnostics, and path confinement verification.
+
+- [x] **Zero-Trust Bearer Token Discovery & Management (`swarmAuthToken.ts`)**:
+  - Main-process discovery of Swarm daemon token files (`daemon.token`) across Windows (`%APPDATA%\RenegadeSwarm`), macOS (`~/Library/Application Support/RenegadeSwarm`), Linux (`~/.config/renegadeswarm`), and dev workspaces.
+  - Strict 64-character hexadecimal format validation (`^[a-f0-9]{64}$`) with memory caching and automatic single-retry token reload on HTTP 401 Unauthorized responses.
+- [x] **Protected API Gateway Communication (`swarmBridge.ts`)**:
+  - Transparently attaches `Authorization: Bearer <token>` and `X-Swarm-Auth-Token` to privileged Swarm endpoints (`POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`).
+  - Strict HTTP method enforcement (`POST` only for window focus; public access preserved for `/api/health`).
+- [x] **Path Confinement Boundary Detection & Diagnostics**:
+  - Surfaces HTTP 403 Forbidden responses specifically as *"Model path is outside Swarm's allowed folder roots (Path Confinement)"*.
+  - Strict failure propagation returning `{ success: false }` when daemon focus, OS native window activation, and local executable launching all fail.
+- [x] **Renderer Token Isolation & UI Security**:
+  - Strict boundary isolation: secret token values are never exposed across IPC, rendered in UI components, or stored in persistent user settings.
+  - Diagnostic banner in Settings tab surfacing active token presence, expected file system search paths with 1-click clipboard copy, and actionable auth failure warnings.
 
 ---
 

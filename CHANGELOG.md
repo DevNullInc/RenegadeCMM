@@ -8,6 +8,32 @@ For active, unreleased feature branches and ongoing sprint items, refer to [DEV-
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.6.1] - 2026-09-19
+
+### 🛡️ RenegadeSwarm Daemon Bearer Authentication Handshake & Security Protocol
+
+- **Automatic Daemon Token Discovery & Validation (`swarmAuthToken.ts`)**:
+  - Main-process discovery of Swarm `daemon.token` across platform-standard application data paths:
+    - Windows: `%APPDATA%\RenegadeSwarm\daemon.token`
+    - macOS: `~/Library/Application Support/RenegadeSwarm/daemon.token`
+    - Linux: `~/.config/renegadeswarm/daemon.token`
+    - Development fallback: `.renegadeswarm_security/daemon.token`
+  - Validates strict 64-character hexadecimal format (`^[a-f0-9]{64}$`).
+  - Implements memory caching with automatic single-retry token reload upon receiving HTTP 401 Unauthorized responses.
+- **Authenticated Endpoint Bridge (`swarmBridge.ts`)**:
+  - Automatically attaches `Authorization: Bearer <token>` and `X-Swarm-Auth-Token: <token>` to privileged Swarm daemon requests (`POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`).
+  - Swarm health check endpoints (`/api/health`, `/health`, `/api/status`) remain public and unauthenticated.
+  - Window focus switched to strict `POST` method per updated Swarm daemon contract.
+- **Path Confinement Boundary Diagnostics**:
+  - Explicitly detects HTTP 403 Forbidden responses during model ingest and surfaces actionable error: *"Model path is outside Swarm's allowed folder roots (Path Confinement)"*.
+  - Strict focus failure propagation: `focusOrOpenSwarm` returns `{ success: false }` with diagnostic errors if daemon focus, native OS window activation, and local executable launch all fail.
+- **Renderer Token Isolation & Diagnostic UI (`SettingsTab.tsx`)**:
+  - Strictly prevents token leakage to renderer: bearer token is never sent across IPC, never displayed in UI fields, and never stored in user settings JSON.
+  - Added Settings tab diagnostic banner displaying token presence status, expected token search paths with 1-click clipboard copy, and auth failure diagnostics.
+- **Comprehensive Test Suite & Quality Assurance**:
+  - Added 14 targeted unit tests (`tests/swarmAuthToken.test.ts`, `tests/swarmBridge.auth.test.ts`) validating token discovery, Bearer header attachment, 401 cache invalidation/reload, 403 path confinement detection, and focus failure semantics.
+  - 100% test suite pass rate: 125 tests passing across 21 test files.
+
 ## [1.6.0] - 2026-09-13
 
 ### 🐝 RenegadeSwarm Sister Application Integration & Native Electron Window Management

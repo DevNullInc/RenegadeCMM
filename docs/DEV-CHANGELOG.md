@@ -15,6 +15,16 @@ This document serves as the active, rolling changelog for unreleased features, i
 - **Smart Collections & Trigger Word Hub**: Grouping models into customized tag collections and automatic trigger word extraction.
 - **Local Semantic Model Search**: Embedded vector store for natural language model querying.
 
+## [1.6.1] - RenegadeSwarm Daemon Bearer Authentication Handshake & Security Protocol
+
+### Security Hardening & Zero-Trust Interop
+- **Daemon Bearer Auth Handshake**: Main-process discovery of `daemon.token` (64-hex), automatic `Authorization: Bearer <token>` and `X-Swarm-Auth-Token` injection on `POST /api/ingest`, `POST /api/models/scan`, and `POST /api/window/focus`.
+- **401 Token Invalidation & Reload**: Memory cache auto-reloads token once from disk on 401 Unauthorized responses before returning failure.
+- **403 Path Confinement Error Surfacing**: Detects directory confinement rejections from Swarm and provides explicit user error messaging.
+- **Strict Focus Semantics**: Returns `{ success: false }` with diagnostic message when daemon, OS native, and executable fallbacks all fail.
+- **Renderer Token Protection**: Token is strictly main-process bound, never exposed across IPC, in UI inputs, or stored in user config JSON.
+- **100% Green Test Suite**: 125 tests passing across 21 test files with dedicated auth & security test coverage.
+
 ---
 
 ## [1.6.0] - RenegadeSwarm Sister Integration, Storage Optimization & Security Release

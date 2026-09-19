@@ -9,7 +9,7 @@
  *
  * Central application version & build configuration
  */
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.6.1';
 
 /**
  * Build Configuration & Release Mode Toggle

@@ -518,7 +518,7 @@ export class DownloadManager {
     try {
       const makeRequest = async (useRange: boolean): Promise<AxiosResponse> => {
         const headers: Record<string, string> = {
-          'User-Agent': 'RenegadeCMM/1.6.0',
+          'User-Agent': 'RenegadeCMM/1.6.1',
         };
         if (useRange && existingBytes > 0) {
           headers['Range'] = `bytes=${existingBytes}-`;
