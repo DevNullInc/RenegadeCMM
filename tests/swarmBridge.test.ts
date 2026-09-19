@@ -94,4 +94,47 @@ describe('SwarmBridge Sister Application Health Tracking', () => {
       expect(res.error).toBeDefined();
     });
   });
+
+  describe('focusOrOpenSwarm', () => {
+    it('should successfully call /api/window/focus endpoint when daemon is running', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        status: 200,
+        data: { success: true, message: 'Window activated' },
+      } as any);
+
+      const res = await swarmBridge.focusOrOpenSwarm('http://127.0.0.1:5180');
+
+      expect(mockedAxios.post).toHaveBeenCalledWith('http://127.0.0.1:5180/api/window/focus', {}, expect.any(Object));
+      expect(res.success).toBe(true);
+      expect(res.method).toBe('daemon_focus');
+    });
+  });
+
+  describe('notifySwarmModelIngest', () => {
+    it('should dispatch model ingest notification to /api/ingest', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        status: 200,
+        data: { success: true, ingested: true },
+      } as any);
+
+      const res = await swarmBridge.notifySwarmModelIngest(
+        'D:/models/checkpoints/flux1.safetensors',
+        { fileName: 'flux1.safetensors', sha256: 'deadbeef123', modelType: 'Checkpoint' },
+        'http://127.0.0.1:5180'
+      );
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        'http://127.0.0.1:5180/api/ingest',
+        expect.objectContaining({
+          filePath: 'D:/models/checkpoints/flux1.safetensors',
+          fileName: 'flux1.safetensors',
+          sha256: 'deadbeef123',
+          modelType: 'Checkpoint',
+        }),
+        expect.any(Object)
+      );
+      expect(res.success).toBe(true);
+    });
+  });
 });
+
