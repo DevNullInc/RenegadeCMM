@@ -15,15 +15,17 @@ This document serves as the active, rolling changelog for unreleased features, i
 - **Smart Collections & Trigger Word Hub**: Grouping models into customized tag collections and automatic trigger word extraction.
 - **Local Semantic Model Search**: Embedded vector store for natural language model querying.
 
-## [1.6.1] - RenegadeSwarm Daemon Bearer Authentication Handshake & Security Protocol
+## [1.6.1] - RenegadeSwarm Daemon Bearer Authentication Handshake, Sister Wakeup & Security Protocol
 
 ### Security Hardening & Zero-Trust Interop
-- **Daemon Bearer Auth Handshake**: Main-process discovery of `daemon.token` (64-hex), automatic `Authorization: Bearer <token>` and `X-Swarm-Auth-Token` injection on `POST /api/ingest`, `POST /api/models/scan`, and `POST /api/window/focus`.
+- **Sister Wakeup Protocol**: Bidirectional non-blocking startup poke (`POST /api/sister/wakeup` on ports 5174/5180 with 400ms timeout) that immediately connects and notifies sister apps without persistent polling loops.
+- **Probe Rate-Limiting & Retry Budget**: Caps offline health checks to 5 probes before entering sleep mode. Budget automatically resets on inbound sister wakeup pokes or manual status badge clicks.
+- **Daemon Bearer Auth Handshake**: Main-process discovery of `daemon.token` (64-hex), automatic `Authorization: Bearer <token>` and `X-Swarm-Auth-Token` injection on `POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`, and `POST /api/sister/wakeup`.
 - **401 Token Invalidation & Reload**: Memory cache auto-reloads token once from disk on 401 Unauthorized responses before returning failure.
 - **403 Path Confinement Error Surfacing**: Detects directory confinement rejections from Swarm and provides explicit user error messaging.
 - **Strict Focus Semantics**: Returns `{ success: false }` with diagnostic message when daemon, OS native, and executable fallbacks all fail.
 - **Renderer Token Protection**: Token is strictly main-process bound, never exposed across IPC, in UI inputs, or stored in user config JSON.
-- **100% Green Test Suite**: 125 tests passing across 21 test files with dedicated auth & security test coverage.
+- **100% Green Test Suite**: 127 tests passing across 21 test files with dedicated auth, security, and sister wakeup test coverage.
 
 ---
 

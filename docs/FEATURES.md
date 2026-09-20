@@ -81,7 +81,10 @@ This document provides a concise, categorized breakdown of all technical capabil
 ## RenegadeSwarm Sister Application Integration
 
 - **Authenticated Local Interop (`swarmAuthToken.ts` & `swarmBridge.ts`)**:
-  - CMM automatically discovers and reads RenegadeSwarm's well-known `daemon.token` (64-hex bearer token) from platform data directories (`%APPDATA%`, `Library/Application Support`, `~/.config`), transmitting `Authorization: Bearer <token>` on model ingest and window focus calls. Health checks remain public. The secret token is never exposed to the UI renderer or stored in settings.
+  - CMM automatically discovers and reads RenegadeSwarm's well-known `daemon.token` (64-hex bearer token) from platform data directories (`%APPDATA%`, `Library/Application Support`, `~/.config`), transmitting `Authorization: Bearer <token>` on model ingest, window focus, and wakeup calls. Health checks remain public. The secret token is never exposed to the UI renderer or stored in settings.
+- **Sister Wakeup Protocol & Probe Rate-Limiting**:
+  - **Bidirectional Wakeup Pokes (`POST /api/sister/wakeup`)**: Either application starting up fires a single non-blocking HTTP poke (400ms timeout) to alert the other without continuous polling.
+  - **5-Probe Retry Budget**: When Swarm is offline, CMM checks at most 5 times and then halts polling to save CPU and network bandwidth. The budget is reset by an inbound wakeup poke from Swarm or by clicking the **Swarm: Offline** badge.
 - **Native Electron Window Activation**:
   - Automatically locates, launches, or focuses active native Electron windows for the **RenegadeSwarm** sister application across Windows, macOS, and Linux.
   - Displays real-time Swarm daemon status, active peer counts, and seeding statistics in the header navbar and Settings tab.

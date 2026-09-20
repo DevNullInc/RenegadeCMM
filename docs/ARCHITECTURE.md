@@ -124,10 +124,14 @@ All catalog indexes, download task states, configuration settings, and duplicate
 - 4-Tier Node Resolution engine automatically queries local directories, registry caches, and GitHub to clone and install missing ComfyUI custom nodes.
 
 ### RenegadeSwarm Sister App Integration (`swarmBridge.ts` & `swarmAuthToken.ts`)
-- Inter-process health tracking and window management for the decentralized **RenegadeSwarm** P2P seeding daemon on port `5180`.
-- Secure main-process authentication: CMM discovers and reads Swarm's well-known `daemon.token` from local OS app data directories, attaching `Authorization: Bearer <64-hex>` headers to privileged `POST /api/ingest` and `POST /api/window/focus` requests. Health telemetry (`/api/health`) remains public. The token is never exposed across the IPC boundary to the renderer.
-- Native window focus heuristics search for active Electron window handles across Windows (`Win32`), macOS (`osascript`), and Linux (`wmctrl`).
-- Automated ingest webhook triggers on download completion for instant zero-latency P2P seeding.
+- **Inter-Process Health & Window Management**: Tracks daemon health, peer counts, and seeding stats for the decentralized **RenegadeSwarm** P2P seeding daemon on port `5180`.
+- **Sister Wakeup Protocol & Probe Rate-Limiting**:
+  - **Outbound Startup Poke**: On bridge startup (`5174`), CMM fires a single non-blocking `POST http://127.0.0.1:5180/api/sister/wakeup` (400ms timeout, Bearer authenticated). If Swarm is running, it immediately wakes up and connects. If offline, the error is swallowed with zero retries.
+  - **Inbound Sister Wakeup**: CMM exposes `POST /api/sister/wakeup` (port `5174`). When Swarm boots, it pokes CMM, causing CMM to reset its probe retry budget to 5 and query health immediately without waiting for user action.
+  - **5-Probe Retry Budget**: When Swarm is offline, CMM checks at most 5 times before sleeping, eliminating CPU and network polling loops. The budget is reset by an inbound wakeup poke, user status badge click, or successful reconnection.
+- **Local Bearer Authentication**: CMM discovers and reads Swarm's well-known `daemon.token` from local OS app data directories, attaching `Authorization: Bearer <64-hex>` headers to privileged `POST /api/ingest`, `POST /api/window/focus`, and `POST /api/sister/wakeup` requests. Health telemetry (`/api/health`) remains public. The token is never exposed across the IPC boundary to the renderer.
+- **Native Window Focus Heuristics**: Searches for active Electron window handles across Windows (`Win32`), macOS (`osascript`), and Linux (`wmctrl`), and launches installed desktop binaries before falling back to browser.
+- **Automated Ingest Notifications**: Dispatches file metadata to Swarm (`POST /api/ingest`) on download completion for instant zero-latency P2P seeding.
 
 ---
 

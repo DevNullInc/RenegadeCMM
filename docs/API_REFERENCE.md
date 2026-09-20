@@ -1,10 +1,10 @@
-# 🔌 Renegade Core Model Manager (CMM) — Local API Reference
+# Renegade Core Model Manager (CMM) — Local API Reference
 
 This document provides complete documentation and code examples for developers building **ComfyUI Custom Nodes**, scripts, and local extensions that integrate with Renegade Core Model Manager via its native HTTP API bridge.
 
 ---
 
-## 🔒 Security & Localhost Isolation
+## Security & Localhost Isolation
 
 For the protection of the user's local filesystem and machine security, CMM's HTTP Server Bridge is strictly isolated:
 
@@ -17,7 +17,7 @@ For the protection of the user's local filesystem and machine security, CMM's HT
 
 ---
 
-## 🚀 Quick Start for ComfyUI Node Developers (Python)
+## Quick Start for ComfyUI Node Developers (Python)
 
 When building ComfyUI custom nodes, allow the user to optionally specify a port (or full URL) while automatically falling back to the default `5174`:
 
@@ -110,7 +110,7 @@ if cmm.is_online():
 
 ---
 
-## 📑 API Endpoints Reference
+## API Endpoints Reference
 
 ### 1. Health & Server Status
 
@@ -742,7 +742,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
 ---
 
-## 🗜️ Storage Optimizer & RenegadeSwarm Packaging API
+## Storage Optimizer & Packaging API
 
 ### 1. `GET /api/optimizer/scan`
 Scans the local model library to discover duplicate files matching exact SHA-256 checksums and determines potential hardlink deduplication disk savings.
@@ -843,3 +843,157 @@ Bulk scans all models in the library and generates any missing companion triplet
   }
 }
 ```
+
+---
+
+## RenegadeSwarm Sister Communication & Wakeup Protocol
+
+RenegadeCMM and RenegadeSwarm communicate over an authenticated, loopback-isolated HTTP bridge. To eliminate persistent polling loops when either app starts while the other is offline, both applications implement the bidirectional **Sister Wakeup Protocol** alongside a strict 5-probe retry budget.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                               SISTER WAKEUP PROTOCOL                                   │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                        │
+│   ┌─────────────────────┐                          ┌─────────────────────┐             │
+│   │     RenegadeCMM     │                          │    RenegadeSwarm    │             │
+│   │   (Port 5174 HTTP)  │                          │   (Port 5180 HTTP)  │             │
+│   └──────────┬──────────┘                          └──────────┬──────────┘             │
+│              │                                                │                        │
+│              │ ── 1. Boot: POST /api/sister/wakeup (400ms) ─> │                        │
+│              │    (Bearer <daemon.token>, { source: "cmm" })  │                        │
+│              │                                                │                        │
+│              │ <─ 2. Ack 200 OK (Swarm resets retry budget) ─ │                        │
+│              │                                                │                        │
+│              │ <─ 3. Swarm Boot: POST /api/sister/wakeup ─── │                        │
+│              │    (Bearer <daemon.token>, { source: "swarm" })│                        │
+│              │                                                │                        │
+│              │ ── 4. Ack 200 OK (CMM resets budget to 5) ───> │                        │
+│              │                                                │                        │
+└──────────────┴────────────────────────────────────────────────┴────────────────────────┘
+```
+
+### 1. Inbound Sister Wakeup: `POST /api/sister/wakeup`
+
+Invoked by RenegadeSwarm when Swarm boots to alert an already-running CMM instance to immediately refresh its connection status.
+
+- **Method**: `POST`
+- **URL**: `http://127.0.0.1:5174/api/sister/wakeup` (Alias: `/api/sister-wakeup`)
+- **Access Control**:
+  - Loopback only (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). Non-loopback requests return `403 Forbidden`.
+  - Bearer token authentication matching the local `daemon.token` (read from `~/.renegadeswarm/daemon.token` or `%APPDATA%\RenegadeSwarm\daemon.token`). Missing or invalid tokens return `401 Unauthorized`.
+- **Headers**:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer <64-hex-token>` or `X-Swarm-Auth-Token: <64-hex-token>`
+- **Request Body**:
+```json
+{
+  "source": "swarm",
+  "ts": 1726848000000
+}
+```
+- **Handler Actions**:
+  1. Validates loopback remote address and bearer token.
+  2. Returns immediate `200 OK` response.
+  3. Emits `swarm:sisterWakeup` event over IPC to the renderer.
+  4. Renderer resets its Swarm retry budget to `5` and dispatches a single `GET http://127.0.0.1:5180/api/health` request to flip the UI badge to **Connected**.
+  5. **Non-Recursive**: Handlers strictly prohibit sending a wakeup request back or triggering background disk scans.
+- **Response `200 OK`**:
+```json
+{
+  "success": true,
+  "message": "CMM sister wakeup acknowledged"
+}
+```
+
+### 2. Outbound Startup Poke: `sendSisterWakeup`
+
+When CMM's HTTP bridge finishes binding to `127.0.0.1:5174`, it automatically sends a single non-blocking HTTP POST to Swarm's daemon:
+
+- **Target**: `POST http://127.0.0.1:5180/api/sister/wakeup`
+- **Headers**:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer <daemon.token>`
+  - `X-Swarm-Auth-Token: <daemon.token>`
+- **Body**: `{"source": "cmm", "ts": <timestamp>}`
+- **Timeout**: Strict `400ms` timeout.
+- **Error Handling**: Failures (`ECONNREFUSED`, timeout) are swallowed cleanly without retrying, ensuring zero CPU/network loop churn when Swarm is not running.
+
+### 3. Probe Rate-Limiting & 5-Check Retry Budget
+
+To prevent infinite background polling loops when Swarm is offline:
+
+- When Swarm transitions to an **Offline** state, CMM executes at most **5 health probes** before suspending polling.
+- The retry budget is replenished to `5` upon:
+  1. Receiving an inbound `/api/sister/wakeup` poke from Swarm.
+  2. The user clicking the **Swarm: Offline** status badge in the header navigation bar.
+  3. A successful connection transitioning the state back to **Online**.
+
+### 4. Swarm Health Status Proxy: `GET /api/swarm/status` or `POST /api/swarm/status`
+
+Probes the local RenegadeSwarm daemon for health, active peer counts, and seeding statistics.
+
+- **Method**: `GET` or `POST`
+- **Request Body (Optional POST)**:
+```json
+{
+  "serverUrl": "http://127.0.0.1:5180"
+}
+```
+- **Response `200 OK` (Online)**:
+```json
+{
+  "online": true,
+  "serverUrl": "http://127.0.0.1:5180",
+  "version": "1.2.0",
+  "peers": 14,
+  "seeding": 5,
+  "status": "ok"
+}
+```
+- **Response `200 OK` (Offline)**:
+```json
+{
+  "online": false,
+  "serverUrl": "http://127.0.0.1:5180",
+  "error": "RenegadeSwarm daemon not responding on http://127.0.0.1:5180"
+}
+```
+
+### 5. Swarm Desktop Window Focus: `POST /api/swarm/focus`
+
+Multi-tier activation that focuses or launches the native RenegadeSwarm Electron application:
+1. Calls privileged Swarm daemon focus endpoint (`POST /api/window/focus` with Bearer auth).
+2. Searches active OS processes/window handles across Windows (`Win32`), macOS (`osascript`), and Linux (`wmctrl`).
+3. Checks standard OS installation directories for the `RenegadeSwarm` executable and launches it.
+4. Returns failure diagnostic without launching unrelated browser windows if all tiers fail.
+
+- **Method**: `POST`
+- **Request Body**:
+```json
+{
+  "serverUrl": "http://127.0.0.1:5180"
+}
+```
+- **Response `200 OK`**:
+```json
+{
+  "success": true,
+  "method": "daemon_focus",
+  "url": "http://127.0.0.1:5180"
+}
+```
+
+### 6. Swarm Daemon Authentication Status: `GET /api/swarm/auth-status`
+
+Returns diagnostic details regarding local `daemon.token` discovery without exposing the secret token value.
+
+- **Method**: `GET`
+- **Response `200 OK`**:
+```json
+{
+  "tokenFound": true,
+  "primaryExpectedPath": "C:\\Users\\user\\AppData\\Roaming\\RenegadeSwarm\\daemon.token"
+}
+```
+

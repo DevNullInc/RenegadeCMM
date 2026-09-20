@@ -216,6 +216,15 @@ If you've been manually downloading models from CivitAI or Hugging Face, creatin
 - **Saved Workflows Selector Dropdown**: Automatically indexes and quick-selects any workflow stored in your ComfyUI directories.
 - **Visual Spatial Node Map & 4-Tier Dependency Resolver**: Pan/zoom LiteGraph map with 4-tier missing node resolution (Local $\rightarrow$ Registry Cache $\rightarrow$ GitHub Search $\rightarrow$ Pip Runner).
 
+### RenegadeSwarm Sister Application Integration
+
+- **Bidirectional Sister Wakeup Protocol**: Authenticated non-blocking startup poke (`POST /api/sister/wakeup` on ports 5174/5180 with a 400ms timeout) that immediately connects and notifies sister apps without persistent polling loops.
+- **Probe Rate-Limiting & 5-Check Retry Budget**: Caps offline health checks to 5 probes before entering sleep mode. Budget automatically resets on inbound sister wakeup pokes, manual status badge clicks, or successful reconnects.
+- **Local Bearer Authentication**: Automatically discovers Swarm's `daemon.token` from standard OS app data directories, transmitting `Authorization: Bearer <token>` on model ingest, window focus, and sister wakeup calls.
+- **Native Window Focus Activation**: Probes Swarm daemon focus API endpoints, searches for active Electron desktop window handles across Windows (`Win32`), macOS (`osascript`), and Linux (`wmctrl`), and launches installed desktop binaries before falling back to browser.
+- **Decentralized Ingestion Webhooks**: Automatically notifies the local RenegadeSwarm daemon (`POST /api/ingest` / `/api/models/scan`) when model downloads and companion files are finalized.
+- **1-Click Companion Packaging**: Generates standardized `.sha256`, `.info`, and preview image packages directly from library model cards for instant P2P seeding.
+
 ---
 
 ## 📦 Installation

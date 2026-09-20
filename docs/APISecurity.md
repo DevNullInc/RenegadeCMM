@@ -1,32 +1,33 @@
-# 🔐 Renegade Core Model Manager (CMM) — API Key & Secret Storage Security
+# Renegade Core Model Manager (CMM) — API Key & Secret Storage Security
 
 **Audience:** Users, contributors, and security reviewers.
-**Scope:** How the CivitAI API key and HuggingFace access token are handled, encrypted, stored, transmitted, and used at runtime — in both the desktop (Electron) and browser (dev) builds of this app.
+**Scope:** How the CivitAI API key, HuggingFace access token, and RenegadeSwarm daemon bearer token are handled, encrypted, stored, transmitted, and verified at runtime — in both the desktop (Electron) and browser (dev) builds of this app.
 
-> **Trust is paramount.** The CivitAI API key can spend compute credits and is effectively a credential to your CivitAI account; the HuggingFace token can access private/gated models. This document explains exactly what the app does with them so you can make an informed decision about whether (and where) to store them.
+> **Trust is paramount.** The CivitAI API key can spend compute credits and is effectively a credential to your CivitAI account; the HuggingFace token can access private/gated models; the Swarm daemon token protects local P2P ingest and control endpoints. This document explains exactly what the app does with them so you can make an informed decision about whether (and where) to store them.
 
 ---
 
 ## 1. What secrets does the app store?
 
-| Secret | Settings field | What it unlocks |
-|--------|----------------|-----------------|
+| Secret | Settings field / Source | What it unlocks |
+|---|---|---|
 | **CivitAI API key** | "CivitAI API Key" | NSFW / private / creator-restricted downloads, higher rate limits |
 | **HuggingFace access token** (`hf_...`) | "HuggingFace Token" | Downloading gated models from HuggingFace |
-
-These are **optional**. The app functions fully without them for public models.
+| **Swarm Daemon Token** (`daemon.token`) | Discovered locally on disk (`~/.renegadeswarm/daemon.token`, `%APPDATA%\RenegadeSwarm\daemon.token`) | Authenticating inter-process model ingest, sister wakeup, and window activation with RenegadeSwarm |
 
 ---
 
 ## 2. Where secrets live after you save them
 
 | Layer | Storage location | Format |
-|-------|------------------|--------|
+|---|---|---|
 | **On disk (persisted)** | SQLite `app_config` table, keys `civitai_api_key` and `huggingface_token` | AES-256-GCM machine-bound ciphertext (`mb_gcm:...`), JSON-quoted in a `key/value` row |
+| **Swarm Daemon Token** | Platform app data directories (`daemon.token`) | Read-only discovery by main process; never stored in CMM SQLite database or user settings |
 | **In memory (runtime)** | The process `currentConfig` object | Plaintext (required to authenticate requests) |
-| **Network (transmit)** | CivitAI downloads / HuggingFace requests | Token passed to the remote API in-memory (see §4) |
+| **Network (transmit)** | CivitAI downloads / HuggingFace requests / Swarm localhost calls | Token passed in-memory as Bearer header (`Authorization: Bearer <token>`) |
 | **Local HTTP Bridge** | `GET /api/config` on `127.0.0.1:5174` | Redacted: boolean flags `has_civitai_api_key` and `has_huggingface_token` |
-| **Renderer / IPC** | Settings tab `<input type="password">` / IPC `get-config` | Masked with bullets (`••••••••`); never written to `localStorage` |
+| **Sister Wakeup API** | `POST /api/sister/wakeup` on `127.0.0.1:5174` | Loopback only; validated against local `daemon.token`; no mutual recursion |
+| **Renderer / IPC** | Settings tab `<input type="password">` / IPC `get-config` | Masked with bullets (`••••••••`); secret tokens never exposed to renderer or written to `localStorage` |
 | **Backup Exports** | `backupService` ZIPs & CLI JSON dumps | Sanitized: API keys stripped; raw SQLite database excluded from ZIPs |
 
 The database file location:
@@ -113,12 +114,15 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 ## 8. Related files
 
 | Concern | Location |
-|---------|----------|
+|---|---|
 | Encryption / decryption primitives | `src/utils/secureStorage.ts` |
 | Config sanitization & redaction | `src/utils/configSanitizer.ts` |
 | Config load & startup migration | `src/main/index.ts` → `loadConfigFromDb()` |
 | Config save / key write | `src/main/index.ts` → `ipcMain.handle('save-config')` |
-| Local HTTP REST API bridge | `src/server/index.ts` |
+| Local HTTP REST API bridge | `src/main/index.ts` → `startHttpBridgeServer()` |
+| Swarm daemon token discovery | `src/services/swarmAuthToken.ts` |
+| Swarm inter-process bridge & wakeup | `src/services/swarmBridge.ts` |
+| Inbound sister wakeup handler | `src/main/index.ts` → `POST /api/sister/wakeup` |
 | Ephemeral download token handling | `src/services/downloadManager.ts` |
 | Log sanitization | `src/utils/logger.ts` |
 | Backup export sanitization | `src/services/backupService.ts` |
@@ -127,4 +131,4 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 
 ---
 
-*Last reviewed against source: September 13, 2026 (v1.6.0). This document accurately reflects the current machine-bound encryption, API redaction, and download token architecture.*
+*Last reviewed against source: September 20, 2026 (v1.6.1). This document accurately reflects the current machine-bound encryption, API redaction, Swarm daemon authentication, and Sister Wakeup Protocol.*

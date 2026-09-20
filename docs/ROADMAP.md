@@ -116,15 +116,19 @@ graph LR
 
 ---
 
-### Phase 3.1: v1.6.1 — RenegadeSwarm Daemon Bearer Auth Handshake & Security Protocol
+### Phase 3.1: v1.6.1 — RenegadeSwarm Daemon Bearer Auth Handshake, Sister Wakeup & Security Protocol
 
-> **Goal**: Establish a cryptographically authenticated, zero-trust inter-process communication bridge between RenegadeCMM and RenegadeSwarm with strict token hygiene, error diagnostics, and path confinement verification.
+> **Goal**: Establish an authenticated, zero-trust inter-process communication bridge between RenegadeCMM and RenegadeSwarm with bidirectional wakeup signaling, 5-probe retry budgets, strict token hygiene, error diagnostics, and path confinement verification.
 
-- [x] **Zero-Trust Bearer Token Discovery & Management (`swarmAuthToken.ts`)**:
-  - Main-process discovery of Swarm daemon token files (`daemon.token`) across Windows (`%APPDATA%\RenegadeSwarm`), macOS (`~/Library/Application Support/RenegadeSwarm`), Linux (`~/.config/renegadeswarm`), and dev workspaces.
+- [x] **Local Bearer Token Discovery & Management (`swarmAuthToken.ts`)**:
+  - Main-process discovery of Swarm daemon token files (`daemon.token`) across Windows (`%APPDATA%\RenegadeSwarm`), macOS (`~/Library/Application Support/RenegadeSwarm`), Linux (`~/.config/RenegadeSwarm` and `~/.config/renegadeswarm`), and dev workspaces.
   - Strict 64-character hexadecimal format validation (`^[a-f0-9]{64}$`) with memory caching and automatic single-retry token reload on HTTP 401 Unauthorized responses.
+- [x] **Bidirectional Sister Wakeup Protocol & Probe Rate-Limiting (`swarmBridge.ts`)**:
+  - **Outbound Startup Poke**: Non-blocking `POST http://127.0.0.1:5180/api/sister/wakeup` on bridge launch with a 400ms timeout; failures swallowed cleanly when Swarm is offline.
+  - **Inbound Sister Endpoint**: `POST /api/sister/wakeup` on port `5174` (loopback only, Bearer authenticated), resetting probe budgets to 5 and checking health immediately.
+  - **5-Probe Retry Budget**: CMM caps offline health polling to 5 checks before sleeping, preventing infinite CPU/network background loops.
 - [x] **Protected API Gateway Communication (`swarmBridge.ts`)**:
-  - Transparently attaches `Authorization: Bearer <token>` and `X-Swarm-Auth-Token` to privileged Swarm endpoints (`POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`).
+  - Transparently attaches `Authorization: Bearer <token>` and `X-Swarm-Auth-Token` to privileged Swarm endpoints (`POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`, `POST /api/sister/wakeup`).
   - Strict HTTP method enforcement (`POST` only for window focus; public access preserved for `/api/health`).
 - [x] **Path Confinement Boundary Detection & Diagnostics**:
   - Surfaces HTTP 403 Forbidden responses specifically as *"Model path is outside Swarm's allowed folder roots (Path Confinement)"*.

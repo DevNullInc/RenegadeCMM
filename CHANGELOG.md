@@ -8,20 +8,24 @@ For active, unreleased feature branches and ongoing sprint items, refer to [DEV-
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.6.1] - 2026-09-19
+## [1.6.1] - 2026-09-20
 
-### 🛡️ RenegadeSwarm Daemon Bearer Authentication Handshake & Security Protocol
+### RenegadeSwarm Daemon Bearer Authentication Handshake, Sister Wakeup & Security Protocol
 
+- **Bidirectional Sister Wakeup Protocol (`swarmBridge.ts` & `src/main/index.ts`)**:
+  - **Inbound Sister Endpoint**: Implemented `POST /api/sister/wakeup` on CMM port `5174` (loopback only, authenticated with `daemon.token`), resetting probe retry budgets to 5 and checking health immediately without user intervention.
+  - **Outbound Startup Poke**: Bridge startup triggers an authenticated, non-blocking `POST http://127.0.0.1:5180/api/sister/wakeup` with a 400ms timeout; offline failures are swallowed cleanly without retrying.
+  - **Probe Rate-Limiting & Retry Budget**: Caps offline health checks to 5 probes before entering sleep mode. Budget automatically resets on inbound sister wakeup pokes, manual status badge clicks, or successful reconnects.
 - **Automatic Daemon Token Discovery & Validation (`swarmAuthToken.ts`)**:
   - Main-process discovery of Swarm `daemon.token` across platform-standard application data paths:
     - Windows: `%APPDATA%\RenegadeSwarm\daemon.token`
     - macOS: `~/Library/Application Support/RenegadeSwarm/daemon.token`
-    - Linux: `~/.config/renegadeswarm/daemon.token`
+    - Linux: `~/.config/RenegadeSwarm/daemon.token` and `~/.config/renegadeswarm/daemon.token`
     - Development fallback: `.renegadeswarm_security/daemon.token`
   - Validates strict 64-character hexadecimal format (`^[a-f0-9]{64}$`).
   - Implements memory caching with automatic single-retry token reload upon receiving HTTP 401 Unauthorized responses.
 - **Authenticated Endpoint Bridge (`swarmBridge.ts`)**:
-  - Automatically attaches `Authorization: Bearer <token>` and `X-Swarm-Auth-Token: <token>` to privileged Swarm daemon requests (`POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`).
+  - Automatically attaches `Authorization: Bearer <token>` and `X-Swarm-Auth-Token: <token>` to privileged Swarm daemon requests (`POST /api/ingest`, `POST /api/models/scan`, `POST /api/window/focus`, `POST /api/sister/wakeup`).
   - Swarm health check endpoints (`/api/health`, `/health`, `/api/status`) remain public and unauthenticated.
   - Window focus switched to strict `POST` method per updated Swarm daemon contract.
 - **Path Confinement Boundary Diagnostics**:
@@ -31,8 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Strictly prevents token leakage to renderer: bearer token is never sent across IPC, never displayed in UI fields, and never stored in user settings JSON.
   - Added Settings tab diagnostic banner displaying token presence status, expected token search paths with 1-click clipboard copy, and auth failure diagnostics.
 - **Comprehensive Test Suite & Quality Assurance**:
-  - Added 14 targeted unit tests (`tests/swarmAuthToken.test.ts`, `tests/swarmBridge.auth.test.ts`) validating token discovery, Bearer header attachment, 401 cache invalidation/reload, 403 path confinement detection, and focus failure semantics.
-  - 100% test suite pass rate: 125 tests passing across 21 test files.
+  - Added unit test coverage (`tests/swarmAuthToken.test.ts`, `tests/swarmBridge.test.ts`) validating token discovery, Bearer header attachment, 401 cache invalidation/reload, 403 path confinement detection, sister wakeup dispatch, and focus failure semantics.
+  - 100% test suite pass rate: 127 tests passing across 21 test files.
 
 ## [1.6.0] - 2026-09-13
 
