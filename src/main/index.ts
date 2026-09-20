@@ -285,7 +285,8 @@ async function loadConfigFromDb() {
     if (currentConfig.comfyui_folders && currentConfig.comfyui_folders.length > 0 && !currentConfig.comfyui_root) {
       currentConfig.comfyui_root = currentConfig.comfyui_folders[0];
     }
-    logger.info(`[Config] Loaded from DB: folders=${JSON.stringify(currentConfig.comfyui_folders)} install_dir=${currentConfig.comfyui_install_dir} root=${currentConfig.comfyui_root}`);
+    const foldersLogStr = (currentConfig.comfyui_folders || []).map((f) => `"${f}"`).join(', ');
+    logger.info(`[Config] Loaded from DB: folders=[${foldersLogStr}] install_dir=${currentConfig.comfyui_install_dir} root=${currentConfig.comfyui_root}`);
     if (cfgObj.civitai_api_key) {
       const decrypted = decryptKey(cfgObj.civitai_api_key);
       currentConfig.civitai_api_key = decrypted;
@@ -2649,8 +2650,8 @@ function registerIpcHandlers() {
 
     // Ensure WAL is checkpointed so the write is visible to the next process/restart
     try {
-      await dbManager.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-      logger.info(`[Config] Saved folders: ${JSON.stringify(currentConfig.comfyui_folders)} install_dir=${currentConfig.comfyui_install_dir}`);
+      const savedFoldersStr = (currentConfig.comfyui_folders || []).map((f) => `"${f}"`).join(', ');
+      logger.info(`[Config] Saved folders: [${savedFoldersStr}] install_dir=${currentConfig.comfyui_install_dir}`);
     } catch {}
 
     return currentConfig;
