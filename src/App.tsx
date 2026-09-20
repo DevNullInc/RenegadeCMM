@@ -7,7 +7,7 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Compass,
   HardDrive,
@@ -43,32 +43,24 @@ type Tab = 'browse' | 'library' | 'workflows' | 'downloads' | 'settings' | 'abou
 
 export default function App() {
   return (
-    <ScanProvider>
-      <AppContent />
-    </ScanProvider>
+    <ErrorBoundary>
+      <ScanProvider>
+        <MainApp />
+      </ScanProvider>
+    </ErrorBoundary>
   );
 }
 
-function AppContent() {
-  const { isScanning, scanProgress } = useScan();
+function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const saved = localStorage.getItem('civitai_active_tab');
-    if (
-      saved === 'browse' ||
-      saved === 'library' ||
-      saved === 'downloads' ||
-      saved === 'settings' ||
-      saved === 'about'
-    ) {
-      return saved;
-    }
-    return 'browse';
+    return (localStorage.getItem('civitai_active_tab') as Tab) || 'browse';
   });
-  const [activeDownloadsCount, setActiveDownloadsCount] = useState<number>(0);
   const [hasFoldersConfigured, setHasFoldersConfigured] = useState<boolean>(true);
+  const [activeDownloadsCount, setActiveDownloadsCount] = useState<number>(0);
   const [isBackendOnline, setIsBackendOnline] = useState<boolean>(true);
   const [isComfyOnline, setIsComfyOnline] = useState<boolean>(false);
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null);
+  const [isCheckingSwarm, setIsCheckingSwarm] = useState<boolean>(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [browseInitialQuery, setBrowseInitialQuery] = useState<string>('');
   const [browseInitialModelId, setBrowseInitialModelId] = useState<number | null>(null);
@@ -80,10 +72,62 @@ function AppContent() {
   } | null>(null);
 
   const mainRef = useRef<HTMLDivElement>(null);
+  const swarmRemainingChecksRef = useRef<number>(5);
+  const swarmStatusRef = useRef<SwarmStatus | null>(null);
+  const isCheckingSwarmRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    swarmStatusRef.current = swarmStatus;
+  }, [swarmStatus]);
 
   useEffect(() => {
     localStorage.setItem('civitai_active_tab', activeTab);
   }, [activeTab]);
+
+  const probeSwarm = useCallback(async (serverUrl?: string, resetBudget = false) => {
+    if (resetBudget) {
+      swarmRemainingChecksRef.current = 5;
+    }
+
+    if (isCheckingSwarmRef.current) return;
+
+    const isOnline = swarmStatusRef.current?.online === true;
+    if (!isOnline && swarmRemainingChecksRef.current <= 0) {
+      // 5-check maximum retry budget exhausted: do not ping Swarm
+      return;
+    }
+
+    if (!isOnline) {
+      swarmRemainingChecksRef.current = Math.max(0, swarmRemainingChecksRef.current - 1);
+    }
+
+    isCheckingSwarmRef.current = true;
+    setIsCheckingSwarm(true);
+
+    try {
+      let swarm: SwarmStatus;
+      if (window.civitaiAPI?.checkSwarmStatus) {
+        swarm = await window.civitaiAPI.checkSwarmStatus(serverUrl);
+      } else {
+        const swarmRes = await fetch('http://127.0.0.1:5174/api/swarm/status', {
+          method: 'GET',
+          signal: AbortSignal.timeout(2000),
+        });
+        swarm = swarmRes.ok ? await swarmRes.json() : { online: false, serverUrl: 'http://127.0.0.1:5180' };
+      }
+
+      setSwarmStatus(swarm);
+      if (swarm.online) {
+        // Reset check budget to 5 once confirmed online
+        swarmRemainingChecksRef.current = 5;
+      }
+    } catch {
+      setSwarmStatus({ online: false, serverUrl: serverUrl || 'http://127.0.0.1:5180' });
+    } finally {
+      isCheckingSwarmRef.current = false;
+      setIsCheckingSwarm(false);
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,17 +147,8 @@ function AppContent() {
             );
             setHasFoldersConfigured(hasFolders);
           }
-          if (window.civitaiAPI?.checkSwarmStatus) {
-            try {
-              const swarm = await window.civitaiAPI.checkSwarmStatus(cfg?.swarm_server_url);
-              if (isMounted) {
-                setSwarmStatus(swarm);
-              }
-            } catch {
-              if (isMounted) {
-                setSwarmStatus({ online: false, serverUrl: cfg?.swarm_server_url || 'http://127.0.0.1:5180' });
-              }
-            }
+          if (isMounted) {
+            await probeSwarm(cfg?.swarm_server_url);
           }
         } else {
           const res = await fetch('http://127.0.0.1:5174/api/health', {
@@ -123,21 +158,8 @@ function AppContent() {
           if (isMounted) {
             setIsBackendOnline(res.ok);
           }
-          try {
-            const swarmRes = await fetch('http://127.0.0.1:5174/api/swarm/status', {
-              method: 'GET',
-              signal: AbortSignal.timeout(2000),
-            });
-            if (isMounted && swarmRes.ok) {
-              const swarmData = await swarmRes.json();
-              setSwarmStatus(swarmData);
-            } else if (isMounted) {
-              setSwarmStatus({ online: false, serverUrl: 'http://127.0.0.1:5180' });
-            }
-          } catch {
-            if (isMounted) {
-              setSwarmStatus({ online: false, serverUrl: 'http://127.0.0.1:5180' });
-            }
+          if (isMounted) {
+            await probeSwarm();
           }
         }
       } catch {
@@ -154,7 +176,7 @@ function AppContent() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [activeTab]);
+  }, [probeSwarm]);
 
   // F5 / Ctrl+R refresh support. The app runs without the default Chromium/Electron
   // menu (and its reload accelerator), so a hard refresh of the currently displayed tab
@@ -339,7 +361,8 @@ function AppContent() {
   const handleFocusOrOpenSwarm = async (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!swarmStatus?.online) {
-      setActiveTab('settings');
+      // Swarm is offline: reset budget to 5 checks and immediately probe Swarm
+      await probeSwarm(swarmStatus?.serverUrl, true);
       return;
     }
     if (window.civitaiAPI?.focusOrOpenSwarm) {
@@ -463,31 +486,53 @@ function AppContent() {
           {/* RenegadeSwarm Sister Application Status Badge */}
           <button
             onClick={handleFocusOrOpenSwarm}
-            className={`flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all cursor-pointer border ${
+            className={`flex items-center gap-2 shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all cursor-pointer border active:scale-95 ${
               swarmStatus?.online
-                ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25 shadow-sm shadow-cyan-500/20 active:scale-95'
-                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/60'
+                ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25 shadow-sm shadow-cyan-500/20'
+                : isCheckingSwarm
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 shadow-sm shadow-amber-500/20'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
             }`}
             title={
               swarmStatus?.online
                 ? `RenegadeSwarm P2P Sister App Connected (${swarmStatus.version || 'Active'}${swarmStatus.peers !== undefined ? ` • ${swarmStatus.peers} peer(s)` : ''}${swarmStatus.seeding !== undefined ? ` • ${swarmStatus.seeding} seeding` : ''}). Click to focus or open Swarm window.`
-                : 'RenegadeSwarm P2P Daemon Offline. Click to configure in Settings.'
+                : isCheckingSwarm
+                ? 'Checking RenegadeSwarm P2P connection...'
+                : 'RenegadeSwarm P2P Daemon Offline. Click to run 5 connection checks or configure in Settings.'
             }
           >
             <span className="relative flex h-2 w-2">
               {swarmStatus?.online && (
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
               )}
+              {isCheckingSwarm && !swarmStatus?.online && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              )}
               <span
                 className={`relative inline-flex rounded-full h-2 w-2 ${
-                  swarmStatus?.online ? 'bg-cyan-400' : 'bg-slate-500'
+                  swarmStatus?.online
+                    ? 'bg-cyan-400'
+                    : isCheckingSwarm
+                    ? 'bg-amber-400'
+                    : 'bg-slate-500'
                 }`}
               />
             </span>
-            <Radio size={13} className={swarmStatus?.online ? 'text-cyan-400' : 'text-slate-500'} />
+            <Radio
+              size={13}
+              className={
+                swarmStatus?.online
+                  ? 'text-cyan-400'
+                  : isCheckingSwarm
+                  ? 'text-amber-400 animate-spin'
+                  : 'text-slate-500'
+              }
+            />
             <span>
               {swarmStatus?.online
                 ? `Swarm: Online${swarmStatus.peers ? ` (${swarmStatus.peers}p)` : ''}`
+                : isCheckingSwarm
+                ? 'Swarm: Checking...'
                 : 'Swarm: Offline'}
             </span>
           </button>
