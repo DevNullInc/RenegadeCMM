@@ -420,8 +420,9 @@ function Ensure-Environment {
   # First-run watchdog: once the environment is proven (Node + node_modules with matching lockfile hash),
   # later launches flat-skip the entire provisioning block unless ForceInstall is passed.
   if (-not $ForceInstall -and (Test-Path $InstalledMarker)) {
-    $stampedHash = (Get-Content $InstalledMarker -Raw -ErrorAction SilentlyContinue).Trim()
-    if ((Test-Path $nodeModulesDir) -and ($stampedHash -eq $currentLockHash)) {
+    $rawMarker = Get-Content $InstalledMarker -Raw -ErrorAction SilentlyContinue
+    $stampedHash = if ($rawMarker) { $rawMarker.Trim() } else { '' }
+    if ((Test-Path $nodeModulesDir) -and $currentLockHash -and ($stampedHash -eq $currentLockHash)) {
       if ($IncludePython) {
         Ensure-PythonEnvironment -ForceInstall:$ForceInstall
       }
@@ -453,7 +454,9 @@ function Ensure-Environment {
   }
 
   # Check if project dependencies (node_modules) are installed
-  if ($ForceInstall -or (-not (Test-Path $nodeModulesDir)) -or ((Test-Path $InstalledMarker) -and ((Get-Content $InstalledMarker -Raw -ErrorAction SilentlyContinue).Trim() -ne $currentLockHash))) {
+  $rawMarker = Get-Content $InstalledMarker -Raw -ErrorAction SilentlyContinue
+  $stampedHash = if ($rawMarker) { $rawMarker.Trim() } else { '' }
+  if ($ForceInstall -or (-not (Test-Path $nodeModulesDir)) -or (-not $currentLockHash) -or ($stampedHash -ne $currentLockHash)) {
     Write-Status '>>' '[2/2] Installing project dependencies (npm install)...' 'Cyan'
     Write-Host '      Downloading packages & compiling native modules (please wait)...' -ForegroundColor DarkGray
     Push-Location $ProjectRoot
@@ -483,7 +486,11 @@ function Ensure-Environment {
   Write-Status 'ok' 'Environment verification completed.' 'Green'
   Write-Host ''
 
-  $currentLockHash | Set-Content -Path $InstalledMarker -Force
+  if ($currentLockHash) {
+    $currentLockHash | Set-Content -Path $InstalledMarker -Force
+  } else {
+    'ok' | Set-Content -Path $InstalledMarker -Force
+  }
 }
 
 function Ensure-NodeInstalled {
@@ -609,81 +616,31 @@ function Start-App {
     Start-Sleep -Seconds 1
   }
 
-  # 1) Build
-  Write-Status '>>' 'Building project...' 'Cyan'
+  # 1) Compile main process TypeScript (frontend is served live by Vite)
+  Write-Status '>>' 'Verifying main process compilation (TypeScript)...' 'DarkGray'
   Push-Location $ProjectRoot
 
   try {
-    Write-Status '>>' 'Building renderer (Vite) + main process (TypeScript) in parallel...' 'Cyan'
-    $origEAP = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-      if ($PSVersionTable.PSEdition -eq 'Core') {
-        # Renderer and main write to disjoint dist/ subtrees, so build them concurrently.
-        $buildResults = 1..2 | ForEach-Object -Parallel {
-          Push-Location $using:ProjectRoot
-          try {
-            if ($_ -eq 1) {
-              $out = npx.cmd vite build --base ./ --emptyOutDir false 2>&1
-            } else {
-              $out = npx.cmd tsc --project tsconfig.main.json --listEmittedFiles 2>&1
-            }
-            [pscustomobject]@{
-              Name    = if ($_ -eq 1) { 'renderer' } else { 'main' }
-              Success = $LASTEXITCODE -eq 0
-              Output  = ($out -join "`n")
-            }
-          } finally {
-            Pop-Location
-          }
-        } -ThrottleLimit 2
-      } else {
-        $rendererOut = npx.cmd vite build --base ./ --emptyOutDir false 2>&1
-        $rendererOk = $LASTEXITCODE -eq 0
-        $mainOut = npx.cmd tsc --project tsconfig.main.json --listEmittedFiles 2>&1
-        $mainOk = $LASTEXITCODE -eq 0
-        $buildResults = @(
-          [pscustomobject]@{ Name = 'renderer'; Success = $rendererOk; Output = ($rendererOut -join "`n") }
-          [pscustomobject]@{ Name = 'main'; Success = $mainOk; Output = ($mainOut -join "`n") }
-        )
-      }
-    } finally {
-      $ErrorActionPreference = $origEAP
-    }
-
-    $renderer = $buildResults | Where-Object { $_.Name -eq 'renderer' } | Select-Object -First 1
-    $main = $buildResults | Where-Object { $_.Name -eq 'main' } | Select-Object -First 1
-
-    if (-not $renderer.Success) {
-      Write-Status '!!' 'Renderer build failed!' 'Red'
-      Write-Host ''
-      Write-Host '  Vite output:' -ForegroundColor Yellow
-      Write-Host '  ' -NoNewline
-      Write-Host $renderer.Output -ForegroundColor Red
-      Pop-Location
-      return
-    }
-    Write-Status 'ok' 'Renderer built successfully.' 'Green'
-
-    if (-not $main.Success) {
+    $mainOut = npx.cmd tsc --project tsconfig.main.json --listEmittedFiles 2>&1
+    if ($LASTEXITCODE -ne 0) {
       Write-Status '!!' 'Main process TypeScript compilation FAILED!' 'Red'
       Write-Host ''
       Write-Host '  TypeScript errors:' -ForegroundColor Yellow
       Write-Host '  ' -NoNewline
-      Write-Host $main.Output -ForegroundColor Red
+      Write-Host ($mainOut -join "`n") -ForegroundColor Red
       Pop-Location
       return
     }
-    Write-Status 'ok' 'TypeScript compilation succeeded.' 'Green'
-    
+    Write-Status 'ok' 'Main process ready.' 'Green'
+
     # Verify main process entry point exists
-    $expectedMainFile = "dist/main/index.js"
+    $expectedMainFile = Join-Path $ProjectRoot 'dist\main\index.js'
     if (-not (Test-Path $expectedMainFile)) {
       Write-Status '!!' "Main entry point NOT FOUND: $expectedMainFile" 'Red'
       Pop-Location
       return
     }
-    Write-Status 'ok' "Main process entry point verified: $expectedMainFile" 'Green'
+    Write-Status 'ok' "Main process entry point verified: dist\main\index.js" 'Green'
   }
   catch {
     Write-Status '!!' "Unexpected build error: $_" 'Red'
@@ -692,6 +649,9 @@ function Start-App {
     Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
     Pop-Location
     return
+  }
+  finally {
+    Pop-Location
   }
 
   # 2) Start Vite dev server (for browser access)
