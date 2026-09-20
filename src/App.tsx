@@ -52,6 +52,7 @@ export default function App() {
 }
 
 function MainApp() {
+  const { isScanning, scanProgress } = useScan();
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     return (localStorage.getItem('civitai_active_tab') as Tab) || 'browse';
   });
