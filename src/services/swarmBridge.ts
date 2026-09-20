@@ -436,6 +436,43 @@ export class SwarmBridge {
       error: 'Swarm daemon unavailable or did not accept ingest notification',
     };
   }
+
+  /**
+   * Sends a non-blocking sister wakeup poke to the RenegadeSwarm daemon (Port 5180).
+   * Used on CMM bridge startup to alert an already-running Swarm daemon that CMM is active.
+   */
+  public async sendSisterWakeup(targetUrl?: string): Promise<{ success: boolean; error?: string }> {
+    const url = this.normalizeUrl(targetUrl);
+    const token = swarmAuthToken.loadSwarmDaemonToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Swarm-Auth-Token'] = token;
+    }
+
+    try {
+      const res = await axios.post(
+        `${url}/api/sister/wakeup`,
+        { source: 'cmm', ts: Date.now() },
+        {
+          timeout: 400,
+          headers,
+        }
+      );
+      if (res.status === 200) {
+        logger.info('Successfully sent sister wakeup ping to RenegadeSwarm');
+        return { success: true };
+      }
+      return { success: false, error: `Swarm returned status ${res.status}` };
+    } catch (err: any) {
+      // Swallowed on purpose: zero retry loop if Swarm is not running yet
+      logger.debug('Swarm sister wakeup ping swallowed (Swarm not active yet):', err.message);
+      return { success: false, error: err.message };
+    }
+  }
 }
 
 export const swarmBridge = SwarmBridge.getInstance();

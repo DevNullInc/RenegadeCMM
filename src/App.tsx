@@ -179,6 +179,18 @@ function MainApp() {
     };
   }, [probeSwarm]);
 
+  // Listen for sister wakeup poke from RenegadeSwarm
+  useEffect(() => {
+    if (!window.civitaiAPI?.onSwarmSisterWakeup) return;
+    const unsub = window.civitaiAPI.onSwarmSisterWakeup(() => {
+      // Swarm woke up: reset retry budget to 5 and probe immediately
+      probeSwarm(swarmStatusRef.current?.serverUrl, true);
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [probeSwarm]);
+
   // F5 / Ctrl+R refresh support. The app runs without the default Chromium/Electron
   // menu (and its reload accelerator), so a hard refresh of the currently displayed tab
   // is not available out of the box. Intercept the keys and reload the page so the app

@@ -138,5 +138,38 @@ describe('SwarmBridge Sister Application Health Tracking', () => {
       expect(res.success).toBe(true);
     });
   });
+
+  describe('sendSisterWakeup', () => {
+    it('should successfully send wakeup ping to Swarm sister app on /api/sister/wakeup', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        status: 200,
+        data: { success: true, message: 'Swarm sister wakeup acknowledged' },
+      } as any);
+
+      const res = await swarmBridge.sendSisterWakeup('http://127.0.0.1:5180');
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        'http://127.0.0.1:5180/api/sister/wakeup',
+        expect.objectContaining({ source: 'cmm', ts: expect.any(Number) }),
+        expect.objectContaining({
+          timeout: 400,
+          headers: expect.objectContaining({
+            'Authorization': `Bearer ${'a'.repeat(64)}`,
+            'X-Swarm-Auth-Token': 'a'.repeat(64),
+          }),
+        })
+      );
+      expect(res.success).toBe(true);
+    });
+
+    it('should swallow network errors/timeouts cleanly when Swarm is offline', async () => {
+      mockedAxios.post.mockRejectedValueOnce(new Error('connect ECONNREFUSED 127.0.0.1:5180'));
+
+      const res = await swarmBridge.sendSisterWakeup('http://127.0.0.1:5180');
+
+      expect(res.success).toBe(false);
+      expect(res.error).toContain('ECONNREFUSED');
+    });
+  });
 });
 

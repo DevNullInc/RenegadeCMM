@@ -273,7 +273,7 @@ async function loadConfigFromDb() {
       if (typeof f === 'string') {
         try {
           f = JSON.parse(f);
-        } catch {}
+        } catch { }
       }
       currentConfig.comfyui_folders = sanitizeFolderList(f);
     }
@@ -449,7 +449,7 @@ function listDirectoryEntries(dirPath?: string) {
     try {
       const parent = path.dirname(target);
       entries.push({ name: '..', isDirectory: true, path: parent });
-    } catch {}
+    } catch { }
   }
   try {
     const items = fs.readdirSync(target, { withFileTypes: true }).filter((e) => e.isDirectory());
@@ -457,7 +457,7 @@ function listDirectoryEntries(dirPath?: string) {
       if (item.name.startsWith('.') || item.name === '__pycache__') continue;
       entries.push({ name: item.name, isDirectory: true, path: path.join(target, item.name) });
     }
-  } catch {}
+  } catch { }
   entries.sort((a, b) => {
     if (a.name === '..') return -1;
     if (b.name === '..') return 1;
@@ -503,7 +503,7 @@ function checkCmmCompanionNode(nodes: string[], customNodesDir: string): { insta
           return { installed: true, folderName };
         }
       }
-    } catch {}
+    } catch { }
   }
   return { installed: false };
 }
@@ -822,7 +822,7 @@ function autoDetectComfyUIInstall() {
           if (score >= 90) break;
         }
       }
-    } catch {}
+    } catch { }
   }
 
   if (bestMatch) {
@@ -1146,7 +1146,7 @@ function resolveWorkflowScanPaths(config: AppConfig, customPaths?: string | stri
           if (stat.isDirectory()) {
             candidateDirs.add(targetPath);
           }
-        } catch {}
+        } catch { }
       }
     }
   }
@@ -1192,7 +1192,7 @@ async function checkComfyUIStatus(targetUrl?: string): Promise<{ online: boolean
           devices: [],
         };
       }
-    } catch {}
+    } catch { }
   }
 
   return {
@@ -1630,7 +1630,7 @@ function startHttpBridgeServer() {
 
         try {
           await dbManager.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-        } catch {}
+        } catch { }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(currentConfig));
@@ -2395,6 +2395,8 @@ function startHttpBridgeServer() {
 
   server.listen(apiPort, '127.0.0.1', () => {
     logger.info(`HTTP Native Server Bridge securely listening on http://127.0.0.1:${apiPort} (Localhost only)`);
+    // Outbound startup poke to sister app (RenegadeSwarm on port 5180)
+    swarmBridge.sendSisterWakeup(currentConfig.swarm_server_url);
   });
 }
 
@@ -2650,9 +2652,9 @@ function registerIpcHandlers() {
 
     // Ensure WAL is checkpointed so the write is visible to the next process/restart
     try {
-      const savedFoldersStr = (currentConfig.comfyui_folders || []).map((f) => `"${f}"`).join(', ');
-      logger.info(`[Config] Saved folders: [${savedFoldersStr}] install_dir=${currentConfig.comfyui_install_dir}`);
-    } catch {}
+      await dbManager.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      logger.info(`[Config] Saved folders: ${JSON.stringify(currentConfig.comfyui_folders)} install_dir=${currentConfig.comfyui_install_dir}`);
+    } catch { }
 
     return currentConfig;
   });
@@ -3236,7 +3238,7 @@ function performFullShutdown() {
         }
       });
       fs.unlinkSync(pidFilePath);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 2. Kill spawned background processes (like Vite dev server) with safety verification
@@ -3244,7 +3246,7 @@ function performFullShutdown() {
     for (const pid of pidsToKill) {
       try {
         child_process.execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
-      } catch (e) {}
+      } catch (e) { }
     }
     // Clean up only node/electron processes listening on 5173 or 5174, never browsers
     try {
@@ -3252,7 +3254,7 @@ function performFullShutdown() {
         `powershell -NoProfile -Command "$prot = @('firefox','chrome','brave','opera','msedge','safari'); Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p -and $p.Id -ne ${process.pid} -and ($p.ProcessName -eq 'node' -or $p.ProcessName -eq 'electron') -and -not ($prot -contains $p.ProcessName.ToLower())) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }"`,
         { stdio: 'ignore' }
       );
-    } catch (e) {}
+    } catch (e) { }
   } else {
     for (const pid of pidsToKill) {
       try {
@@ -3261,7 +3263,7 @@ function performFullShutdown() {
         if (!isBrowser && (comm.includes('node') || comm.includes('electron') || comm.includes('vite'))) {
           process.kill(pid, 'SIGTERM');
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -3384,7 +3386,7 @@ if (!gotTheLock) {
   app.on('before-quit', async (e) => {
     try {
       await downloadManager.flushAndStopPersistence();
-    } catch {}
+    } catch { }
   });
 
   // Security: Harden all created webContents and <webview> instances

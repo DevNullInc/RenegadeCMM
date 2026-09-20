@@ -613,6 +613,8 @@ export function setupWebBridgeIfNeeded() {
         return { tokenFound: false, primaryExpectedPath: 'Browser Mode (IPC Not Available)' };
       },
 
+      onSwarmSisterWakeup: (_callback: () => void) => () => {},
+
       saveWorkflowToComfyUI: async (fileName: string, data: any, fileType?: string) => {
         try {
           const res = await fetch(`${API_BASE}/comfyui/save-workflow`, {

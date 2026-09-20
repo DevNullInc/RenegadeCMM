@@ -89,6 +89,13 @@ const api = {
     ipcRenderer.invoke('focus-or-open-swarm', serverUrl),
   getSwarmAuthStatus: () =>
     ipcRenderer.invoke('get-swarm-auth-status'),
+  onSwarmSisterWakeup: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('swarm:sisterWakeup', handler);
+    return () => {
+      ipcRenderer.removeListener('swarm:sisterWakeup', handler);
+    };
+  },
   saveWorkflowToComfyUI: (fileName: string, data: any, fileType?: string) =>
     ipcRenderer.invoke('save-comfyui-workflow', fileName, data, fileType),
   executeComfyUIPrompt: (promptData: any, serverUrl?: string) =>
