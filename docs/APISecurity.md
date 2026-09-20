@@ -27,7 +27,7 @@
 | **Network (transmit)** | CivitAI downloads / HuggingFace requests / Swarm localhost calls | Token passed in-memory as Bearer header (`Authorization: Bearer <token>`) |
 | **Local HTTP Bridge** | `GET /api/config` on `127.0.0.1:5174` | Redacted: boolean flags `has_civitai_api_key` and `has_huggingface_token` |
 | **Sister Wakeup API** | `POST /api/sister/wakeup` on `127.0.0.1:5174` | Loopback only; validated against local `daemon.token`; no mutual recursion |
-| **Renderer / IPC** | Settings tab `<input type="password">` / IPC `get-config` | Masked with bullets (`••••••••`); secret tokens never exposed to renderer or written to `localStorage` |
+| **Renderer / IPC** | Settings tab `<input type="password">` / IPC `get-config` | Masked with bullets (`••••••••`); secret tokens never exposed to renderer or written to `localStorage`. All IPC arguments validated via runtime Zod schemas |
 | **Backup Exports** | `backupService` ZIPs & CLI JSON dumps | Sanitized: API keys stripped; raw SQLite database excluded from ZIPs |
 
 The database file location:
@@ -78,6 +78,7 @@ app_config row  →  decryptKey(ciphertext)  →  plaintext
 
 - **Cross-Environment Parity (Desktop GUI + Standalone CLI):** RenegadeCMM can be operated either via the Electron desktop interface or via headless CLI scripts (`cmm.sh` / `cmm.ps1`). Standard OS-only keychains (such as Chromium's `safeStorage` DPAPI on Windows) are inaccessible to external Node.js CLI processes. Utilizing machine-and-user entropy ensures both environments decrypt the exact same SQLite database seamlessly.
 - **Casual Theft Resistance:** If a database file or backup is stolen offline or copied to another machine or user profile, the ciphertext cannot be decrypted without the originating machine's environment and username entropy.
+- **IPC Boundary Contract Enforcement (Zod Schemas):** Communication between the sandboxed renderer and the privileged Electron main process is strictly gated through runtime Zod schemas (`zod`). Invocations over IPC (`ipcMain.handle`) validate input parameters, data types, bounded integers, and safe string formats before any disk, network, or database operations execute. Malformed payloads or parameter pollution attempts are rejected with validation errors.
 - **Root/Local Compromise Limitation:** As with any local application where the decryption routine runs within user space, an attacker with full interactive code execution under your exact user account on the same machine could derive the entropy. For shared or high-risk multi-user workstations, avoid saving credentials permanently or clear them when finished.
 
 ---
@@ -99,6 +100,7 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 - **Keep secrets out of `localStorage`.** Secrets live only in the DB (encrypted) and memory — never in `localStorage`.
 - **Sanitize public endpoints.** When exposing new configuration or status endpoints on the local HTTP bridge (`src/server/index.ts`), always redact credentials using `sanitizeConfigForClient()`.
 - **Route auth-required links through the OS browser.** Links to CivitAI account/API-key pages and HuggingFace token pages open via `shell.openExternal` (the user's real browser) so users can verify the HTTPS certificate/URL themselves — never inside the embedded Electron window.
+- **Enforce Zod validation on new IPC channels.** When defining new `ipcMain.handle` endpoints, always parse incoming arguments with a dedicated `zod` schema before executing handler logic.
 
 ### Status of Hardening Roadmap
 
@@ -108,6 +110,8 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 - [x] Sanitized community backup exports (ZIP & JSON).
 - [x] Dedicated one-click "Clear Key" and "Clear Token" controls in Settings UI.
 - [x] Automated log scrubbing for Bearer tokens, query strings, and credential keys.
+- [x] Runtime Zod schema validation across all privileged IPC channels.
+- [x] Pre-parsing magic byte verification and directory confinement for workflow imports.
 
 ---
 
@@ -119,11 +123,13 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 | Config sanitization & redaction | `src/utils/configSanitizer.ts` |
 | Config load & startup migration | `src/main/index.ts` → `loadConfigFromDb()` |
 | Config save / key write | `src/main/index.ts` → `ipcMain.handle('save-config')` |
+| Runtime IPC schema validation | `src/main/index.ts` (Zod schemas) |
 | Local HTTP REST API bridge | `src/main/index.ts` → `startHttpBridgeServer()` |
 | Swarm daemon token discovery | `src/services/swarmAuthToken.ts` |
 | Swarm inter-process bridge & wakeup | `src/services/swarmBridge.ts` |
 | Inbound sister wakeup handler | `src/main/index.ts` → `POST /api/sister/wakeup` |
 | Ephemeral download token handling | `src/services/downloadManager.ts` |
+| Workflow import & magic byte validation | `src/services/workflowScanner.ts` & `src/main/index.ts` |
 | Log sanitization | `src/utils/logger.ts` |
 | Backup export sanitization | `src/services/backupService.ts` |
 | CLI config loader & exporter | `src/cli/index.ts` |
@@ -131,4 +137,4 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 
 ---
 
-*Last reviewed against source: September 20, 2026 (v1.6.1). This document accurately reflects the current machine-bound encryption, API redaction, Swarm daemon authentication, and Sister Wakeup Protocol.*
+*Last reviewed against source: September 20, 2026 (v1.7.0). This document accurately reflects machine-bound encryption, API redaction, Swarm daemon authentication, Sister Wakeup Protocol, and runtime Zod IPC schema validation.*

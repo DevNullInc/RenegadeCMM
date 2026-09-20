@@ -14,7 +14,8 @@ graph LR
     v142 --> v15["✅ v1.5.0<br/>Native HF & GGUF Engine"]
     v15 --> v16["✅ v1.6.0<br/>Hardlink Storage Optimizer & SafeTensors Engine"]
     v16 --> v161["✅ v1.6.1<br/>Swarm Daemon Auth & Security Handshake"]
-    v161 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
+    v161 --> v162["✅ v1.6.2<br/>Drag-Drop Import, Zod IPC & UX Polish"]
+    v162 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
     v17 --> v20["🎯 v2.0.0<br/>Unified Multi-Gen & Package Launch Hub"]
 ```
 
@@ -136,6 +137,35 @@ graph LR
 - [x] **Renderer Token Isolation & UI Security**:
   - Strict boundary isolation: secret token values are never exposed across IPC, rendered in UI components, or stored in persistent user settings.
   - Diagnostic banner in Settings tab surfacing active token presence, expected file system search paths with 1-click clipboard copy, and actionable auth failure warnings.
+
+---
+
+### Phase 3.2: v1.6.2 — Workflow Drag-and-Drop Import, Zod IPC Validation & UX Polish
+
+> **Goal**: Secure end-to-end workflow file import pipeline with full-window drag-and-drop interception, harden all IPC channels with runtime Zod schema validation, expand the Live ComfyUI workspace for usable canvas sizing, and eliminate the blank startup window.
+
+- [x] **End-to-End Workflow Drag-and-Drop Import Pipeline**:
+  - Full-window drag-and-drop event interception with `dragDepthRef` and a fixed overlay (`z-[9999]`), reliably capturing drops anywhere in the application window including over embedded guest `<webview>` instances.
+  - Pre-parsing magic byte verification rejecting disguised ELF, PE, and Mach-O binaries, with 50MB file size and 10MB JSON string caps.
+  - PNG metadata extraction with explicit chunk precedence (`iTXt` > `tEXt` > `zTXt`).
+  - Interactive `WorkflowImportModal` displaying detected node types, model reference breakdown, editable workflow title, and duplicate collision prompt.
+  - Secure workflow archiving with regex name validation (`^[a-zA-Z0-9_\- ]+$`), directory confinement, case-insensitive collision detection, and atomic writes via nonce-prefixed temp files.
+  - Automated post-import pipeline: immediate workflow activation, custom node resolution, Missing Nodes badge updates, and live ComfyUI canvas push.
+- [x] **Zod IPC Schema Validation Migration**:
+  - Replaced ad-hoc argument checks across all privileged main-process IPC handlers with strict runtime Zod schema validation.
+  - Validated channels: `search-models`, `get-model`, `get-model-version`, `delete-local-model`, `test-webhook`, `clone-custom-node`, `resolve-missing-node`, `mark-node-installed`, `hf-check-model`, `hf-search-models`, `inspect-gguf`, `execute-hardlink-optimizer`, `package-companion-files`, `inspect-model-precision`, `convert-model-to-safetensors`, `assess-conversion-safety`, `ignore-model-update`, `unignore-model-update`, `ignore-duplicate-set`, `unignore-duplicate-set`, `set-model-nsfw`, and `open-external`.
+  - Any payload violating schema contracts is rejected at the process boundary before execution.
+- [x] **Live ComfyUI Expansive Workspace Layout**:
+  - Expanded inline Live ComfyUI container to `min-h-[720px] h-[82vh]` with global CSS overrides enforcing `display: flex !important` and `flex: 1` on `webview` and `iframe` elements to prevent Chromium flex collapse.
+  - Compacted top control bar in live mode to maximize canvas area.
+  - Smooth-scroll navigation when activating Live ComfyUI mode.
+  - Maximized viewport isolation: ComfyUI portal renders between the fixed header and footer with `<Minimize2 />` button and `Escape` hotkey exit.
+- [x] **Application Startup Loading Throbber**:
+  - Self-contained CSS and SVG animation embedded in `index.html` with concentric spinning rings, radial violet glow, floating RenegadeCMM emblem, gradient typography, shimmer progress bar, and status indicator.
+  - Eliminates the blank window state during initial bundle parsing (5-10 second cold start).
+- [x] **Automated Test Coverage**:
+  - 12 dedicated drag-and-drop import tests covering magic byte validation, binary rejection, path traversal, prototype pollution, and atomic saves.
+  - 139 total tests passing across the full suite.
 
 ---
 

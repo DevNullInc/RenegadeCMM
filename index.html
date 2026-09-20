@@ -16,9 +16,229 @@
     />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="alternate icon" type="image/png" href="./icon.png" />
+    <style>
+      #initial-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #090b11;
+        background-image: radial-gradient(circle at 50% 45%, #1c1130 0%, #090b11 65%);
+        color: #f1f5f9;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        user-select: none;
+        overflow: hidden;
+      }
+
+      .loader-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        max-width: 360px;
+        padding: 24px;
+        position: relative;
+      }
+
+      .logo-wrapper {
+        position: relative;
+        width: 104px;
+        height: 104px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 24px;
+      }
+
+      .loader-spinner-ring {
+        position: absolute;
+        inset: -6px;
+        border-radius: 50%;
+        border: 2.5px solid rgba(168, 85, 247, 0.12);
+        border-top-color: #a855f7;
+        border-right-color: #c084fc;
+        animation: loader-spin 1.25s cubic-bezier(0.55, 0.1, 0.45, 0.9) infinite;
+      }
+
+      .loader-spinner-ring-outer {
+        position: absolute;
+        inset: -14px;
+        border-radius: 50%;
+        border: 1.5px dashed rgba(147, 51, 234, 0.2);
+        animation: loader-spin-reverse 8s linear infinite;
+      }
+
+      .loader-pulse-glow {
+        position: absolute;
+        inset: -20px;
+        background: radial-gradient(circle, rgba(147, 51, 234, 0.4) 0%, rgba(147, 51, 234, 0) 70%);
+        border-radius: 50%;
+        filter: blur(16px);
+        animation: loader-pulse 2.4s ease-in-out infinite alternate;
+        pointer-events: none;
+      }
+
+      .loader-logo-svg {
+        width: 80px;
+        height: 80px;
+        position: relative;
+        z-index: 2;
+        filter: drop-shadow(0 6px 16px rgba(147, 51, 234, 0.45));
+        animation: loader-float 3s ease-in-out infinite;
+      }
+
+      .loader-title-group {
+        margin-bottom: 20px;
+      }
+
+      .loader-title {
+        font-size: 1.35rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0 0 4px 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+
+      .loader-title .title-white {
+        color: #f8fafc;
+      }
+
+      .loader-title .title-purple {
+        background: linear-gradient(135deg, #e9d5ff 0%, #c084fc 40%, #9333ea 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .loader-subtitle {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin: 0;
+        font-weight: 400;
+        letter-spacing: 0.01em;
+      }
+
+      .loader-bar-container {
+        width: 220px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.07);
+        border-radius: 9999px;
+        overflow: hidden;
+        position: relative;
+        margin-bottom: 16px;
+      }
+
+      .loader-bar-fill {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 45%;
+        background: linear-gradient(90deg, #7e22ce, #c084fc, #e9d5ff);
+        border-radius: 9999px;
+        box-shadow: 0 0 12px rgba(192, 132, 252, 0.6);
+        animation: loader-shimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+
+      .loader-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.75rem;
+        color: #64748b;
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: #a855f7;
+        box-shadow: 0 0 8px #a855f7;
+        animation: loader-blink 1.2s ease-in-out infinite alternate;
+      }
+
+      @keyframes loader-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes loader-spin-reverse {
+        from { transform: rotate(360deg); }
+        to { transform: rotate(0deg); }
+      }
+
+      @keyframes loader-pulse {
+        0% { opacity: 0.35; transform: scale(0.92); }
+        100% { opacity: 0.75; transform: scale(1.12); }
+      }
+
+      @keyframes loader-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-3px); }
+      }
+
+      @keyframes loader-shimmer {
+        0% { left: -45%; }
+        100% { left: 100%; }
+      }
+
+      @keyframes loader-blink {
+        0% { opacity: 0.3; transform: scale(0.85); }
+        100% { opacity: 1; transform: scale(1.15); }
+      }
+    </style>
   </head>
   <body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-purple-600 selection:text-white overflow-hidden">
-    <div id="root"></div>
+    <div id="root">
+      <div id="initial-loader">
+        <div class="loader-content">
+          <div class="logo-wrapper">
+            <div class="loader-spinner-ring-outer"></div>
+            <div class="loader-spinner-ring"></div>
+            <div class="loader-pulse-glow"></div>
+            <svg class="loader-logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+              <defs>
+                <linearGradient id="neonVioletThrobber" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#f3e8ff" />
+                  <stop offset="25%" stop-color="#c084fc" />
+                  <stop offset="65%" stop-color="#9333ea" />
+                  <stop offset="100%" stop-color="#6b21a8" />
+                </linearGradient>
+                <filter id="throbberGlow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="6" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              <path d="M 245.63,83.14 L 211.14,89.31 L 179.46,101.93 L 152.26,119.87 L 129.55,142.02 L 115.25,161.64 L 103.48,184.36 L 94.50,211.55 L 90.86,235.66 L 76.00,235.66 L 76.00,281.64 L 93.94,281.93 L 103.76,313.33 L 119.46,341.36 L 142.73,368.28 L 163.48,384.82 L 187.59,398.28 L 210.58,406.69 L 240.02,412.30 L 266.93,412.86 L 298.34,407.81 L 327.50,397.44 L 354.41,381.74 L 379.93,359.31 L 394.50,341.08 L 404.60,324.54 L 413.85,303.23 L 419.74,281.64 L 435.72,281.64 L 435.72,235.66 L 422.82,235.38 L 417.78,203.98 L 404.88,172.02 L 386.93,144.82 L 361.70,119.59 L 337.87,103.61 L 305.07,89.87 L 274.50,83.70 Z M 409.64,281.93 L 409.64,283.05 L 407.96,289.78 L 406.56,294.82 L 404.04,302.11 L 403.20,303.51 L 402.92,304.64 L 402.07,304.36 L 402.07,297.35 L 401.51,290.06 L 400.95,286.13 L 400.67,285.01 L 400.11,283.89 L 399.83,282.49 L 400.11,281.64 Z M 112.17,308.00 L 120.30,281.93 L 195.72,281.93 L 210.86,302.11 L 228.52,312.21 L 230.21,297.63 L 211.98,282.49 L 236.37,281.93 L 236.09,316.41 L 228.80,334.36 L 217.31,349.78 L 203.85,360.15 L 188.99,366.04 L 173.29,367.16 L 158.43,362.95 L 188.15,374.73 L 206.37,373.89 L 224.60,367.72 L 241.14,357.07 L 255.44,341.36 L 279.83,364.07 L 304.50,374.17 L 330.02,374.17 L 354.13,363.51 L 339.27,367.72 L 323.01,366.88 L 307.31,360.43 L 294.13,349.50 L 284.60,336.04 L 277.03,316.13 L 275.35,298.75 L 278.15,281.64 L 301.70,281.93 L 283.48,297.91 L 284.60,312.21 L 298.62,305.48 L 318.52,281.93 L 324.13,281.64 L 392.82,281.93 L 400.67,309.96 L 384.97,335.48 L 384.41,290.62 L 374.04,291.46 L 365.07,310.80 L 354.97,290.90 L 344.88,290.62 L 344.32,339.96 L 353.29,339.68 L 353.85,310.24 L 363.94,330.15 L 376.00,310.24 L 376.28,339.96 L 383.01,339.96 L 359.18,365.76 L 332.54,383.98 L 294.97,398.56 L 259.36,403.89 L 226.84,400.52 L 192.36,389.59 L 159.27,369.96 L 130.39,340.52 L 136.00,338.56 L 136.28,310.24 L 146.09,330.15 L 158.43,310.52 L 158.43,339.68 L 167.40,339.68 L 167.12,290.90 L 157.03,290.90 L 147.78,310.80 L 137.40,290.90 L 127.59,290.90 L 127.03,334.92 Z M 104.04,281.64 L 113.01,281.93 L 113.01,282.49 L 112.45,283.33 L 111.61,287.25 L 111.05,292.02 L 110.77,297.07 L 111.05,300.99 L 110.49,304.07 L 110.21,302.67 L 109.64,302.39 L 108.80,300.15 L 107.96,296.50 L 106.56,292.86 L 103.76,282.49 Z M 379.64,242.95 L 413.29,243.23 L 413.01,248.84 L 385.53,248.84 L 385.53,255.57 L 412.73,255.85 L 413.01,259.21 L 412.45,261.18 L 410.21,261.46 L 385.53,261.46 L 385.53,267.91 L 413.29,268.19 L 413.29,271.27 L 412.73,273.51 L 379.36,273.51 Z M 338.71,242.95 L 349.64,242.95 L 359.46,243.23 L 361.98,243.51 L 365.63,244.64 L 367.87,245.76 L 369.83,247.16 L 372.07,249.68 L 373.76,252.77 L 374.60,255.57 L 374.88,258.09 L 374.60,261.46 L 374.04,263.70 L 372.64,266.50 L 371.23,268.47 L 368.15,270.99 L 365.35,272.39 L 362.54,273.23 L 356.93,273.79 L 339.27,273.79 L 338.43,273.51 Z M 344.60,248.84 L 344.60,267.91 L 359.46,267.91 L 361.14,267.63 L 362.82,267.07 L 363.94,266.50 L 365.07,265.66 L 367.03,263.70 L 368.43,260.62 L 368.43,256.41 L 367.87,254.73 L 367.31,253.61 L 364.22,250.52 L 362.54,249.68 L 360.86,249.12 L 358.90,248.84 Z M 293.57,272.95 L 297.50,266.79 L 298.34,264.82 L 302.82,257.53 L 310.39,243.79 L 310.95,243.23 L 314.04,242.95 L 319.36,243.51 L 329.18,261.74 L 330.30,263.14 L 331.14,265.10 L 335.91,272.95 L 335.63,273.79 L 329.18,273.51 L 326.37,268.75 L 308.71,268.75 L 308.99,265.94 L 308.71,264.26 L 308.99,263.42 L 309.55,263.14 L 323.57,263.42 L 316.84,250.80 L 314.88,248.00 L 310.95,255.29 L 309.83,256.69 L 308.99,258.65 L 305.35,264.54 L 300.58,273.51 L 296.37,273.79 L 293.57,273.51 Z M 255.16,250.24 L 258.52,246.60 L 260.21,245.48 L 265.53,243.51 L 272.82,242.95 L 292.17,243.23 L 291.89,248.84 L 266.37,249.12 L 263.01,250.80 L 261.05,252.77 L 259.08,256.69 L 259.08,260.62 L 260.21,263.42 L 262.45,265.94 L 264.97,267.35 L 267.21,267.91 L 286.00,267.91 L 285.72,261.18 L 271.98,260.90 L 272.26,255.57 L 292.17,255.85 L 291.89,273.79 L 268.90,273.79 L 263.29,272.95 L 259.64,271.27 L 257.68,269.87 L 255.16,267.07 L 252.92,261.74 L 252.92,255.85 L 253.48,253.61 Z M 219.27,242.95 L 253.20,243.23 L 252.92,248.84 L 224.88,248.84 L 225.16,255.57 L 247.03,255.85 L 246.75,261.46 L 225.16,261.18 L 225.16,267.91 L 252.92,268.19 L 252.64,273.79 L 218.99,273.51 Z M 182.54,242.95 L 191.51,243.23 L 208.62,263.14 L 208.90,242.95 L 215.07,243.23 L 215.07,272.67 L 214.79,273.51 L 209.46,273.23 L 205.53,268.19 L 188.43,248.84 L 188.15,273.79 L 182.26,273.51 Z M 145.25,242.95 L 178.62,243.23 L 178.34,248.84 L 150.86,248.84 L 150.86,255.57 L 178.34,255.85 L 178.06,261.46 L 150.86,261.18 L 150.86,267.91 L 178.90,268.19 L 178.62,273.51 L 144.97,273.51 Z M 99.55,242.95 L 107.96,243.23 L 121.98,242.95 L 126.19,243.23 L 130.67,244.36 L 133.76,246.04 L 135.44,248.00 L 136.56,250.52 L 136.56,251.93 L 137.12,254.17 L 136.84,254.45 L 136.28,257.53 L 134.88,260.06 L 132.64,262.02 L 130.39,263.14 L 126.19,263.98 L 140.21,272.67 L 140.21,273.79 L 130.39,273.51 L 121.42,267.35 L 117.50,265.10 L 116.65,264.26 L 105.44,264.26 L 105.16,273.79 L 99.27,273.51 Z M 105.44,248.84 L 105.44,258.65 L 125.91,258.65 L 127.31,258.37 L 128.43,257.81 L 130.11,256.13 L 130.67,254.73 L 130.67,252.49 L 130.11,251.36 L 128.43,249.68 L 127.87,249.40 L 125.91,248.84 Z M 100.67,234.82 L 104.88,210.15 L 114.69,182.95 L 130.67,156.04 L 151.14,133.33 L 172.73,117.07 L 200.77,103.05 L 227.96,95.48 L 255.16,92.95 L 284.88,95.20 L 312.64,102.77 L 340.95,116.79 L 362.82,133.33 L 382.17,154.36 L 396.19,176.22 L 407.96,205.10 L 412.73,235.94 L 374.04,235.38 L 355.25,220.52 L 329.46,211.83 L 337.31,187.16 L 335.63,156.88 L 323.85,131.36 L 302.82,110.90 L 315.44,126.32 L 322.17,145.38 L 321.89,166.97 L 315.72,184.64 L 305.91,198.37 L 294.13,208.19 L 281.23,214.36 L 265.25,218.28 L 264.69,221.36 L 271.70,226.41 L 276.47,235.94 L 237.21,235.38 L 241.98,226.97 L 250.11,220.80 L 248.99,217.72 L 229.93,212.67 L 214.22,202.58 L 201.89,187.72 L 194.04,167.81 L 192.64,153.51 L 194.88,137.81 L 203.01,120.99 L 212.54,110.62 L 201.61,119.03 L 190.95,131.36 L 179.18,155.76 L 176.93,183.51 L 185.07,211.83 L 159.27,220.24 L 138.80,235.66 Z M 223.76,199.50 L 224.32,200.06 L 229.93,202.86 L 236.37,206.79 L 236.93,206.79 L 240.30,204.54 L 243.94,202.86 L 247.59,201.74 L 251.23,200.90 L 257.96,200.34 L 263.57,200.90 L 268.34,202.02 L 271.98,203.42 L 278.43,207.07 L 283.76,203.70 L 290.49,200.06 L 290.77,199.50 L 287.68,196.69 L 284.60,194.45 L 278.43,191.08 L 270.86,188.28 L 264.13,186.88 L 263.29,187.16 L 261.33,186.60 L 253.48,186.60 L 250.67,186.88 L 244.22,188.28 L 239.18,189.96 L 231.61,193.61 L 230.77,194.45 L 228.24,195.85 Z M 232.73,135.29 L 229.64,140.34 L 228.52,143.98 L 228.52,160.52 L 229.36,163.61 L 231.33,167.53 L 235.81,172.58 L 241.42,175.94 L 247.59,177.63 L 266.93,177.63 L 269.74,177.07 L 275.35,174.82 L 278.15,172.86 L 282.92,167.25 L 284.88,162.21 L 285.16,158.84 L 274.22,159.12 L 272.54,163.05 L 270.02,165.57 L 265.53,167.53 L 258.80,167.81 L 248.99,167.53 L 246.19,166.69 L 243.38,165.01 L 241.42,163.05 L 239.46,159.40 L 238.90,152.39 L 239.74,144.82 L 242.26,140.90 L 247.03,138.09 L 255.72,137.25 L 266.37,137.81 L 270.58,139.78 L 272.82,142.02 L 274.50,145.66 L 285.44,145.94 L 284.88,142.58 L 282.36,136.69 L 277.59,131.64 L 275.07,129.96 L 270.86,128.28 L 265.81,127.44 L 247.87,127.44 L 244.22,128.00 L 237.78,130.80 Z" fill="url(#neonVioletThrobber)" fill-rule="evenodd" filter="url(#throbberGlow)" />
+            </svg>
+          </div>
+          
+          <div class="loader-title-group">
+            <h1 class="loader-title">
+              <span class="title-white">Renegade</span> <span class="title-purple">CMM</span>
+            </h1>
+            <p class="loader-subtitle">Core Model Manager for ComfyUI</p>
+          </div>
+
+          <div class="loader-bar-container">
+            <div class="loader-bar-fill"></div>
+          </div>
+
+          <div class="loader-status">
+            <span class="status-dot"></span>
+            <span>Initializing application runtime...</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -96,6 +96,17 @@ const api = {
       ipcRenderer.removeListener('swarm:sisterWakeup', handler);
     };
   },
+  /**
+   * Parse a dropped workflow file (PNG or JSON).
+   * SECURITY: filePath is validated in main process against
+   * path traversal and magic bytes before any content is read.
+   * @param filePath - Absolute path from Electron drop event
+   * @throws {Error} If file fails security validation
+   */
+  parseDroppedWorkflowFile: (filePath: string) =>
+    ipcRenderer.invoke('workflows:parseDroppedFile', filePath),
+  archiveWorkflow: (params: { targetName: string; workflowData: any; overwrite?: boolean }) =>
+    ipcRenderer.invoke('workflows:archiveWorkflow', params),
   saveWorkflowToComfyUI: (fileName: string, data: any, fileType?: string) =>
     ipcRenderer.invoke('save-comfyui-workflow', fileName, data, fileType),
   executeComfyUIPrompt: (promptData: any, serverUrl?: string) =>

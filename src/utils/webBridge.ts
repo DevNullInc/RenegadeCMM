@@ -548,6 +548,32 @@ export function setupWebBridgeIfNeeded() {
         }
       },
 
+      parseDroppedWorkflowFile: async (filePath: string) => {
+        try {
+          const res = await fetch(`${API_BASE}/workflow/parse-file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath }),
+          });
+          return await res.json();
+        } catch (e: any) {
+          throw new Error(`Failed to parse dropped workflow file: ${e.message}`);
+        }
+      },
+
+      archiveWorkflow: async (params: { targetName: string; workflowData: any; overwrite?: boolean }) => {
+        try {
+          const res = await fetch(`${API_BASE}/workflow/archive`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+          });
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message || 'Failed to archive workflow', code: 'CORRUPT_METADATA' };
+        }
+      },
+
       checkComfyUIStatus: async (serverUrl?: string) => {
         try {
           const res = await fetch(`${API_BASE}/comfyui/status`, {

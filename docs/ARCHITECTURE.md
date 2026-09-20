@@ -48,13 +48,15 @@ RenegadeCMM operates on a decoupled multi-process architecture combining a privi
 ### Privileged Host Process (`src/main/index.ts`)
 - The single process possessing operating system privileges (filesystem access, native process spawning, SQLite access, and network sockets).
 - Enforces strict process isolation (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`).
-- Validates all IPC invocations before execution; arbitrary shell commands or unvalidated filesystem paths are rejected.
+- Validates all incoming IPC invocations at runtime using strict **Zod schemas** (`zod`). Any payload violating schema contracts, containing invalid types, exceeding bounds, or injecting non-canonical parameters is rejected at the privileged process boundary before execution.
+- Arbitrary shell commands and unvalidated filesystem paths are prohibited; all filesystem access is confined to verified application storage roots.
 - Governs application lifecycle, system tray integration, and window state persistence.
 
 ### Renderer Process (`src/App.tsx`, `src/components/*`)
 - Executes inside a sandboxed Chromium webview.
 - Completely isolated from Node.js globals (`require`, `process`, `Buffer`).
 - Communicates exclusively through typed bridge APIs exposed by `src/main/preload.ts` (`window.civitaiAPI`).
+- Adheres to the principle of zero-trust: when local files are dragged into the UI, the renderer passes only the trusted OS-level `file.path` across the IPC contract to the privileged main process. The renderer never reads raw byte streams directly when operating in the Electron desktop environment.
 - Supports running inside standard web browsers (`http://127.0.0.1:5173`) via the web bridge fallback (`src/utils/webBridge.ts`).
 
 ### Localhost HTTP API Bridge (`src/main/index.ts` / Port 5174)
@@ -123,6 +125,20 @@ All catalog indexes, download task states, configuration settings, and duplicate
 - Background keep-alive engine: offscreen DOM mounting and `backgroundThrottling: false` ensure active image generations continue uninterrupted during navigation.
 - 4-Tier Node Resolution engine automatically queries local directories, registry caches, and GitHub to clone and install missing ComfyUI custom nodes.
 
+### Workflow Ingestion & Drag-and-Drop Pipeline (`workflowScanner.ts`, `WorkflowsTab.tsx`, `WorkflowImportModal.tsx`)
+- **Pre-Parsing Magic Byte Verification**: Validates file existence, file size limits (< 50MB file, < 10MB JSON string), and checks file signatures (`0x89504E47` for PNG, valid ASCII/UTF-8 JSON) before parsing, explicitly rejecting disguised binary executables (ELF, PE, Mach-O).
+- **PNG Metadata Extraction Hierarchy**: Extracts embedded ComfyUI workflows from PNG chunks with priority order:
+  1. `iTXt` (UTF-8 unicode text chunks)
+  2. `tEXt` (Latin-1 text chunks)
+  3. `zTXt` (Deflate-compressed text chunks)
+- **Secure File Archiving (`archiveWorkflow`)**:
+  - Validates target workflow names against strict identifier pattern `^[a-zA-Z0-9_\- ]+$`.
+  - Enforces directory confinement using `path.resolve()` ensuring target files cannot escape the configured ComfyUI workflows folder.
+  - Implements atomic writes via nonce-prefixed temp files and atomic rename operations with `0o644` file modes.
+  - Performs case-insensitive collision detection and prompts users for overwrite confirmation.
+- **Full-Window Drag-and-Drop Interception**: Attaches window-level drag-and-drop listeners with a depth counter (`dragDepthRef`) and renders a full-window fixed overlay (`z-[9999]`), ensuring drops anywhere over the application window (including over embedded guest `<webview>` instances) are captured by the host application.
+- **Live Canvas Synchronization**: Hooks into `window.app.loadGraphData` inside the ComfyUI webview on `dom-ready` to observe graph load events and automatically update CMM's node resolution state and model dependency index.
+
 ### RenegadeSwarm Sister App Integration (`swarmBridge.ts` & `swarmAuthToken.ts`)
 - **Inter-Process Health & Window Management**: Tracks daemon health, peer counts, and seeding stats for the decentralized **RenegadeSwarm** P2P seeding daemon on port `5180`.
 - **Sister Wakeup Protocol & Probe Rate-Limiting**:
@@ -143,7 +159,9 @@ All catalog indexes, download task states, configuration settings, and duplicate
 | **API Bridge** | Loopback binding (`127.0.0.1`), DNS rebinding protection, and path traversal sanitization. |
 | **External Navigation** | Strict URI scheme allowlist (`http:`, `https:`), loopback/private IP blocking (SSRF prevention), and audit logging. |
 | **Diagnostic Logs** | Automatic redaction of Bearer tokens, query parameters, and credential keys. |
-| **IPC Boundary** | Strict input validation on all privileged handlers; zero direct shell or filesystem exposure to renderer. |
+| **IPC Boundary Validation** | Runtime validation of all IPC handler arguments using strict **Zod schemas** (`zod`). Zero direct shell or arbitrary filesystem exposure to renderer. |
+| **File Import Validation** | Pre-parsing magic byte verification, 50MB file size limits, 10MB JSON string cap, and directory confinement checks. |
+| **Atomic File Operations** | Temp file creation with random nonce + atomic rename with `0o644` permissions, preventing partial or corrupted writes on failure. |
 
 ---
 

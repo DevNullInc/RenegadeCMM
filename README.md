@@ -213,7 +213,8 @@ If you've been manually downloading models from CivitAI or Hugging Face, creatin
 - **Cross-App Workflow Persistence**: Uploaded `.json` workflows and embedded `.png` metadata workflows automatically save to `<comfyui_install_dir>/user/default/workflows/` (with fallback to `workflows/`) for cross-application compatibility.
 - **Maximize / Fullscreen Workspace Wrapper**: Expands to an immersive distraction-free workspace with quick workflow switching, 1-click canvas push, slide-out missing node drawer, and ComfyUI reload controls.
 - **Differentiated Dynamic Flags**: Dynamically labels offline previews as `Embedded (Read-Only Preview)` while identifying connected live sessions as `Live ComfyUI: Online (Edit Possible)`.
-- **Saved Workflows Selector Dropdown**: Automatically indexes and quick-selects any workflow stored in your ComfyUI directories.
+- **End-to-End Workflow Drag-and-Drop Ingestion**: Drop ComfyUI `.json` files or embedded `.png` images anywhere in the application window (including directly over the live ComfyUI workspace) with full-window drag overlay detection, magic byte verification (`0x89504E47`), pre-parsing size limits (< 50MB file, < 10MB JSON string), PNG chunk hierarchy extraction (`iTXt` > `tEXt` > `zTXt`), directory confinement, and atomic writes (`0o644`).
+- **Live Canvas Bidirectional Synchronization**: Hooks into `window.app.loadGraphData` on `dom-ready` inside the embedded ComfyUI webview to automatically synchronize graph changes, missing node badges, and model dependencies in real time.
 - **Visual Spatial Node Map & 4-Tier Dependency Resolver**: Pan/zoom LiteGraph map with 4-tier missing node resolution (Local $\rightarrow$ Registry Cache $\rightarrow$ GitHub Search $\rightarrow$ Pip Runner).
 
 ### RenegadeSwarm Sister Application Integration

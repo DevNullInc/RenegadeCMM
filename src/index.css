@@ -14,6 +14,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Electron WebView & IFrame Sizing Enforcement */
+webview, iframe {
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  flex: 1 1 auto !important;
+  border: none !important;
+}
+
 /* Glassmorphism Panels & Cards */
 .glass-panel {
   background: rgba(13, 18, 30, 0.85);

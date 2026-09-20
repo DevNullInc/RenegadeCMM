@@ -23,6 +23,7 @@ import { versionManager } from '../services/versionManager';
 import { backupService } from '../services/backupService';
 import { imageCacheService } from '../services/imageCacheService';
 import axios from 'axios';
+import { z } from 'zod';
 import { webhookService } from '../services/webhookService';
 import { huggingfaceClient } from '../services/huggingfaceClient';
 import { ggufParser } from '../services/ggufParser';
@@ -2663,17 +2664,114 @@ function registerIpcHandlers() {
     return scaffoldConfiguredModelFolders(currentConfig, targetDir);
   });
 
+  // Zod Validation Schemas for IPC Boundaries
+  const PositiveIntIdSchema = z.number().int().positive();
+
+  const ModelTypeEnum = z.enum([
+    'Checkpoint',
+    'LORA',
+    'LoCon',
+    'DoRA',
+    'TextualInversion',
+    'Hypernetwork',
+    'VAE',
+    'Controlnet',
+    'Upscaler',
+    'MotionModule',
+    'AestheticGradient',
+    'Poses',
+    'Wildcards',
+    'Workflows',
+    'Detection',
+    'Other',
+  ]);
+
+  const SortEnum = z.enum(['Highest Rated', 'Most Downloaded', 'Newest', 'Most Liked']);
+  const PeriodEnum = z.enum(['AllTime', 'Year', 'Month', 'Week', 'Day']);
+
+  const SearchModelsSchema = z.object({
+    query: z.string().max(500).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    page: z.number().int().min(1).optional(),
+    cursor: z
+      .union([z.string(), z.number()])
+      .transform((val) => (val !== undefined ? String(val) : undefined))
+      .optional(),
+    types: z
+      .union([ModelTypeEnum, z.array(ModelTypeEnum)])
+      .transform((val) => {
+        if (typeof val === 'string') return [val];
+        return val;
+      })
+      .optional(),
+    sort: SortEnum.optional(),
+    period: PeriodEnum.optional(),
+    nsfw: z
+      .union([z.boolean(), z.number(), z.string()])
+      .transform((val) => {
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'number') return val > 0;
+        if (typeof val === 'string') return val === 'true' || val === '1';
+        return undefined;
+      })
+      .optional(),
+    tag: z.string().optional(),
+    username: z.string().optional(),
+    baseModels: z
+      .union([z.string(), z.array(z.string())])
+      .transform((val) => {
+        if (typeof val === 'string') return [val];
+        return val;
+      })
+      .optional(),
+    supportsGeneration: z.boolean().optional(),
+    favorites: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+  }).passthrough();
+
+  const WebhookTestSchema = z.object({
+    url: z.string().url(),
+    event: z.enum(['on_download_complete', 'on_update_available']),
+  });
+
+  const CloneCustomNodeSchema = z.object({
+    gitUrl: z.string().min(1).max(2048),
+    customFolderName: z.string().max(256).optional(),
+    customNodesDir: z.string().max(4096).optional(),
+  });
+
+  const ResolveMissingNodeSchema = z.object({
+    nodeType: z.string().min(1).max(512),
+    customNodesDir: z.string().max(4096).optional(),
+    searchGitHub: z.boolean().optional(),
+    forceRefresh: z.boolean().optional(),
+  });
+
+  const MarkNodeInstalledSchema = z.object({
+    nodeType: z.string().min(1).max(512),
+    folderName: z.string().min(1).max(512),
+    customNodesDir: z.string().max(4096).optional(),
+  });
+
+  const HfSearchModelsSchema = z.object({
+    query: z.string().min(1).max(500),
+    limit: z.number().int().min(1).max(100).optional(),
+  });
+
   // CivitAI API Handlers
   ipcMain.handle('search-models', async (_event: unknown, params: any) => {
-    return await civitaiClient.fetchModels(params);
+    const validatedParams = SearchModelsSchema.parse(params || {});
+    return await civitaiClient.fetchModels(validatedParams);
   });
 
   ipcMain.handle('get-model', async (_event: unknown, id: number) => {
-    return await civitaiClient.fetchModel(id);
+    const validId = PositiveIntIdSchema.parse(id);
+    return await civitaiClient.fetchModel(validId);
   });
 
   ipcMain.handle('get-model-version', async (_event: unknown, id: number) => {
-    return await civitaiClient.fetchModelVersion(id);
+    const validId = PositiveIntIdSchema.parse(id);
+    return await civitaiClient.fetchModelVersion(validId);
   });
 
   ipcMain.handle('get-enums', async () => {
@@ -2688,6 +2786,69 @@ function registerIpcHandlers() {
 
   ipcMain.handle('parse-workflow', async (_event: unknown, workflowData: any, workflowName?: string) => {
     return await workflowScanner.parseWorkflow(workflowData, workflowName);
+  });
+
+  const ParseDroppedFileSchema = z.union([
+    z.string().min(1).max(4096),
+    z.object({
+      filePath: z.string().min(1).max(4096),
+    }),
+  ]);
+
+  ipcMain.handle('workflows:parseDroppedFile', async (_event: unknown, input: unknown) => {
+    try {
+      const parsed = ParseDroppedFileSchema.parse(input);
+      const filePath = typeof parsed === 'string' ? parsed : parsed.filePath;
+      return await workflowScanner.parseDroppedFile(filePath);
+    } catch (err: any) {
+      logger.warn('[IPC workflows:parseDroppedFile] Parse/validation error:', err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('parse-dropped-workflow-file', async (_event: unknown, input: unknown) => {
+    const parsed = ParseDroppedFileSchema.parse(input);
+    const filePath = typeof parsed === 'string' ? parsed : parsed.filePath;
+    return await workflowScanner.parseDroppedFile(filePath);
+  });
+
+  const ArchiveWorkflowSchema = z.object({
+    targetName: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[a-zA-Z0-9_\- ]+$/, 'Target name contains illegal characters'),
+    workflowData: z.any(),
+    overwrite: z.boolean().optional(),
+  });
+
+  ipcMain.handle('workflows:archiveWorkflow', async (_event: unknown, input: unknown) => {
+    try {
+      const { targetName, workflowData, overwrite } = ArchiveWorkflowSchema.parse(input);
+      return await workflowScanner.archiveWorkflow(
+        targetName,
+        workflowData,
+        !!overwrite,
+        currentConfig.comfyui_install_dir
+      );
+    } catch (err: any) {
+      logger.warn('[IPC workflows:archiveWorkflow] Validation / archive error:', err);
+      return {
+        success: false,
+        error: err?.message || String(err),
+        code: 'PATH_TRAVERSAL',
+      };
+    }
+  });
+
+  ipcMain.handle('archive-workflow', async (_event: unknown, input: unknown) => {
+    const { targetName, workflowData, overwrite } = ArchiveWorkflowSchema.parse(input);
+    return await workflowScanner.archiveWorkflow(
+      targetName,
+      workflowData,
+      !!overwrite,
+      currentConfig.comfyui_install_dir
+    );
   });
 
   ipcMain.handle('check-comfyui-status', async (_event: unknown, serverUrl?: string) => {
@@ -2711,7 +2872,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('save-comfyui-workflow', async (_event: unknown, fileName: string, data: any, fileType?: string) => {
-    return await saveComfyUIWorkflow(fileName, data, fileType);
+    const validFileName = z.string().min(1).max(256).parse(fileName);
+    return await saveComfyUIWorkflow(validFileName, data, fileType);
   });
 
   ipcMain.handle('execute-comfyui-prompt', async (_event: unknown, promptData: any, serverUrl?: string) => {
@@ -2729,31 +2891,36 @@ function registerIpcHandlers() {
 
   // Node Resolution & GitHub Fallback Handlers
   ipcMain.handle('resolve-missing-node', async (_event: unknown, nodeType: string, customNodesDir?: string, searchGitHub = false, forceRefresh = false) => {
-    const targetNodesDir = resolveCustomNodesDir(currentConfig, customNodesDir);
+    const parsed = ResolveMissingNodeSchema.parse({ nodeType, customNodesDir, searchGitHub, forceRefresh });
+    const targetNodesDir = resolveCustomNodesDir(currentConfig, parsed.customNodesDir);
     return await nodeResolverService.resolveMissingNode(
-      nodeType,
+      parsed.nodeType,
       targetNodesDir,
       currentConfig.comfyui_install_dir,
-      { searchGitHub: !!searchGitHub, forceRefresh: !!forceRefresh }
+      { searchGitHub: !!parsed.searchGitHub, forceRefresh: !!parsed.forceRefresh }
     );
   });
 
   ipcMain.handle('search-github-nodes', async (_event: unknown, query: string, limit = 3) => {
-    return await nodeResolverService.searchGitHubNodes(query, limit);
+    const validQuery = z.string().min(1).max(500).parse(query);
+    const validLimit = z.number().int().min(1).max(50).default(3).parse(limit);
+    return await nodeResolverService.searchGitHubNodes(validQuery, validLimit);
   });
 
   ipcMain.handle('clone-custom-node', async (_event: unknown, gitUrl: string, customFolderName?: string, customNodesDir?: string) => {
-    const targetNodesDir = resolveCustomNodesDir(currentConfig, customNodesDir);
+    const parsed = CloneCustomNodeSchema.parse({ gitUrl, customFolderName, customNodesDir });
+    const targetNodesDir = resolveCustomNodesDir(currentConfig, parsed.customNodesDir);
     return await nodeResolverService.cloneCustomNode(
-      gitUrl,
+      parsed.gitUrl,
       targetNodesDir,
       currentConfig.comfyui_install_dir,
-      customFolderName
+      parsed.customFolderName
     );
   });
 
   ipcMain.handle('install-node-dependencies', async (_event: unknown, nodeFolderPath: string) => {
-    return await nodeResolverService.installNodeDependencies(nodeFolderPath, currentConfig.comfyui_install_dir);
+    const validPath = z.string().min(1).max(4096).parse(nodeFolderPath);
+    return await nodeResolverService.installNodeDependencies(validPath, currentConfig.comfyui_install_dir);
   });
 
   ipcMain.handle('get-installed-custom-nodes', async () => {
@@ -2762,18 +2929,21 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('mark-node-installed', async (_event: unknown, nodeType: string, folderName: string, customNodesDir?: string) => {
-    const targetNodesDir = resolveCustomNodesDir(currentConfig, customNodesDir);
-    return await nodeResolverService.markNodeInstalled(nodeType, folderName, targetNodesDir);
+    const parsed = MarkNodeInstalledSchema.parse({ nodeType, folderName, customNodesDir });
+    const targetNodesDir = resolveCustomNodesDir(currentConfig, parsed.customNodesDir);
+    return await nodeResolverService.markNodeInstalled(parsed.nodeType, parsed.folderName, targetNodesDir);
   });
 
   // Webhook Handlers
   ipcMain.handle('test-webhook', async (_event: unknown, url: string, event: 'on_download_complete' | 'on_update_available') => {
-    return await webhookService.testWebhook(url, event);
+    const parsed = WebhookTestSchema.parse({ url, event });
+    return await webhookService.testWebhook(parsed.url, parsed.event);
   });
 
   // Hugging Face Handlers
   ipcMain.handle('hf-check-model', async (_event: unknown, repoId: string) => {
-    return await huggingfaceClient.checkModelRepo(repoId);
+    const validRepo = z.string().min(1).max(512).parse(repoId);
+    return await huggingfaceClient.checkModelRepo(validRepo);
   });
 
   ipcMain.handle('hf-validate-token', async (_event: unknown, token?: string) => {
@@ -2785,14 +2955,48 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('hf-search-models', async (_event: unknown, query: string, limit?: number) => {
-    return await huggingfaceClient.searchModels(query, limit);
+    const parsed = HfSearchModelsSchema.parse({ query, limit });
+    return await huggingfaceClient.searchModels(parsed.query, parsed.limit);
   });
 
   ipcMain.handle('inspect-gguf', async (_event: unknown, filePath: string) => {
-    if (typeof filePath !== 'string' || !filePath.trim()) {
-      return { valid: false, error: 'Invalid file path' };
-    }
-    return ggufParser.inspectGGUF(filePath.trim());
+    const validPath = z.string().min(1).max(4096).parse(filePath);
+    return ggufParser.inspectGGUF(validPath.trim());
+  });
+
+  const HardlinkOptimizerSchema = z.object({
+    masterPath: z.string().min(1).max(4096),
+    duplicatePath: z.string().min(1).max(4096),
+  });
+
+  const ConvertModelSchema = z.object({
+    sourcePath: z.string().min(1).max(4096),
+    opts: z
+      .object({
+        deleteOriginal: z.boolean().optional(),
+        targetPath: z.string().max(4096).optional(),
+      })
+      .optional(),
+  });
+
+  const IgnoreModelUpdateSchema = z.object({
+    modelId: z.number().int().positive(),
+    versionId: z.number().int().positive(),
+  });
+
+  const DeleteLocalModelSchema = z.object({
+    id: z.string().min(1).max(256),
+    deleteFromDisk: z.boolean().default(true),
+  });
+
+  const IgnoreDuplicateSetSchema = z.object({
+    sha256: z.string().min(16).max(128),
+    count: z.number().int().min(1).default(2),
+  });
+
+  const SetModelNsfwSchema = z.object({
+    modelId: z.string().min(1).max(256),
+    nsfw: z.boolean(),
   });
 
   // Storage Optimizer & Precision Inspector Handlers
@@ -2801,11 +3005,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('execute-hardlink-optimizer', async (_event: unknown, masterPath: string, duplicatePath: string) => {
-    return await storageOptimizer.executeHardlink(masterPath, duplicatePath);
+    const parsed = HardlinkOptimizerSchema.parse({ masterPath, duplicatePath });
+    return await storageOptimizer.executeHardlink(parsed.masterPath, parsed.duplicatePath);
   });
 
   ipcMain.handle('package-companion-files', async (_event: unknown, filePath: string) => {
-    return await storageOptimizer.packageCompanionFilesForModel(filePath);
+    const validPath = z.string().min(1).max(4096).parse(filePath);
+    return await storageOptimizer.packageCompanionFilesForModel(validPath);
   });
 
   ipcMain.handle('package-all-companion-files', async () => {
@@ -2813,7 +3019,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('inspect-model-precision', async (_event: unknown, filePath: string) => {
-    return await precisionInspector.inspectModel(filePath);
+    const validPath = z.string().min(1).max(4096).parse(filePath);
+    return await precisionInspector.inspectModel(validPath);
   });
 
   ipcMain.handle('scan-orphan-models', async (_event: unknown, workflowDirs?: string | string[]) => {
@@ -2830,9 +3037,10 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('convert-model-to-safetensors', async (_event: unknown, sourcePath: string, opts?: { deleteOriginal?: boolean; targetPath?: string }) => {
-    return await modelConverter.convertPickleToSafetensors(sourcePath, {
-      deleteOriginal: opts?.deleteOriginal !== undefined ? opts.deleteOriginal : currentConfig.delete_original_after_conversion,
-      targetPath: opts?.targetPath,
+    const parsed = ConvertModelSchema.parse({ sourcePath, opts });
+    return await modelConverter.convertPickleToSafetensors(parsed.sourcePath, {
+      deleteOriginal: parsed.opts?.deleteOriginal !== undefined ? parsed.opts.deleteOriginal : currentConfig.delete_original_after_conversion,
+      targetPath: parsed.opts?.targetPath,
       customPythonPath: currentConfig.custom_python_path,
       comfyuiInstallDir: currentConfig.comfyui_install_dir,
     });
@@ -2844,7 +3052,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('assess-conversion-safety', async (_event: unknown, modelSizeBytes: number) => {
-    return await hardwareScanner.assessConversionSafety(modelSizeBytes);
+    const validSize = z.number().nonnegative().parse(modelSizeBytes);
+    return await hardwareScanner.assessConversionSafety(validSize);
   });
 
   // Scanner Handlers
@@ -2940,22 +3149,26 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('pause-download', async (_event: unknown, id: string) => {
-    await downloadManager.pauseTask(id);
+    const validId = z.string().min(1).max(256).parse(id);
+    await downloadManager.pauseTask(validId);
     return true;
   });
 
   ipcMain.handle('resume-download', async (_event: unknown, id: string) => {
-    await downloadManager.resumeTask(id);
+    const validId = z.string().min(1).max(256).parse(id);
+    await downloadManager.resumeTask(validId);
     return true;
   });
 
   ipcMain.handle('cancel-download', async (_event: unknown, id: string) => {
-    await downloadManager.cancelTask(id);
+    const validId = z.string().min(1).max(256).parse(id);
+    await downloadManager.cancelTask(validId);
     return true;
   });
 
   ipcMain.handle('force-complete-download', async (_event: unknown, id: string) => {
-    return await downloadManager.forceCompleteTask(id);
+    const validId = z.string().min(1).max(256).parse(id);
+    return await downloadManager.forceCompleteTask(validId);
   });
 
   ipcMain.handle('get-downloads', () => {
@@ -2963,7 +3176,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('delete-download', async (_event: unknown, id: string) => {
-    const success = await downloadManager.deleteTask(id);
+    const validId = z.string().min(1).max(256).parse(id);
+    const success = await downloadManager.deleteTask(validId);
     return { success };
   });
 
@@ -2975,7 +3189,8 @@ function registerIpcHandlers() {
   // Fetch version history for a given model ID
   ipcMain.handle('fetch-versions', async (_event: unknown, modelId: number) => {
     try {
-      const versions = await versionManager.getVersionHistory(modelId);
+      const validId = PositiveIntIdSchema.parse(modelId);
+      const versions = await versionManager.getVersionHistory(validId);
       return versions;
     } catch (e) {
       logger.error('Failed to fetch versions', e);
@@ -3000,11 +3215,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('ignore-model-update', async (_event: unknown, modelId: number, versionId: number) => {
-    return await versionManager.ignoreUpdate(modelId, versionId);
+    const parsed = IgnoreModelUpdateSchema.parse({ modelId, versionId });
+    return await versionManager.ignoreUpdate(parsed.modelId, parsed.versionId);
   });
 
   ipcMain.handle('unignore-model-update', async (_event: unknown, modelId: number, versionId: number) => {
-    return await versionManager.unignoreUpdate(modelId, versionId);
+    const parsed = IgnoreModelUpdateSchema.parse({ modelId, versionId });
+    return await versionManager.unignoreUpdate(parsed.modelId, parsed.versionId);
   });
 
   ipcMain.handle('get-ignored-updates', async () => {
@@ -3069,19 +3286,20 @@ function registerIpcHandlers() {
     }
   });
   ipcMain.handle('delete-local-model', async (_event: unknown, id: string, deleteFromDisk: boolean = true) => {
-    const model = await dbManager.get('SELECT * FROM local_models WHERE id = ?', [id]);
+    const parsed = DeleteLocalModelSchema.parse({ id, deleteFromDisk });
+    const model = await dbManager.get('SELECT * FROM local_models WHERE id = ?', [parsed.id]);
     if (!model) {
       return { success: false, error: 'Model not found' };
     }
     try {
-      if (deleteFromDisk && fs.existsSync(model.file_path)) {
+      if (parsed.deleteFromDisk && fs.existsSync(model.file_path)) {
         fs.unlinkSync(model.file_path);
       }
-      await dbManager.run('DELETE FROM local_models WHERE id = ?', [id]);
+      await dbManager.run('DELETE FROM local_models WHERE id = ?', [parsed.id]);
       await libraryScanner.flagDuplicates();
       return { success: true };
     } catch (delErr: any) {
-      logger.error(`Failed to delete local model ${id}:`, delErr);
+      logger.error(`Failed to delete local model ${parsed.id}:`, delErr);
       return { success: false, error: delErr.message };
     }
   });
@@ -3089,7 +3307,8 @@ function registerIpcHandlers() {
   ipcMain.handle('open-folder', async (_event: unknown, filePath: string) => {
     if (filePath && typeof filePath === 'string') {
       try {
-        shell.showItemInFolder(path.resolve(filePath));
+        const validPath = z.string().min(1).max(4096).parse(filePath);
+        shell.showItemInFolder(path.resolve(validPath));
         return true;
       } catch (e) {
         logger.warn('Failed to show item in folder via IPC:', e);
@@ -3100,10 +3319,11 @@ function registerIpcHandlers() {
 
   ipcMain.handle('browse-folder', async (_event: unknown, defaultPath?: string) => {
     try {
+      const validDefault = defaultPath ? z.string().max(4096).parse(defaultPath) : undefined;
       const result = await dialog.showOpenDialog({
         title: 'Select Folder',
         properties: ['openDirectory', 'createDirectory'],
-        defaultPath: defaultPath && defaultPath.trim() ? defaultPath.trim() : undefined,
+        defaultPath: validDefault && validDefault.trim() ? validDefault.trim() : undefined,
       });
       if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
         return { canceled: true };
@@ -3116,15 +3336,18 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('list-directory', async (_event: unknown, dirPath?: string) => {
-    return listDirectoryEntries(dirPath);
+    const validDirPath = dirPath ? z.string().max(4096).parse(dirPath) : undefined;
+    return listDirectoryEntries(validDirPath);
   });
 
   ipcMain.handle('ignore-duplicate-set', async (_event: unknown, sha256: string, count: number = 2) => {
-    return await libraryScanner.ignoreDuplicateSet(sha256, count);
+    const parsed = IgnoreDuplicateSetSchema.parse({ sha256, count });
+    return await libraryScanner.ignoreDuplicateSet(parsed.sha256, parsed.count);
   });
 
   ipcMain.handle('unignore-duplicate-set', async (_event: unknown, sha256: string) => {
-    return await libraryScanner.unignoreDuplicateSet(sha256);
+    const validSha = z.string().min(16).max(128).parse(sha256);
+    return await libraryScanner.unignoreDuplicateSet(validSha);
   });
 
   ipcMain.handle('get-ignored-duplicates', async () => {
@@ -3132,11 +3355,9 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('set-model-nsfw', async (_event: unknown, modelId: string, nsfw: boolean) => {
-    if (modelId) {
-      await dbManager.run('UPDATE local_models SET nsfw = ? WHERE id = ?', [nsfw ? 1 : 0, modelId]);
-      return true;
-    }
-    return false;
+    const parsed = SetModelNsfwSchema.parse({ modelId, nsfw });
+    await dbManager.run('UPDATE local_models SET nsfw = ? WHERE id = ?', [parsed.nsfw ? 1 : 0, parsed.modelId]);
+    return true;
   });
 
 
@@ -3161,7 +3382,8 @@ function registerIpcHandlers() {
   // External URL Navigation (Secured)
   ipcMain.handle('open-external', async (_event: unknown, rawUrl: string) => {
     if (!rawUrl || typeof rawUrl !== 'string') return false;
-    const trimmed = rawUrl.trim();
+    const validUrl = z.string().min(1).max(4096).parse(rawUrl);
+    const trimmed = validUrl.trim();
     const check = isSafeNetworkUrl(trimmed);
     if (check.safe && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
       await shell.openExternal(trimmed);

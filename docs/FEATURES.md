@@ -67,6 +67,14 @@ This document provides a concise, categorized breakdown of all technical capabil
   - **Live Canvas Mode**: Embeds the active ComfyUI interface directly inside CMM with interactive node editing and generation queueing.
   - **Split View Mode**: Displays live ComfyUI side-by-side with missing node resolution cards and model dependencies.
   - **Fullscreen Canvas**: Expands ComfyUI with slide-out node drawers and quick workflow selection dropdowns.
+  - **Maximized Viewport Isolation**: ComfyUI portal cleanly sits between the fixed top header and bottom footer with explicit `<Minimize2 />` button, `Escape` hotkey exit, and glowing navigation pill.
+- **Workflow Drag-and-Drop Ingestion Pipeline (`workflowScanner.ts`)**:
+  - **Full-Window Drag Overlay**: Window-level event listener with `dragDepthRef` and full-screen overlay (`z-[9999]`), reliably capturing drops across the entire window (including over embedded guest `<webview>` canvas instances).
+  - **Pre-Parsing Security Verification**: Validates magic bytes (`0x89504E47` for PNG, valid UTF-8 for JSON) and enforces strict file limits (< 50MB file size, < 10MB JSON string cap), rejecting disguised binaries (ELF, PE, Mach-O).
+  - **PNG Metadata Extraction Hierarchy**: Parses embedded workflows with explicit chunk precedence (`iTXt` unicode > `tEXt` latin-1 > `zTXt` compressed).
+  - **Secure Workflow Archiving**: Enforces regex name validation (`^[a-zA-Z0-9_\- ]+$`), directory confinement to the ComfyUI workflows folder, collision detection, and atomic write via nonce-prefixed temp files (`0o644`).
+- **ComfyUI Guest Canvas Synchronization**:
+  - Automatically hooks into `window.app.loadGraphData` inside the ComfyUI webview on `dom-ready`, syncing workflow graph changes to update node resolution state and model dependency cards in real time.
 - **Resident Background Keep-Alive**: Generations continue uninterrupted when switching between CMM tabs via offscreen DOM keep-alive positioning and disabled CPU background throttling (`backgroundThrottling: false`).
 - **One-Click Workflow Canvas Injection**: Injects selected or uploaded `.json` and embedded `.png` workflows directly into the active ComfyUI canvas.
 - **React Flow Visual Node Map**: High-DPI interactive graph visualization powered by `@xyflow/react` displaying workflow nodes, bezier connections, MiniMap, and installed vs. missing status indicators.
@@ -119,6 +127,9 @@ This document provides a concise, categorized breakdown of all technical capabil
 |---|---|
 | **Local-First Operation** | 100% of data stored locally in SQLite; zero analytics, telemetry, or remote user tracking. |
 | **Encrypted Secrets** | Credentials encrypted at rest with AES-256-GCM; redacted from local APIs, logs, and exports. |
+| **IPC Schema Validation** | Runtime validation of all privileged IPC channel payloads using strict **Zod schemas** (`zod`). |
+| **Pre-Parsing Magic Byte Checks** | File headers and signatures verified prior to parsing; rejects disguised binaries (ELF, PE, Mach-O). |
+| **Directory Confinement & Atomic Writes** | Enforces path confinement on workflow saves and executes atomic writes via nonce temp files. |
 | **SSRF & Network Safety** | Blocks private IP addresses, loopback redirects, and dangerous URI schemes on external URL open requests. |
 | **Sanitized Backups** | Backup archives (`.zip` / `.json`) strip API keys and exclude raw SQLite database binaries. |
 | **SafeTensors First** | Integrated conversion engine eliminates arbitrary Python code execution risks inherent in legacy pickle files. |

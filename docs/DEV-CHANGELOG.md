@@ -10,6 +10,25 @@ This document serves as the active, rolling changelog for unreleased features, i
 
 ## [Unreleased] - Active Development Cycle (Target: v1.7.0)
 
+### Workflow Drag-and-Drop Import & IPC Security Hardening
+- **End-to-End Workflow Drag-and-Drop Import Pipeline (`workflowScanner.ts`, `WorkflowsTab.tsx`, `WorkflowImportModal.tsx`, `preload.ts`, `main/index.ts`)**:
+  - **Main Process Privileged Layer**:
+    - Added `parseDroppedFile(filePath: string)` with pre-parsing magic byte verification (rejecting disguised ELF/PE/Mach-O binaries), size limits (< 50MB file, < 10MB JSON string), and UTF-8 verification.
+    - Added support for PNG chunk extraction with explicit precedence (`iTXt` unicode > `tEXt` latin-1 > `zTXt` compressed) and 10MB chunk limits.
+    - Added `archiveWorkflow(targetName: string, workflowData: any, overwrite?: boolean)` with strict target name validation (`^[a-zA-Z0-9_\- ]+$`), directory confinement verification, case-insensitive collision detection, and atomic write via temp file + atomic rename (`0o644` permissions).
+    - Hardened all main-process IPC endpoints with runtime Zod schema validation: `search-models`, `get-model`, `get-model-version`, `delete-local-model`, `test-webhook`, `clone-custom-node`, `resolve-missing-node`, `mark-node-installed`, `hf-check-model`, `hf-search-models`, `inspect-gguf`, `execute-hardlink-optimizer`, `package-companion-files`, `inspect-model-precision`, `convert-model-to-safetensors`, `assess-conversion-safety`, `ignore-model-update`, `unignore-model-update`, `ignore-duplicate-set`, `unignore-duplicate-set`, `set-model-nsfw`, and `open-external`.
+  - **Preload Bridge Security Layer**:
+    - Exposed typed, capability-scoped methods `parseDroppedWorkflowFile` and `archiveWorkflow` to `window.civitaiAPI` via `contextBridge` without exposing raw `ipcRenderer`.
+  - **Renderer UI Layer & Full-Window Drag Interception**:
+    - Added window-level drag-and-drop event interception with `dragDepthRef` and a fixed full-screen drop overlay (`z-[9999]`), guaranteeing that dragging and dropping workflow files anywhere into the application window (including over the live ComfyUI `<webview>`, `<iframe>`, or when maximized) reliably captures the drop event.
+    - Injected guest canvas graph hooks into the ComfyUI webview on `dom-ready` to listen for canvas load changes (`__CMM_GUEST_GRAPH_LOADED__`) and automatically synchronize node resolutions, model references, and missing custom node badges in real time.
+    - Built interactive `WorkflowImportModal` with detected node types preview, model reference breakdown (Checkpoints, LoRAs, VAE), editable workflow title input, and duplicate collision overwrite prompt.
+    - Added 4-state visual drop zone feedback (`idle`, `drag-over-valid`, `drag-over-invalid`, `processing`) with glowing borders and context indicators.
+    - Strict renderer security: renderer never reads raw file contents directly; passes trusted `file.path` to privileged main process over safe IPC.
+    - Automated post-import pipeline: immediately activates workflow, resolves custom node extensions, updates Missing Nodes drawer/map badges, and pushes to live ComfyUI if active.
+  - **Automated Security & Integration Test Suite (`workflowDropImport.test.ts`)**:
+    - Added 12 dedicated automated test cases verifying magic byte validation, binary rejection, path traversal rejection, prototype pollution resilience, case-insensitive collision detection, and atomic save operations (139/139 tests passing).
+
 ### UI & UX Improvements
 - **ComfyUI Maximized Viewport Isolation & Minimize Controls (`WorkflowsTab.tsx`, `App.tsx`)**:
   - Restructured ComfyUI maximized view so the webview/iframe portal sits strictly between the fixed top navigation `<header>` and persistent bottom `<footer>`, preventing layout overlap and viewport clipping.
@@ -20,6 +39,8 @@ This document serves as the active, rolling changelog for unreleased features, i
   - Transformed the top header "Open Live ComfyUI Workspace" action into a high-visibility, glowing pill button with automatic smooth-scrolling directly to the live ComfyUI portal.
   - Expanded the inline ComfyUI live workspace container height (`min-h-[720px] h-[82vh]`) with enhanced branding and status indicators for instant visual orientation.
   - Hides floating scroll-to-top button during live maximized view to prevent canvas UI obstruction.
+- **Initial Application Startup Loading Throbber (`index.html`)**:
+  - Embedded an immediate, self-contained CSS & SVG loading throbber within `<div id="root">` with concentric animated spinning rings, radial violet glow backdrop, floating RenegadeCMM vector emblem, gradient typography, animated shimmer progress bar, and real-time initializing status indicator to eliminate the blank window state during initial bundle parsing and startup.
 
 ### Planned & In-Progress
 

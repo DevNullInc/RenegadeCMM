@@ -14,6 +14,32 @@ import { WorkflowInfo, WorkflowModelReference, CanvasGraph } from '../types/app'
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
 
+export type WorkflowImportErrorCode =
+  | 'FILE_TOO_LARGE'
+  | 'INVALID_MAGIC_BYTES'
+  | 'PATH_TRAVERSAL'
+  | 'FILE_EXISTS'
+  | 'EXTRACTION_TIMEOUT'
+  | 'CORRUPT_METADATA'
+  | 'INVALID_WORKFLOW'
+  | 'NO_COMFY_DIR'
+  | 'FILE_NOT_FOUND'
+  | 'NOT_A_FILE'
+  | 'INVALID_ARGUMENT';
+
+export interface WorkflowParseResult {
+  filePath: string;
+  fileName: string;
+  fileType: 'json' | 'png';
+  fileSize: number;
+  workflow: any;
+  nodes: string[];
+  models: WorkflowModelReference[];
+  metadata: any;
+  canvasGraph?: CanvasGraph;
+  modelCount: number;
+}
+
 const MODEL_NODE_KEYS: Record<string, string[]> = {
   ckpt_name: ['CheckpointLoaderSimple', 'CheckpointLoader', 'Efficient Loader', 'ImpactCheckpointLoader', 'CMMDownloadModel'],
   unet_name: ['UNETLoader', 'DiffusionModelLoader', 'CMMDownloadModel'],
@@ -515,33 +541,27 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
         return null;
       }
 
+      // Extraction priority: iTXt (unicode) > tEXt (latin-1) > zTXt (compressed)
+      // If multiple workflow chunks exist, use the first valid JSON parse.
       let workflowData: any = null;
       let promptData: any = null;
 
       let offset = 8;
+      const MAX_CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunk limit
+
       while (offset < buffer.length) {
         if (offset + 8 > buffer.length) break;
         const length = buffer.readUInt32BE(offset);
         const type = buffer.toString('ascii', offset + 4, offset + 8);
         const dataStart = offset + 8;
         const dataEnd = dataStart + length;
-        if (dataEnd > buffer.length) break;
 
-        if (type === 'tEXt') {
-          const chunkData = buffer.slice(dataStart, dataEnd);
-          const nullIdx = chunkData.indexOf(0);
-          if (nullIdx > 0) {
-            const key = chunkData.slice(0, nullIdx).toString('latin1');
-            const val = chunkData.slice(nullIdx + 1).toString('utf-8');
-            try {
-              if (key === 'workflow') {
-                workflowData = JSON.parse(val);
-              } else if (key === 'prompt') {
-                promptData = JSON.parse(val);
-              }
-            } catch {}
-          }
-        } else if (type === 'iTXt') {
+        if (length > MAX_CHUNK_SIZE || dataEnd > buffer.length) {
+          offset = dataEnd + 4;
+          continue;
+        }
+
+        if (type === 'iTXt') {
           const chunkData = buffer.slice(dataStart, dataEnd);
           const nullIdx = chunkData.indexOf(0);
           if (nullIdx > 0) {
@@ -566,10 +586,43 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
 
             if (uncompressedText) {
               try {
-                if (key === 'workflow') {
+                if (key === 'workflow' && !workflowData) {
                   workflowData = JSON.parse(uncompressedText);
-                } else if (key === 'prompt') {
+                } else if (key === 'prompt' && !promptData) {
                   promptData = JSON.parse(uncompressedText);
+                }
+              } catch {}
+            }
+          }
+        } else if (type === 'tEXt') {
+          const chunkData = buffer.slice(dataStart, dataEnd);
+          const nullIdx = chunkData.indexOf(0);
+          if (nullIdx > 0) {
+            const key = chunkData.slice(0, nullIdx).toString('latin1');
+            const val = chunkData.slice(nullIdx + 1).toString('utf-8');
+            try {
+              if (key === 'workflow' && !workflowData) {
+                workflowData = JSON.parse(val);
+              } else if (key === 'prompt' && !promptData) {
+                promptData = JSON.parse(val);
+              }
+            } catch {}
+          }
+        } else if (type === 'zTXt') {
+          const chunkData = buffer.slice(dataStart, dataEnd);
+          const nullIdx = chunkData.indexOf(0);
+          if (nullIdx > 0 && nullIdx + 2 < chunkData.length) {
+            const key = chunkData.slice(0, nullIdx).toString('latin1');
+            const compMethod = chunkData[nullIdx + 1];
+            if (compMethod === 0) {
+              try {
+                const decompressed = zlib.inflateSync(chunkData.slice(nullIdx + 2), {
+                  maxOutputLength: 20 * 1024 * 1024,
+                }).toString('utf-8');
+                if (key === 'workflow' && !workflowData) {
+                  workflowData = JSON.parse(decompressed);
+                } else if (key === 'prompt' && !promptData) {
+                  promptData = JSON.parse(decompressed);
                 }
               } catch {}
             }
@@ -588,6 +641,265 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
       logger.warn('Error parsing PNG chunks for workflow buffer', e);
     }
     return null;
+  }
+
+  /**
+   * Parse a dropped workflow file (.json or .png) directly from the filesystem.
+   *
+   * SECURITY: Magic byte verification MUST occur before any parsing
+   * to prevent execution of disguised binaries (ELF/PE/mach-o).
+   * See: https://en.wikipedia.org/wiki/File_signature
+   */
+  async parseDroppedFile(filePath: string): Promise<WorkflowParseResult> {
+    if (!filePath || typeof filePath !== 'string') {
+      const err = new Error('File path must be a non-empty string');
+      (err as any).code = 'INVALID_ARGUMENT';
+      throw err;
+    }
+
+    if (!fs.existsSync(filePath)) {
+      const err = new Error(`File not found: ${filePath}`);
+      (err as any).code = 'FILE_NOT_FOUND';
+      throw err;
+    }
+
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) {
+      const err = new Error(`Target path is not a file: ${filePath}`);
+      (err as any).code = 'NOT_A_FILE';
+      throw err;
+    }
+
+    // Size limit: 50MB max file size
+    const MAX_FILE_SIZE = 50 * 1024 * 1024;
+    if (stat.size > MAX_FILE_SIZE) {
+      const err = new Error(`File exceeds maximum allowed size of 50MB (${(stat.size / 1024 / 1024).toFixed(1)}MB)`);
+      (err as any).code = 'FILE_TOO_LARGE';
+      throw err;
+    }
+
+    // Read first 16 bytes for magic byte verification
+    const fd = fs.openSync(filePath, 'r');
+    const headerBuffer = Buffer.alloc(Math.min(16, stat.size));
+    fs.readSync(fd, headerBuffer, 0, headerBuffer.length, 0);
+    fs.closeSync(fd);
+
+    // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+    const isPngMagic =
+      headerBuffer.length >= 8 &&
+      headerBuffer[0] === 0x89 &&
+      headerBuffer[1] === 0x50 &&
+      headerBuffer[2] === 0x4e &&
+      headerBuffer[3] === 0x47 &&
+      headerBuffer[4] === 0x0d &&
+      headerBuffer[5] === 0x0a &&
+      headerBuffer[6] === 0x1a &&
+      headerBuffer[7] === 0x0a;
+
+    // Check for JSON magic: non-whitespace/BOM start with '{' (0x7B) or '[' (0x5B)
+    let isJsonMagic = false;
+    let startIdx = 0;
+    // Skip UTF-8 BOM if present
+    if (headerBuffer.length >= 3 && headerBuffer[0] === 0xef && headerBuffer[1] === 0xbb && headerBuffer[2] === 0xbf) {
+      startIdx = 3;
+    }
+    while (startIdx < headerBuffer.length) {
+      const b = headerBuffer[startIdx];
+      // Skip whitespace: space (0x20), tab (0x09), LF (0x0A), CR (0x0D)
+      if (b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d) {
+        startIdx++;
+        continue;
+      }
+      if (b === 0x7b || b === 0x5b) {
+        isJsonMagic = true;
+      }
+      break;
+    }
+
+    if (!isPngMagic && !isJsonMagic) {
+      const err = new Error(
+        'Invalid file format: Magic number check failed. Dropped file is neither a valid PNG image nor a valid JSON document.'
+      );
+      (err as any).code = 'INVALID_MAGIC_BYTES';
+      throw err;
+    }
+
+    const fileName = path.basename(filePath);
+    let parsedWorkflowInfo: WorkflowInfo;
+
+    if (isPngMagic) {
+      const fileBuffer = fs.readFileSync(filePath);
+      const extracted = this.extractPngWorkflowFromBuffer(fileBuffer);
+      if (!extracted) {
+        const err = new Error(`No ComfyUI workflow metadata found embedded in PNG file "${fileName}".`);
+        (err as any).code = 'CORRUPT_METADATA';
+        throw err;
+      }
+      parsedWorkflowInfo = await this.parseWorkflow(extracted, fileName);
+    } else {
+      const rawText = fs.readFileSync(filePath, 'utf-8');
+      if (rawText.length > 10 * 1024 * 1024) {
+        const err = new Error('JSON workflow payload exceeds 10MB text limit');
+        (err as any).code = 'FILE_TOO_LARGE';
+        throw err;
+      }
+      let parsedJson: any;
+      try {
+        parsedJson = JSON.parse(rawText);
+      } catch (e: any) {
+        const err = new Error(`Malformed JSON in "${fileName}": ${e.message}`);
+        (err as any).code = 'CORRUPT_METADATA';
+        throw err;
+      }
+      parsedWorkflowInfo = await this.parseWorkflow(parsedJson, fileName);
+    }
+
+    return {
+      filePath,
+      fileName,
+      fileType: isPngMagic ? 'png' : 'json',
+      fileSize: stat.size,
+      workflow: parsedWorkflowInfo.rawGraph,
+      nodes: parsedWorkflowInfo.nodeTypes || [],
+      models: parsedWorkflowInfo.models || [],
+      metadata: parsedWorkflowInfo.rawGraph?.extra || parsedWorkflowInfo.rawGraph?.config || {},
+      canvasGraph: parsedWorkflowInfo.canvasGraph,
+      modelCount: parsedWorkflowInfo.modelCount || 0,
+    };
+  }
+
+  /**
+   * Save / archive a workflow directly into the configured ComfyUI user workflows directory.
+   *
+   * Atomic write prevents partial/corrupted files on crash or power loss.
+   * Write to temp file in same filesystem, then rename (atomic operation).
+   * Temp file prefix includes random nonce to prevent collision.
+   *
+   * @param targetName - Sanitized name without extension (alphanumeric, spaces, underscores, hyphens)
+   * @param workflowData - The parsed workflow graph object
+   * @param overwrite - If true, overwrite existing workflow with same name
+   * @param customComfyDir - Optional explicit ComfyUI installation directory (verified in main)
+   */
+  async archiveWorkflow(
+    targetName: string,
+    workflowData: any,
+    overwrite = false,
+    customComfyDir?: string
+  ): Promise<{ success: boolean; filePath?: string; fileName?: string; error?: string; code?: WorkflowImportErrorCode }> {
+    try {
+      if (!targetName || typeof targetName !== 'string') {
+        return { success: false, error: 'Target workflow name must be a non-empty string', code: 'PATH_TRAVERSAL' };
+      }
+
+      // Security: Validate target name strictly against alphanumeric, hyphens, underscores, spaces
+      const SAFE_NAME_RE = /^[a-zA-Z0-9_\- ]+$/;
+      const trimmedName = targetName.trim();
+      if (!SAFE_NAME_RE.test(trimmedName) || trimmedName.length === 0 || trimmedName.length > 200) {
+        return {
+          success: false,
+          error: 'Invalid workflow name. Only alphanumeric characters, spaces, hyphens, and underscores are allowed (no path separators or special characters).',
+          code: 'PATH_TRAVERSAL',
+        };
+      }
+
+      // Prevent null byte injection or traversal sequences
+      if (trimmedName.includes('\0') || trimmedName.includes('/') || trimmedName.includes('\\') || trimmedName.includes('..')) {
+        return { success: false, error: 'Path traversal or null byte detected in workflow name', code: 'PATH_TRAVERSAL' };
+      }
+
+      // Determine ComfyUI directory from config or argument
+      let comfyDir = customComfyDir;
+      if (!comfyDir) {
+        try {
+          if (!(dbManager as any).db) {
+            await dbManager.init().catch(() => {});
+          }
+          const row: any = await dbManager.get("SELECT value FROM config WHERE key = 'comfyui_install_dir';");
+          if (row?.value) {
+            comfyDir = row.value;
+          }
+        } catch {}
+      }
+
+      let targetDir = '';
+      if (comfyDir && fs.existsSync(comfyDir)) {
+        const modernUserWf = path.join(comfyDir, 'user', 'default', 'workflows');
+        const rootWf = path.join(comfyDir, 'workflows');
+        if (fs.existsSync(modernUserWf)) {
+          targetDir = modernUserWf;
+        } else if (fs.existsSync(rootWf)) {
+          targetDir = rootWf;
+        } else {
+          fs.mkdirSync(modernUserWf, { recursive: true });
+          targetDir = modernUserWf;
+        }
+      }
+
+      if (!targetDir) {
+        return {
+          success: false,
+          error: 'No ComfyUI installation directory configured or found. Set ComfyUI path in Settings before archiving workflows.',
+          code: 'NO_COMFY_DIR',
+        };
+      }
+
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const cleanFileName = `${trimmedName}.json`;
+      const resolvedTargetDir = path.resolve(targetDir);
+      const resolvedPath = path.resolve(resolvedTargetDir, cleanFileName);
+
+      // Confinement check: verify resolved path is strictly inside allowed targetDir
+      if (!resolvedPath.startsWith(resolvedTargetDir + path.sep) && resolvedPath !== resolvedTargetDir) {
+        return {
+          success: false,
+          error: 'Path traversal attempt rejected. Workflow path must remain strictly within ComfyUI workflows folder.',
+          code: 'PATH_TRAVERSAL',
+        };
+      }
+
+      // Collision check: case-insensitive check against existing files in directory
+      if (fs.existsSync(resolvedTargetDir)) {
+        const existingFiles = fs.readdirSync(resolvedTargetDir);
+        const collision = existingFiles.find((f) => f.toLowerCase() === cleanFileName.toLowerCase());
+        if (collision && !overwrite) {
+          return {
+            success: false,
+            error: `A workflow named "${collision}" already exists in the ComfyUI workflows folder.`,
+            fileName: collision,
+            filePath: path.join(resolvedTargetDir, collision),
+            code: 'FILE_EXISTS',
+          };
+        }
+      }
+
+      // Prepare payload to write
+      const normalized = this.normalizeWorkflowData(workflowData) || workflowData;
+      const jsonContent = JSON.stringify(normalized, null, 2);
+
+      // Atomic write: write to temp file in same directory first, then atomic rename
+      const nonce = Math.random().toString(36).substring(2, 8);
+      const tempPath = path.join(resolvedTargetDir, `.tmp_${Date.now()}_${nonce}.json`);
+
+      fs.writeFileSync(tempPath, jsonContent, { encoding: 'utf-8', mode: 0o644 });
+      fs.renameSync(tempPath, resolvedPath);
+
+      logger.info(`[WorkflowScanner] Successfully archived workflow to: ${resolvedPath}`);
+      return {
+        success: true,
+        filePath: resolvedPath,
+        fileName: cleanFileName,
+      };
+    } catch (err: any) {
+      logger.error('Failed to archive workflow:', err);
+      return {
+        success: false,
+        error: `Failed to archive workflow: ${err?.message || err}`,
+        code: (err as any)?.code || 'CORRUPT_METADATA',
+      };
+    }
   }
 
   extractModelReferences(data: any, localModelMap: Map<string, string>): WorkflowModelReference[] {

@@ -52,6 +52,8 @@ import {
 } from '../types/app';
 import { NodeResolutionCard } from './NodeResolutionCard';
 import WorkflowNodeMap, { NodeStatus, WorkflowNodeMapHandle } from './WorkflowNodeMap';
+import { WorkflowImportModal } from './WorkflowImportModal';
+import { WorkflowParseResult } from '../services/workflowScanner';
 
 // ComfyUI component/subgraph references use UUIDs as canvas node "type" values.
 const UUID_TYPE_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -115,7 +117,16 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   const [savedWorkflows, setSavedWorkflows] = useState<WorkflowInfo[]>([]);
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState<boolean>(false);
   const [scanFeedback, setScanFeedback] = useState<{ message: string; success: boolean } | null>(null);
-  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  
+  // Drop zone states: 'idle' | 'drag-over-valid' | 'drag-over-invalid' | 'processing'
+  // Visual feedback must clearly distinguish valid (.json/.png) from invalid drops.
+  type DropZoneState = 'idle' | 'drag-over-valid' | 'drag-over-invalid' | 'processing';
+  const [dropState, setDropState] = useState<DropZoneState>('idle');
+  const [isWindowDragging, setIsWindowDragging] = useState<boolean>(false);
+  const dragDepthRef = useRef<number>(0);
+  const [importModalData, setImportModalData] = useState<WorkflowParseResult | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+  const [isArchivingWorkflow, setIsArchivingWorkflow] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'both' | 'map' | 'matrix' | 'live' | 'split'>('both');
   const [selectedNodeId, setSelectedNodeId] = useState<string | number | null>(null);
   const [isMapExpanded, setIsMapExpanded] = useState<boolean>(false);
@@ -148,6 +159,55 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   const comfySectionRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<any>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Window-level drag and drop listener to catch drops anywhere in the window
+  // (including directly over the ComfyUI webview or when maximized)
+  useEffect(() => {
+    const handleWindowDragEnter = (e: DragEvent) => {
+      if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault();
+        dragDepthRef.current++;
+        setIsWindowDragging(true);
+      }
+    };
+
+    const handleWindowDragOver = (e: DragEvent) => {
+      if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    const handleWindowDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepthRef.current--;
+      if (dragDepthRef.current <= 0) {
+        dragDepthRef.current = 0;
+        setIsWindowDragging(false);
+      }
+    };
+
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setIsWindowDragging(false);
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFilesDropped(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener('dragenter', handleWindowDragEnter);
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+    window.addEventListener('drop', handleWindowDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleWindowDragEnter);
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+      window.removeEventListener('drop', handleWindowDrop);
+    };
+  }, []);
 
   // Sync workflows with sessionStorage whenever they change
   useEffect(() => {
@@ -452,6 +512,88 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
     }
   };
 
+  // Automatically synchronize when the live ComfyUI guest webview loads or changes workflows
+  const handleGuestGraphLoaded = useCallback(async (graphData: any) => {
+    try {
+      let parsedWf: WorkflowInfo;
+      if (window.civitaiAPI?.parseWorkflow) {
+        parsedWf = await window.civitaiAPI.parseWorkflow(graphData, 'Live ComfyUI Canvas');
+      } else {
+        parsedWf = await fallbackParseInBrowser(graphData, 'Live ComfyUI Canvas', 'json');
+      }
+      setWorkflows((prev) => {
+        const filtered = prev.filter((w) => w.fileName !== 'Live ComfyUI Canvas');
+        return [parsedWf, ...filtered];
+      });
+      setSelectedWorkflowIndex(0);
+      resolveWorkflowNodes(parsedWf, true);
+      setScanFeedback({
+        success: true,
+        message: `Synced with active ComfyUI canvas (${parsedWf.nodeTypes?.length || 0} nodes, ${parsedWf.models?.length || 0} models detected)`,
+      });
+    } catch (err) {
+      console.warn('Failed to parse guest graph update from ComfyUI:', err);
+    }
+  }, []);
+
+  // Webview dom-ready and guest canvas message hook
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!webview) return;
+
+    const handleDomReady = () => {
+      const guestHookScript = `
+        (function() {
+          if (window.__cmm_canvas_hooked) return;
+          window.__cmm_canvas_hooked = true;
+
+          function hookComfyApp() {
+            const app = window.app || (window.comfyAPI && window.comfyAPI.app && window.comfyAPI.app.app);
+            if (app && typeof app.loadGraphData === 'function' && !app.__cmm_orig_loadGraphData) {
+              app.__cmm_orig_loadGraphData = app.loadGraphData;
+              app.loadGraphData = function(graphData, clean) {
+                try {
+                  console.log('__CMM_GUEST_GRAPH_LOADED__:' + JSON.stringify(graphData));
+                } catch(e) {}
+                return app.__cmm_orig_loadGraphData.apply(this, arguments);
+              };
+            }
+          }
+          hookComfyApp();
+          setInterval(hookComfyApp, 2000);
+        })();
+      `;
+      try {
+        if (typeof webview.executeJavaScript === 'function') {
+          webview.executeJavaScript(guestHookScript).catch(() => {});
+        }
+      } catch {}
+    };
+
+    const handleConsoleMessage = (e: any) => {
+      const msg = e.message;
+      if (typeof msg === 'string' && msg.startsWith('__CMM_GUEST_GRAPH_LOADED__:')) {
+        try {
+          const rawJson = msg.slice('__CMM_GUEST_GRAPH_LOADED__:'.length);
+          const graphData = JSON.parse(rawJson);
+          if (graphData && (graphData.nodes || graphData.prompt)) {
+            handleGuestGraphLoaded(graphData);
+          }
+        } catch (err) {
+          console.warn('Failed to handle guest graph console message:', err);
+        }
+      }
+    };
+
+    webview.addEventListener('dom-ready', handleDomReady);
+    webview.addEventListener('console-message', handleConsoleMessage);
+
+    return () => {
+      webview.removeEventListener('dom-ready', handleDomReady);
+      webview.removeEventListener('console-message', handleConsoleMessage);
+    };
+  }, [hasMountedComfyUI, handleGuestGraphLoaded]);
+
   // Automatically save valid uploaded workflow to ComfyUI user workflows directory
   // and pass-through to live ComfyUI instance if online
   const handleValidWorkflowLoaded = async (
@@ -494,203 +636,285 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
     }
   };
 
-  // Handle file drop / upload
-  const handleFileUpload = async (file: File) => {
-    const fileName = file.name;
-    const ext = fileName.split('.').pop()?.toLowerCase();
+  // Handle confirmation from WorkflowImportModal
+  const handleConfirmWorkflowImport = async (targetName: string, overwrite: boolean) => {
+    if (!importModalData) return;
+    setIsArchivingWorkflow(true);
 
-    if (ext !== 'json' && ext !== 'png') {
-      alert('Please upload a valid ComfyUI workflow (.json) or generated image (.png).');
+    try {
+      let savedFilePath = importModalData.filePath;
+      let savedFileName = `${targetName}.json`;
+
+      if (window.civitaiAPI?.archiveWorkflow) {
+        const res = await window.civitaiAPI.archiveWorkflow({
+          targetName,
+          workflowData: importModalData.workflow,
+          overwrite,
+        });
+
+        if (!res.success) {
+          alert(res.error || 'Failed to archive workflow to ComfyUI directory.');
+          setIsArchivingWorkflow(false);
+          return;
+        }
+
+        if (res.filePath) savedFilePath = res.filePath;
+        if (res.fileName) savedFileName = res.fileName;
+      }
+
+      const newWorkflowInfo: WorkflowInfo = {
+        filePath: savedFilePath,
+        fileName: savedFileName,
+        fileType: 'json',
+        modelCount: importModalData.models?.length || 0,
+        models: importModalData.models || [],
+        nodeTypes: importModalData.nodes || [],
+        rawGraph: importModalData.workflow,
+        canvasGraph: importModalData.canvasGraph,
+      };
+
+      const nextWorkflows = [
+        newWorkflowInfo,
+        ...workflows.filter((w) => w.fileName !== savedFileName),
+      ];
+      setWorkflows(nextWorkflows);
+      setSelectedWorkflowIndex(0);
+      setSelectedNodeId(null);
+
+      setSavedWorkflows((prev) => [
+        newWorkflowInfo,
+        ...prev.filter((w) => w.fileName !== savedFileName),
+      ]);
+
+      // 1. Activate workflow in canvas (if Live ComfyUI connected)
+      if (comfyStatus?.online || viewMode === 'live' || viewMode === 'split' || isComfyFullscreen) {
+        setTimeout(() => {
+          handleInjectWorkflowIntoComfyUI(newWorkflowInfo);
+        }, 150);
+      }
+
+      // 2. Trigger resolveWorkflowNodes() to scan for missing nodes
+      resolveWorkflowNodes(newWorkflowInfo, true);
+
+      // 3. Update status feedback
+      setScanFeedback({
+        success: true,
+        message: `Successfully imported "${savedFileName}". Checking custom node extensions and model dependencies...`,
+      });
+
+      setIsImportModalOpen(false);
+      setImportModalData(null);
+    } catch (err: any) {
+      console.error('Failed to confirm workflow import:', err);
+      alert(`Import failed: ${err?.message || err}`);
+    } finally {
+      setIsArchivingWorkflow(false);
+      setDropState('idle');
+    }
+  };
+
+  // SECURITY: Renderer never reads file content directly.
+  // We only receive file.path from Electron's drop event (chromium trusted).
+  // Content parsing happens in main process with full Node.js privileges.
+  // This prevents renderer exploitation from accessing arbitrary files.
+  const handleFilesDropped = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList).slice(0, 10); // Maximum 10 files per drop event
+    if (files.length === 0) {
+      setDropState('idle');
       return;
     }
 
+    const validFiles = files.filter((f) => {
+      const ext = f.name.split('.').pop()?.toLowerCase();
+      return ext === 'json' || ext === 'png';
+    });
+
+    const invalidFiles = files.filter((f) => {
+      const ext = f.name.split('.').pop()?.toLowerCase();
+      return ext !== 'json' && ext !== 'png';
+    });
+
+    if (invalidFiles.length > 0) {
+      setScanFeedback({
+        success: false,
+        message: `Rejected ${invalidFiles.length} unsupported file(s): ${invalidFiles.map((f) => f.name).join(', ')}. Only .json and .png ComfyUI workflows are supported.`,
+      });
+    }
+
+    if (validFiles.length === 0) {
+      setDropState('idle');
+      return;
+    }
+
+    setDropState('processing');
+    setIsLoadingWorkflows(true);
+
     try {
-      setIsLoadingWorkflows(true);
+      const targetFile = validFiles[0];
+      const filePath = (targetFile as any).path;
 
-      if (ext === 'json') {
-        const text = await file.text();
-        let parsed: any;
-        try {
-          parsed = JSON.parse(text);
-        } catch (e: any) {
-          alert(`Invalid JSON format in "${fileName}": ${e.message}`);
-          setIsLoadingWorkflows(false);
-          return;
-        }
-
-        let parsedWorkflowInfo: WorkflowInfo;
-        if (window.civitaiAPI?.parseWorkflow) {
+      if (filePath && window.civitaiAPI?.parseDroppedWorkflowFile) {
+        const parseResult: WorkflowParseResult = await window.civitaiAPI.parseDroppedWorkflowFile(filePath);
+        setImportModalData(parseResult);
+        setIsImportModalOpen(true);
+      } else {
+        // Fallback in-browser parsing for non-Electron or mock environments
+        const ext = targetFile.name.split('.').pop()?.toLowerCase();
+        if (ext === 'json') {
+          const text = await targetFile.text();
+          let parsed: any;
           try {
-            parsedWorkflowInfo = await window.civitaiAPI.parseWorkflow(parsed, fileName);
+            parsed = JSON.parse(text);
           } catch (e: any) {
-            alert(e.message || `Failed to parse ComfyUI workflow: ${fileName}`);
-            setIsLoadingWorkflows(false);
-            return;
-          }
-        } else {
-          // Fallback in-browser parser
-          const localModels = (await window.civitaiAPI?.getLocalModels()) || [];
-          const modelMap = new Map<string, string>();
-          for (const m of localModels) {
-            if (m.fileName) modelMap.set(m.fileName.toLowerCase(), m.filePath);
+            throw new Error(`Invalid JSON format in "${targetFile.name}": ${e.message}`);
           }
 
-          const modelRefs: WorkflowModelReference[] = [];
-          const nodeTypes = new Set<string>();
-          const subgraphNames = collectSubgraphNames(parsed);
-
-          // UI Canvas format
-          const nodes = parsed.nodes || parsed.workflow?.nodes || [];
-          if (Array.isArray(nodes)) {
-            for (const n of nodes) {
-              const label = resolveNodeTypeLabel(n.type, subgraphNames);
-              if (label) nodeTypes.add(label);
-              if (Array.isArray(n.widgets_values)) {
-                for (const w of n.widgets_values) {
-                  if (typeof w === 'string' && (w.endsWith('.safetensors') || w.endsWith('.ckpt') || w.endsWith('.gguf') || w.endsWith('.pt'))) {
-                    modelRefs.push({
-                      nodeId: String(n.id),
-                      nodeType: n.type || 'Node',
-                      inputName: 'widget',
-                      modelName: w,
-                      isInstalled: modelMap.has(w.toLowerCase()),
-                      localPath: modelMap.get(w.toLowerCase()),
-                    });
-                  }
-                }
-              }
-            }
+          let parsedWf: WorkflowInfo;
+          if (window.civitaiAPI?.parseWorkflow) {
+            parsedWf = await window.civitaiAPI.parseWorkflow(parsed, targetFile.name);
+          } else {
+            parsedWf = await fallbackParseInBrowser(parsed, targetFile.name, 'json');
           }
 
-          // API Prompt format
-          const promptNodes = parsed.prompt || parsed;
-          if (promptNodes && typeof promptNodes === 'object' && !Array.isArray(promptNodes)) {
-            for (const [id, nodeObj] of Object.entries<any>(promptNodes)) {
-              if (nodeObj && typeof nodeObj === 'object') {
-                const classType = resolveNodeTypeLabel(nodeObj.class_type || nodeObj.type, subgraphNames);
-                if (classType) nodeTypes.add(classType);
-                if (nodeObj.inputs) {
-                  for (const [k, v] of Object.entries(nodeObj.inputs)) {
-                    if (typeof v === 'string' && (v.endsWith('.safetensors') || v.endsWith('.ckpt') || v.endsWith('.gguf') || v.endsWith('.pt'))) {
-                      modelRefs.push({
-                        nodeId: String(id),
-                        nodeType: classType || 'Loader',
-                        inputName: k,
-                        modelName: v,
-                        isInstalled: modelMap.has(v.toLowerCase()),
-                        localPath: modelMap.get(v.toLowerCase()),
-                      });
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          parsedWorkflowInfo = {
+          setImportModalData({
             filePath: '',
-            fileName,
+            fileName: targetFile.name,
             fileType: 'json',
-            modelCount: modelRefs.length,
-            models: modelRefs,
-            nodeTypes: Array.from(nodeTypes),
-            rawGraph: parsed,
-            canvasGraph: nodes.length > 0 ? { nodes, links: parsed.links || [] } : undefined,
-          };
-        }
-
-        // Strict validity verification
-        const hasNodes = (parsedWorkflowInfo.canvasGraph?.nodes && parsedWorkflowInfo.canvasGraph.nodes.length > 0) || (parsedWorkflowInfo.nodeTypes && parsedWorkflowInfo.nodeTypes.length > 0);
-        if (!hasNodes && parsedWorkflowInfo.modelCount === 0) {
-          alert(`Invalid ComfyUI workflow JSON: No recognizable ComfyUI nodes or prompt execution graph found in "${fileName}". Please ensure this is an exported ComfyUI workflow (.json) or ComfyUI API prompt.`);
-          setIsLoadingWorkflows(false);
-          return;
-        }
-
-        await handleValidWorkflowLoaded(parsedWorkflowInfo, parsed, 'json', fileName);
-      } else if (ext === 'png') {
-        // PNG Workflow extraction
-        const arrayBuffer = await file.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        // Read PNG tEXt & iTXt chunks in browser
-        const extracted = parsePngWorkflowInBrowser(uint8Array);
-        if (!extracted) {
-          alert(`No ComfyUI workflow metadata found embedded in PNG file "${fileName}".`);
-          setIsLoadingWorkflows(false);
-          return;
-        }
-
-        let parsedWorkflowInfo: WorkflowInfo;
-        if (window.civitaiAPI?.parseWorkflow) {
-          try {
-            parsedWorkflowInfo = await window.civitaiAPI.parseWorkflow(extracted, fileName);
-          } catch (e: any) {
-            alert(e.message || `Failed to parse ComfyUI workflow embedded in PNG: ${fileName}`);
-            setIsLoadingWorkflows(false);
-            return;
-          }
-        } else {
-          const localModels = (await window.civitaiAPI?.getLocalModels()) || [];
-          const modelMap = new Map<string, string>();
-          for (const m of localModels) {
-            if (m.fileName) modelMap.set(m.fileName.toLowerCase(), m.filePath);
+            fileSize: targetFile.size,
+            workflow: parsedWf.rawGraph,
+            nodes: parsedWf.nodeTypes || [],
+            models: parsedWf.models || [],
+            metadata: parsedWf.rawGraph?.extra || {},
+            canvasGraph: parsedWf.canvasGraph,
+            modelCount: parsedWf.modelCount || 0,
+          });
+          setIsImportModalOpen(true);
+        } else if (ext === 'png') {
+          const arrayBuffer = await targetFile.arrayBuffer();
+          const extracted = parsePngWorkflowInBrowser(new Uint8Array(arrayBuffer));
+          if (!extracted) {
+            throw new Error(`No ComfyUI workflow metadata found embedded in PNG file "${targetFile.name}".`);
           }
 
-          const modelRefs: WorkflowModelReference[] = [];
-          const nodeTypes = new Set<string>();
-
-          const rawData = extracted.workflow || extracted.prompt || extracted;
-          const subgraphNames = collectSubgraphNames(rawData);
-          const nodes = rawData.nodes || [];
-          if (Array.isArray(nodes)) {
-            for (const n of nodes) {
-              const label = resolveNodeTypeLabel(n.type, subgraphNames);
-              if (label) nodeTypes.add(label);
-              if (Array.isArray(n.widgets_values)) {
-                for (const w of n.widgets_values) {
-                  if (typeof w === 'string' && (w.endsWith('.safetensors') || w.endsWith('.ckpt') || w.endsWith('.gguf') || w.endsWith('.pt'))) {
-                    modelRefs.push({
-                      nodeId: String(n.id),
-                      nodeType: n.type || 'Node',
-                      inputName: 'widget',
-                      modelName: w,
-                      isInstalled: modelMap.has(w.toLowerCase()),
-                      localPath: modelMap.get(w.toLowerCase()),
-                    });
-                  }
-                }
-              }
-            }
+          let parsedWf: WorkflowInfo;
+          if (window.civitaiAPI?.parseWorkflow) {
+            parsedWf = await window.civitaiAPI.parseWorkflow(extracted, targetFile.name);
+          } else {
+            parsedWf = await fallbackParseInBrowser(extracted, targetFile.name, 'png');
           }
 
-          parsedWorkflowInfo = {
+          setImportModalData({
             filePath: '',
-            fileName,
+            fileName: targetFile.name,
             fileType: 'png',
-            modelCount: modelRefs.length,
-            models: modelRefs,
-            nodeTypes: Array.from(nodeTypes),
-            rawGraph: rawData,
-            canvasGraph: nodes.length > 0 ? { nodes, links: rawData.links || [] } : undefined,
-          };
+            fileSize: targetFile.size,
+            workflow: parsedWf.rawGraph,
+            nodes: parsedWf.nodeTypes || [],
+            models: parsedWf.models || [],
+            metadata: parsedWf.rawGraph?.extra || {},
+            canvasGraph: parsedWf.canvasGraph,
+            modelCount: parsedWf.modelCount || 0,
+          });
+          setIsImportModalOpen(true);
         }
-
-        const hasNodes = (parsedWorkflowInfo.canvasGraph?.nodes && parsedWorkflowInfo.canvasGraph.nodes.length > 0) || (parsedWorkflowInfo.nodeTypes && parsedWorkflowInfo.nodeTypes.length > 0);
-        if (!hasNodes && parsedWorkflowInfo.modelCount === 0) {
-          alert(`Invalid ComfyUI workflow in PNG: No recognizable ComfyUI nodes found in "${fileName}".`);
-          setIsLoadingWorkflows(false);
-          return;
-        }
-
-        await handleValidWorkflowLoaded(parsedWorkflowInfo, extracted, 'png', fileName);
       }
     } catch (err: any) {
-      console.error('Error processing uploaded workflow:', err);
-      alert(`Error parsing workflow file: ${err?.message || err}`);
+      console.error('Error parsing dropped workflow file:', err);
+      setScanFeedback({
+        success: false,
+        message: `Failed to parse workflow: ${err?.message || err}`,
+      });
     } finally {
       setIsLoadingWorkflows(false);
+      setDropState('idle');
     }
+  };
+
+  const handleFileUpload = (file: File) => {
+    handleFilesDropped([file]);
+  };
+
+  // Browser Fallback parser when IPC is unavailable
+  const fallbackParseInBrowser = async (
+    parsed: any,
+    fileName: string,
+    fileType: 'json' | 'png'
+  ): Promise<WorkflowInfo> => {
+    const localModels = (await window.civitaiAPI?.getLocalModels()) || [];
+    const modelMap = new Map<string, string>();
+    for (const m of localModels) {
+      if (m.fileName) modelMap.set(m.fileName.toLowerCase(), m.filePath);
+    }
+
+    const modelRefs: WorkflowModelReference[] = [];
+    const nodeTypes = new Set<string>();
+    const rawData = parsed.workflow || parsed.prompt || parsed;
+    const subgraphNames = collectSubgraphNames(rawData);
+
+    // UI Canvas format
+    const nodes = rawData.nodes || [];
+    if (Array.isArray(nodes)) {
+      for (const n of nodes) {
+        const label = resolveNodeTypeLabel(n.type, subgraphNames);
+        if (label) nodeTypes.add(label);
+        if (Array.isArray(n.widgets_values)) {
+          for (const w of n.widgets_values) {
+            if (
+              typeof w === 'string' &&
+              (w.endsWith('.safetensors') || w.endsWith('.ckpt') || w.endsWith('.gguf') || w.endsWith('.pt'))
+            ) {
+              modelRefs.push({
+                nodeId: String(n.id),
+                nodeType: n.type || 'Node',
+                inputName: 'widget',
+                modelName: w,
+                isInstalled: modelMap.has(w.toLowerCase()),
+                localPath: modelMap.get(w.toLowerCase()),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // API Prompt format
+    const promptNodes = rawData.prompt || rawData;
+    if (promptNodes && typeof promptNodes === 'object' && !Array.isArray(promptNodes)) {
+      for (const [id, nodeObj] of Object.entries<any>(promptNodes)) {
+        if (nodeObj && typeof nodeObj === 'object') {
+          const classType = resolveNodeTypeLabel(nodeObj.class_type || nodeObj.type, subgraphNames);
+          if (classType) nodeTypes.add(classType);
+          if (nodeObj.inputs) {
+            for (const [k, v] of Object.entries(nodeObj.inputs)) {
+              if (
+                typeof v === 'string' &&
+                (v.endsWith('.safetensors') || v.endsWith('.ckpt') || v.endsWith('.gguf') || v.endsWith('.pt'))
+              ) {
+                modelRefs.push({
+                  nodeId: String(id),
+                  nodeType: classType || 'Loader',
+                  inputName: k,
+                  modelName: v,
+                  isInstalled: modelMap.has(v.toLowerCase()),
+                  localPath: modelMap.get(v.toLowerCase()),
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      filePath: '',
+      fileName,
+      fileType,
+      modelCount: modelRefs.length,
+      models: modelRefs,
+      nodeTypes: Array.from(nodeTypes),
+      rawGraph: rawData,
+      canvasGraph: nodes.length > 0 ? { nodes, links: rawData.links || [] } : undefined,
+    };
   };
 
   // Browser PNG Chunks Parser
@@ -1072,97 +1296,158 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
             </div>
           )}
 
-          {/* Saved ComfyUI Workflows Dropdown Selector */}
-          <div className="glass-panel p-4 rounded-3xl border border-slate-800/90 shadow-xl bg-slate-900/50 backdrop-blur-md space-y-2.5">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
-                  <Workflow size={16} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-bold text-slate-100">
-                      Select Existing ComfyUI Workflow
-                    </h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      {savedWorkflows.length} {savedWorkflows.length === 1 ? 'workflow' : 'workflows'} found
-                    </span>
+          {/* Saved ComfyUI Workflows Dropdown Selector (Compact in live mode, Full in preview modes) */}
+          {viewMode !== 'live' && (
+            <>
+              <div className="glass-panel p-4 rounded-3xl border border-slate-800/90 shadow-xl bg-slate-900/50 backdrop-blur-md space-y-2.5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                      <Workflow size={16} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-slate-100">
+                          Select Existing ComfyUI Workflow
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          {savedWorkflows.length} {savedWorkflows.length === 1 ? 'workflow' : 'workflows'} found
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Workflows automatically detected in your ComfyUI directory (<code className="text-purple-300 text-[10px]">workflows/</code>, <code className="text-purple-300 text-[10px]">user/default/workflows/</code>)
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    Workflows automatically detected in your ComfyUI directory (<code className="text-purple-300 text-[10px]">workflows/</code>, <code className="text-purple-300 text-[10px]">user/default/workflows/</code>)
-                  </p>
+
+                  <button
+                    onClick={() => {
+                      loadWorkflows(true);
+                      const active = workflows.length > 0 ? workflows[selectedWorkflowIndex] : null;
+                      if (active) resolveWorkflowNodes(active, true);
+                    }}
+                    disabled={isLoadingWorkflows}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 text-slate-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                    title="Rescan ComfyUI directories for newly downloaded or modified workflows"
+                  >
+                    <RefreshCw size={12} className={isLoadingWorkflows ? 'animate-spin text-purple-400' : ''} />
+                    <span>Rescan ComfyUI Folder</span>
+                  </button>
+                </div>
+
+                {/* Custom Styled Select Dropdown */}
+                <div className="relative w-full">
+                  <select
+                    value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
+                    onChange={(e) => handleSelectFromDropdown(e.target.value)}
+                    className="w-full bg-slate-950/80 border border-slate-700/80 hover:border-purple-500/60 focus:border-purple-400 rounded-2xl px-4 py-2.5 text-xs md:text-sm text-slate-100 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer pr-10"
+                  >
+                    <option value="" disabled>
+                      {savedWorkflows.length > 0
+                        ? '-- Select an existing ComfyUI workflow to load & map --'
+                        : '-- No saved workflows found in ComfyUI workflow folders --'}
+                    </option>
+                    {savedWorkflows.map((wf, idx) => (
+                      <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
+                        {wf.fileName} ({wf.fileType.toUpperCase()}) — {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''}, {wf.nodeTypes?.length || 0} nodes
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                    <ChevronDown size={16} />
+                  </div>
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  loadWorkflows(true);
-                  const active = workflows.length > 0 ? workflows[selectedWorkflowIndex] : null;
-                  if (active) resolveWorkflowNodes(active, true);
+              {/* Drag and Drop Zone with Visual States */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  let hasValid = true;
+                  if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+                    for (let i = 0; i < e.dataTransfer.items.length; i++) {
+                      const item = e.dataTransfer.items[i];
+                      if (item.kind === 'file') {
+                        const type = item.type;
+                        if (
+                          type &&
+                          type !== 'application/json' &&
+                          type !== 'image/png' &&
+                          !type.includes('json') &&
+                          !type.includes('png')
+                        ) {
+                          hasValid = false;
+                        }
+                      }
+                    }
+                  }
+                  setDropState(hasValid ? 'drag-over-valid' : 'drag-over-invalid');
                 }}
-                disabled={isLoadingWorkflows}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 text-slate-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
-                title="Rescan ComfyUI directories for newly downloaded or modified workflows"
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  setDropState('idle');
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleFilesDropped(e.dataTransfer.files);
+                  } else {
+                    setDropState('idle');
+                  }
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-3xl p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${
+                  dropState === 'drag-over-valid'
+                    ? 'border-cyan-400 bg-cyan-950/40 shadow-xl shadow-cyan-500/20 scale-[1.01]'
+                    : dropState === 'drag-over-invalid'
+                    ? 'border-rose-500 bg-rose-950/40 shadow-xl shadow-rose-500/20 scale-[1.01]'
+                    : dropState === 'processing'
+                    ? 'border-purple-400 bg-purple-950/30'
+                    : 'border-slate-800/80 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
+                }`}
               >
-                <RefreshCw size={12} className={isLoadingWorkflows ? 'animate-spin text-purple-400' : ''} />
-                <span>Rescan ComfyUI Folder</span>
-              </button>
-            </div>
-
-            {/* Custom Styled Select Dropdown */}
-            <div className="relative w-full">
-              <select
-                value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
-                onChange={(e) => handleSelectFromDropdown(e.target.value)}
-                className="w-full bg-slate-950/80 border border-slate-700/80 hover:border-purple-500/60 focus:border-purple-400 rounded-2xl px-4 py-2.5 text-xs md:text-sm text-slate-100 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer pr-10"
-              >
-                <option value="" disabled>
-                  {savedWorkflows.length > 0
-                    ? '-- Select an existing ComfyUI workflow to load & map --'
-                    : '-- No saved workflows found in ComfyUI workflow folders --'}
-                </option>
-                {savedWorkflows.map((wf, idx) => (
-                  <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
-                    {wf.fileName} ({wf.fileType.toUpperCase()}) — {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''}, {wf.nodeTypes?.length || 0} nodes
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
-                <ChevronDown size={16} />
+                <div
+                  className={`p-3 rounded-full shadow-inner transition-all ${
+                    dropState === 'drag-over-valid'
+                      ? 'bg-cyan-500/20 text-cyan-300'
+                      : dropState === 'drag-over-invalid'
+                      ? 'bg-rose-500/20 text-rose-300'
+                      : dropState === 'processing'
+                      ? 'bg-purple-500/20 text-purple-300 animate-spin'
+                      : 'bg-slate-800/80 text-cyan-400'
+                  }`}
+                >
+                  {dropState === 'drag-over-invalid' ? (
+                    <AlertCircle size={22} className="animate-bounce" />
+                  ) : dropState === 'processing' ? (
+                    <RefreshCw size={22} className="animate-spin" />
+                  ) : (
+                    <Upload size={22} className={dropState === 'drag-over-valid' ? 'animate-bounce' : ''} />
+                  )}
+                </div>
+                <p className="text-sm font-bold text-slate-200">
+                  {dropState === 'drag-over-valid'
+                    ? 'Drop ComfyUI workflow here to import & analyze'
+                    : dropState === 'drag-over-invalid'
+                    ? 'Unsupported file type — only .json and .png workflows are accepted'
+                    : dropState === 'processing'
+                    ? 'Parsing & validating ComfyUI workflow...'
+                    : (
+                      <>
+                        Drop any ComfyUI <code className="text-cyan-300 font-mono text-xs">.json</code> workflow or generated <code className="text-cyan-300 font-mono text-xs">.png</code> here
+                      </>
+                    )}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {dropState === 'drag-over-invalid'
+                    ? 'Release drop to dismiss or drag a valid workflow file'
+                    : 'CMM securely validates magic bytes, extracts model dependencies, and maps custom nodes'}
+                </p>
               </div>
-            </div>
-          </div>
-
-          {/* Drag and Drop Zone */}
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragOver(true);
-            }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragOver(false);
-              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                handleFileUpload(e.dataTransfer.files[0]);
-              }
-            }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-3xl p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${isDragOver
-              ? 'border-cyan-400 bg-cyan-950/30 scale-[1.01]'
-              : 'border-slate-800/80 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
-              }`}
-          >
-            <div className="p-3 rounded-full bg-slate-800/80 text-cyan-400 shadow-inner">
-              <Upload size={22} className={isDragOver ? 'animate-bounce' : ''} />
-            </div>
-            <p className="text-sm font-bold text-slate-200">
-              Drop any ComfyUI <code className="text-cyan-300 font-mono text-xs">.json</code> workflow or generated <code className="text-cyan-300 font-mono text-xs">.png</code> here
-            </p>
-            <p className="text-xs text-slate-400">
-              CMM extracts embedded canvas layouts, models, and custom node dependencies automatically
-            </p>
-          </div>
+            </>
+          )}
 
           {/* Workflows Loaded Selector Carousel */}
           {workflows.length > 0 && (
@@ -1179,23 +1464,33 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                     {comfyStatus?.online && (
                       <>
                         <button
-                          onClick={() => setViewMode('live')}
-                          className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                          onClick={() => {
+                            setViewMode('live');
+                            setTimeout(() => {
+                              comfySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }, 50);
+                          }}
+                          className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                             viewMode === 'live'
-                              ? 'bg-emerald-600 text-white shadow'
-                              : 'text-emerald-400 hover:text-emerald-200'
+                              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50'
+                              : 'text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40'
                           }`}
-                          title="View live running ComfyUI interface"
+                          title="Expand and view live running ComfyUI interface"
                         >
-                          <MonitorPlay size={13} />
+                          <MonitorPlay size={14} />
                           <span>Live ComfyUI</span>
                         </button>
                         <button
-                          onClick={() => setViewMode('split')}
-                          className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                          onClick={() => {
+                            setViewMode('split');
+                            setTimeout(() => {
+                              comfySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }, 50);
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                             viewMode === 'split'
-                              ? 'bg-emerald-600 text-white shadow'
-                              : 'text-emerald-400 hover:text-emerald-200'
+                              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50'
+                              : 'text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40'
                           }`}
                           title="Live ComfyUI with side-by-side missing node and model installer"
                         >
@@ -1375,7 +1670,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
             isComfyFullscreen
               ? 'h-full w-full flex-1 min-h-0 bg-slate-950 flex flex-col animate-fadeIn select-none overflow-hidden'
               : viewMode === 'live' || viewMode === 'split'
-              ? `flex flex-col ${viewMode === 'split' ? 'xl:flex-row gap-6' : 'w-full'} transition-all`
+              ? `flex flex-col flex-1 min-h-0 ${viewMode === 'split' ? 'xl:flex-row gap-6' : 'w-full'} transition-all`
               : 'opacity-0 pointer-events-none absolute -left-[99999px] top-0 w-full h-0 overflow-hidden'
           }
         >
@@ -1384,7 +1679,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
             className={`flex-1 flex flex-col overflow-hidden min-h-0 ${
               isComfyFullscreen
                 ? 'w-full h-full'
-                : 'glass-panel rounded-3xl border border-slate-800 shadow-2xl min-h-[720px] h-[82vh]'
+                : 'glass-panel rounded-3xl border border-slate-800 shadow-2xl min-h-[780px] h-[86vh]'
             }`}
           >
             {/* Header Toolbar (switches between Fullscreen top bar and Inline top bar) */}
@@ -1589,15 +1884,15 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
             )}
 
             {/* Frame Container & Fullscreen Drawer */}
-            <div className="relative flex-1 w-full h-full flex overflow-hidden bg-slate-950">
-              <div className="flex-1 w-full h-full bg-slate-950">
+            <div className="relative flex-1 w-full h-full min-h-0 flex flex-col overflow-hidden bg-slate-950">
+              <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-slate-950">
                 {comfyStatus?.online ? (
                   window.civitaiAPI && !window.civitaiAPI._isMock ? (
                     <webview
                       ref={webviewRef}
                       src={serverUrl}
-                      className="w-full h-full border-none"
-                      style={{ width: '100%', height: '100%' }}
+                      className="w-full h-full flex-1 border-none min-h-0 block"
+                      style={{ width: '100%', height: '100%', minHeight: '100%', display: 'flex', flex: 1 }}
                       partition="persist:comfyui"
                       webpreferences="backgroundThrottling=no,contextIsolation=yes"
                     />
@@ -1605,8 +1900,8 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                     <iframe
                       ref={iframeRef}
                       src={serverUrl}
-                      className="w-full h-full border-none"
-                      style={{ width: '100%', height: '100%' }}
+                      className="w-full h-full flex-1 border-none min-h-0 block"
+                      style={{ width: '100%', height: '100%', minHeight: '100%', flex: 1 }}
                       title="ComfyUI Live Workspace"
                     />
                   )
@@ -1694,6 +1989,61 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
       {/* Dependency Matrix & Resolution Cards (when viewMode is 'both' or 'matrix' and not fullscreen) */}
       {!isComfyFullscreen && (viewMode === 'both' || viewMode === 'matrix') && renderDependencyMatrix(false)}
+
+      {/* Full-Window Drag & Drop Overlay (Intercepts drops anywhere including over webviews/frames) */}
+      {isWindowDragging && (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) {
+              e.dataTransfer.dropEffect = 'copy';
+            }
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragDepthRef.current--;
+            if (dragDepthRef.current <= 0) {
+              dragDepthRef.current = 0;
+              setIsWindowDragging(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragDepthRef.current = 0;
+            setIsWindowDragging(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              handleFilesDropped(e.dataTransfer.files);
+            }
+          }}
+          className="fixed inset-0 z-[9999] bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-8 border-4 border-dashed border-cyan-400 animate-fadeIn pointer-events-auto select-none"
+        >
+          <div className="p-6 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-2xl mb-4 animate-bounce">
+            <Upload size={48} />
+          </div>
+          <h2 className="text-2xl font-black text-white tracking-tight mb-2">
+            Drop ComfyUI Workflow to Import
+          </h2>
+          <p className="text-sm text-slate-300 max-w-md text-center">
+            Release your <code className="text-cyan-300 font-mono font-bold">.json</code> workflow or <code className="text-cyan-300 font-mono font-bold">.png</code> image anywhere to validate, archive to ComfyUI, and check installed vs. missing nodes.
+          </p>
+        </div>
+      )}
+
+      {/* Workflow Import Confirmation & Dependency Preview Modal */}
+      <WorkflowImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => {
+          setIsImportModalOpen(false);
+          setImportModalData(null);
+        }}
+        parsedData={importModalData}
+        savedWorkflows={savedWorkflows}
+        onConfirmImport={handleConfirmWorkflowImport}
+        isImporting={isArchivingWorkflow}
+      />
     </div>
   );
 };

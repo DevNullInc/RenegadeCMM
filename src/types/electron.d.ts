@@ -67,6 +67,14 @@ export interface CivitaiAPI {
   // Workflows & Webhooks
   scanWorkflows: (folderPaths?: string | string[]) => Promise<any>;
   parseWorkflow: (workflowData: any, workflowName?: string) => Promise<any>;
+  parseDroppedWorkflowFile: (filePath: string) => Promise<any>;
+  archiveWorkflow: (params: { targetName: string; workflowData: any; overwrite?: boolean }) => Promise<{
+    success: boolean;
+    filePath?: string;
+    fileName?: string;
+    error?: string;
+    code?: string;
+  }>;
   checkComfyUIStatus: (serverUrl?: string) => Promise<any>;
   checkSwarmStatus: (serverUrl?: string) => Promise<any>;
   focusOrOpenSwarm: (serverUrl?: string) => Promise<any>;
