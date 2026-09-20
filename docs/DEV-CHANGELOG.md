@@ -10,6 +10,17 @@ This document serves as the active, rolling changelog for unreleased features, i
 
 ## [Unreleased] - Active Development Cycle (Target: v1.7.0)
 
+### UI & UX Improvements
+- **ComfyUI Maximized Viewport Isolation & Minimize Controls (`WorkflowsTab.tsx`, `App.tsx`)**:
+  - Restructured ComfyUI maximized view so the webview/iframe portal sits strictly between the fixed top navigation `<header>` and persistent bottom `<footer>`, preventing layout overlap and viewport clipping.
+  - Eliminated main viewport scrollbars and bottom padding when ComfyUI is maximized (`overflow-hidden`, `min-h-0`, `h-full flex-1`).
+  - Added a prominent, highlighted **Minimize** button with `<Minimize2 />` icon and hotkey tooltip in the ComfyUI maximized top bar.
+  - Supported `Escape` keyboard shortcut to immediately return from maximized ComfyUI mode to the standard Workflows tab.
+  - Added explicit empty/placeholder states (`-- No workflows found in ComfyUI folders --` / `-- Select a ComfyUI workflow to inject --`) to the maximized ComfyUI workflow selector dropdown with unified in-memory and disk workflow detection.
+  - Transformed the top header "Open Live ComfyUI Workspace" action into a high-visibility, glowing pill button with automatic smooth-scrolling directly to the live ComfyUI portal.
+  - Expanded the inline ComfyUI live workspace container height (`min-h-[720px] h-[82vh]`) with enhanced branding and status indicators for instant visual orientation.
+  - Hides floating scroll-to-top button during live maximized view to prevent canvas UI obstruction.
+
 ### Planned & In-Progress
 
 - **Smart Collections & Trigger Word Hub**: Grouping models into customized tag collections and automatic trigger word extraction.

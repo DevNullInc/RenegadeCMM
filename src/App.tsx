@@ -60,6 +60,7 @@ function MainApp() {
   const [activeDownloadsCount, setActiveDownloadsCount] = useState<number>(0);
   const [isBackendOnline, setIsBackendOnline] = useState<boolean>(true);
   const [isComfyOnline, setIsComfyOnline] = useState<boolean>(false);
+  const [isComfyFullscreen, setIsComfyFullscreen] = useState<boolean>(false);
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null);
   const [isCheckingSwarm, setIsCheckingSwarm] = useState<boolean>(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -632,13 +633,23 @@ function MainApp() {
       {/* Scrollable Container */}
       <main
         ref={mainRef}
-        className="flex-1 overflow-y-auto bg-[#07090e] relative scroll-smooth"
+        className={`flex-1 bg-[#07090e] relative scroll-smooth ${
+          activeTab === 'workflows' && isComfyFullscreen
+            ? 'overflow-hidden flex flex-col min-h-0'
+            : 'overflow-y-auto'
+        }`}
       >
         {/* Background Radial Glow Accents */}
         <div className="absolute top-10 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-10 left-1/3 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 min-h-full pb-8">
+        <div
+          className={`relative z-10 ${
+            activeTab === 'workflows' && isComfyFullscreen
+              ? 'h-full flex-1 flex flex-col min-h-0'
+              : 'min-h-full pb-8'
+          }`}
+        >
           <ErrorBoundary>
             <div style={{ display: activeTab === 'browse' ? 'block' : 'none' }}>
               <BrowseTab
@@ -654,7 +665,9 @@ function MainApp() {
             <div
               className={
                 activeTab === 'workflows'
-                  ? 'block'
+                  ? isComfyFullscreen
+                    ? 'h-full flex-1 flex flex-col min-h-0'
+                    : 'block'
                   : 'opacity-0 pointer-events-none absolute -left-[99999px] top-0 w-full h-0 overflow-hidden'
               }
             >
@@ -665,6 +678,7 @@ function MainApp() {
                 }}
                 onNavigateToDownloads={() => setActiveTab('downloads')}
                 onComfyStatusChange={(status) => setIsComfyOnline(status.online)}
+                onComfyFullscreenChange={(isFullscreen) => setIsComfyFullscreen(isFullscreen)}
               />
             </div>
             <div style={{ display: activeTab === 'downloads' ? 'block' : 'none' }}>
@@ -691,7 +705,7 @@ function MainApp() {
         )}
 
         {/* Floating Return to Top Button */}
-        {showScrollTop && (
+        {showScrollTop && !(activeTab === 'workflows' && isComfyFullscreen) && (
           <button
             onClick={scrollToTop}
             title="Return to Top"

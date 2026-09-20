@@ -92,12 +92,14 @@ interface WorkflowsTabProps {
   onSearchModel?: (query: string) => void;
   onNavigateToDownloads?: () => void;
   onComfyStatusChange?: (status: ComfyUIStatus) => void;
+  onComfyFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   onSearchModel,
   onNavigateToDownloads,
   onComfyStatusChange,
+  onComfyFullscreenChange,
 }) => {
   const [workflows, setWorkflows] = useState<WorkflowInfo[]>(() => {
     try {
@@ -125,6 +127,14 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   const [injectionFeedback, setInjectionFeedback] = useState<string | null>(null);
   const [isInjecting, setIsInjecting] = useState<boolean>(false);
 
+  const handleToggleFullscreen = useCallback((enable: boolean) => {
+    setIsComfyFullscreen(enable);
+    if (enable) {
+      setHasMountedComfyUI(true);
+    }
+    onComfyFullscreenChange?.(enable);
+  }, [onComfyFullscreenChange]);
+
   // Resolution states for custom node classes
   const [nodeResolutions, setNodeResolutions] = useState<Record<string, NodeResolutionResult>>({});
   const [isResolvingNodes, setIsResolvingNodes] = useState<boolean>(false);
@@ -135,6 +145,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nodeMapRef = useRef<WorkflowNodeMapHandle>(null);
   const mapSectionRef = useRef<HTMLDivElement | null>(null);
+  const comfySectionRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<any>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -207,12 +218,12 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isComfyFullscreen) {
-        setIsComfyFullscreen(false);
+        handleToggleFullscreen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isComfyFullscreen]);
+  }, [isComfyFullscreen, handleToggleFullscreen]);
 
   const loadWorkflows = async (forceRescan = false) => {
     if (!window.civitaiAPI?.scanWorkflows) return;
@@ -931,417 +942,438 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full w-full space-y-6 pb-12 overflow-y-auto px-6 pt-2 select-none">
-      {/* Top Header & Overview */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 glass-panel p-6 rounded-3xl border border-slate-800 shadow-2xl">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">
-              <Workflow size={24} />
+    <div
+      className={
+        isComfyFullscreen
+          ? 'h-full w-full flex-1 flex flex-col min-h-0 overflow-hidden select-none'
+          : 'flex flex-col h-full w-full space-y-6 pb-12 overflow-y-auto px-6 pt-2 select-none'
+      }
+    >
+      {/* Standard Workflows Tab Controls (only shown when not maximized) */}
+      {!isComfyFullscreen && (
+        <>
+          {/* Top Header & Overview */}
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 glass-panel p-6 rounded-3xl border border-slate-800 shadow-2xl">
+            <div className="space-y-1">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">
+                  <Workflow size={24} />
+                </div>
+                <div>
+                  <h1 className="text-xl font-black text-slate-100 tracking-tight flex items-center gap-2.5">
+                    <span>ComfyUI Workflows & Dependency Resolver</span>
+                  </h1>
+                  <p className="text-xs text-slate-400">
+                    Inspect visual workflow maps, resolve missing Checkpoints/LoRAs, and 1-click install custom node extensions.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                        comfyStatus?.online
+                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-400'
+                      }`}
+                      title={comfyStatus?.online ? `ComfyUI online at ${serverUrl} (Interactive Canvas — Edit Possible)` : `ComfyUI offline at ${serverUrl} (Read-Only Preview)`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          comfyStatus?.online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                        }`}
+                      />
+                      <span>
+                        {comfyStatus?.online
+                          ? `Live ComfyUI: Online (${comfyStatus.version || 'Connected'}) — Edit Possible`
+                          : 'Live ComfyUI: Offline (Read-Only Preview)'}
+                      </span>
+                    </span>
+                    {comfyStatus?.online && (
+                      <button
+                        onClick={() => {
+                          setHasMountedComfyUI(true);
+                          setViewMode('live');
+                          requestAnimationFrame(() => {
+                            comfySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          });
+                        }}
+                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md active:scale-95 border ${
+                          viewMode === 'live' || viewMode === 'split'
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-emerald-950/40'
+                            : 'bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400/50 shadow-emerald-900/40 glow-emerald'
+                        }`}
+                        title="Open and scroll to the live running ComfyUI workspace"
+                      >
+                        <MonitorPlay size={14} className="shrink-0" />
+                        <span>{viewMode === 'live' || viewMode === 'split' ? 'Live Workspace Active' : 'Open Live ComfyUI Workspace'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-black text-slate-100 tracking-tight flex items-center gap-2.5">
-                <span>ComfyUI Workflows & Dependency Resolver</span>
-              </h1>
-              <p className="text-xs text-slate-400">
-                Inspect visual workflow maps, resolve missing Checkpoints/LoRAs, and 1-click install custom node extensions.
-              </p>
-              <div className="flex items-center gap-2 pt-1">
-                <span
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                    comfyStatus?.online
-                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                      : 'bg-slate-800/80 border-slate-700 text-slate-400'
-                  }`}
-                  title={comfyStatus?.online ? `ComfyUI online at ${serverUrl} (Interactive Canvas — Edit Possible)` : `ComfyUI offline at ${serverUrl} (Read-Only Preview)`}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      comfyStatus?.online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                    }`}
-                  />
-                  <span>
-                    {comfyStatus?.online
-                      ? `Live ComfyUI: Online (${comfyStatus.version || 'Connected'}) — Edit Possible`
-                      : 'Live ComfyUI: Offline (Read-Only Preview)'}
-                  </span>
-                </span>
-                {comfyStatus?.online && (
-                  <button
-                    onClick={() => {
-                      setHasMountedComfyUI(true);
-                      setViewMode((prev) => (prev === 'live' ? 'split' : 'live'));
-                    }}
-                    className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold underline underline-offset-2 cursor-pointer ml-1"
-                  >
-                    {viewMode === 'live' || viewMode === 'split' ? 'Viewing Live Workspace' : 'Open Live ComfyUI Workspace'}
-                  </button>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileUpload(e.target.files[0]);
+                  }
+                }}
+                accept=".json,.png"
+                className="hidden"
+              />
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/20 transition-all cursor-pointer"
+              >
+                <Upload size={15} />
+                <span>Upload JSON / PNG</span>
+              </button>
+
+              <button
+                onClick={() => loadWorkflows(true)}
+                disabled={isLoadingWorkflows}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+                title="Scan configured ComfyUI directories for workflow files"
+              >
+                <RefreshCw size={14} className={isLoadingWorkflows ? 'animate-spin text-cyan-400' : ''} />
+                <span>Scan Folders</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Scan Feedback Banner */}
+          {scanFeedback && (
+            <div
+              className={`p-3 rounded-2xl text-xs flex items-center justify-between gap-2 border transition-all animate-fadeIn ${scanFeedback.success
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                }`}
+            >
+              <div className="flex items-center gap-2">
+                {scanFeedback.success ? (
+                  <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertCircle size={16} className="shrink-0 text-amber-400" />
                 )}
+                <span>{scanFeedback.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScanFeedback(null)}
+                className="text-slate-400 hover:text-slate-200 text-xs px-1.5 py-0.5 rounded cursor-pointer"
+                aria-label="Dismiss scan feedback"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Saved ComfyUI Workflows Dropdown Selector */}
+          <div className="glass-panel p-4 rounded-3xl border border-slate-800/90 shadow-xl bg-slate-900/50 backdrop-blur-md space-y-2.5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                  <Workflow size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-bold text-slate-100">
+                      Select Existing ComfyUI Workflow
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      {savedWorkflows.length} {savedWorkflows.length === 1 ? 'workflow' : 'workflows'} found
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Workflows automatically detected in your ComfyUI directory (<code className="text-purple-300 text-[10px]">workflows/</code>, <code className="text-purple-300 text-[10px]">user/default/workflows/</code>)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  loadWorkflows(true);
+                  const active = workflows.length > 0 ? workflows[selectedWorkflowIndex] : null;
+                  if (active) resolveWorkflowNodes(active, true);
+                }}
+                disabled={isLoadingWorkflows}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 text-slate-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Rescan ComfyUI directories for newly downloaded or modified workflows"
+              >
+                <RefreshCw size={12} className={isLoadingWorkflows ? 'animate-spin text-purple-400' : ''} />
+                <span>Rescan ComfyUI Folder</span>
+              </button>
+            </div>
+
+            {/* Custom Styled Select Dropdown */}
+            <div className="relative w-full">
+              <select
+                value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
+                onChange={(e) => handleSelectFromDropdown(e.target.value)}
+                className="w-full bg-slate-950/80 border border-slate-700/80 hover:border-purple-500/60 focus:border-purple-400 rounded-2xl px-4 py-2.5 text-xs md:text-sm text-slate-100 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer pr-10"
+              >
+                <option value="" disabled>
+                  {savedWorkflows.length > 0
+                    ? '-- Select an existing ComfyUI workflow to load & map --'
+                    : '-- No saved workflows found in ComfyUI workflow folders --'}
+                </option>
+                {savedWorkflows.map((wf, idx) => (
+                  <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
+                    {wf.fileName} ({wf.fileType.toUpperCase()}) — {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''}, {wf.nodeTypes?.length || 0} nodes
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                <ChevronDown size={16} />
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) => {
-              if (e.target.files && e.target.files[0]) {
-                handleFileUpload(e.target.files[0]);
+          {/* Drag and Drop Zone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                handleFileUpload(e.dataTransfer.files[0]);
               }
             }}
-            accept=".json,.png"
-            className="hidden"
-          />
-
-          <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/20 transition-all cursor-pointer"
+            className={`border-2 border-dashed rounded-3xl p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${isDragOver
+              ? 'border-cyan-400 bg-cyan-950/30 scale-[1.01]'
+              : 'border-slate-800/80 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
+              }`}
           >
-            <Upload size={15} />
-            <span>Upload JSON / PNG</span>
-          </button>
-
-          <button
-            onClick={() => loadWorkflows(true)}
-            disabled={isLoadingWorkflows}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
-            title="Scan configured ComfyUI directories for workflow files"
-          >
-            <RefreshCw size={14} className={isLoadingWorkflows ? 'animate-spin text-cyan-400' : ''} />
-            <span>Scan Folders</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Scan Feedback Banner */}
-      {scanFeedback && (
-        <div
-          className={`p-3 rounded-2xl text-xs flex items-center justify-between gap-2 border transition-all animate-fadeIn ${scanFeedback.success
-            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
-            : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
-            }`}
-        >
-          <div className="flex items-center gap-2">
-            {scanFeedback.success ? (
-              <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
-            ) : (
-              <AlertCircle size={16} className="shrink-0 text-amber-400" />
-            )}
-            <span>{scanFeedback.message}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setScanFeedback(null)}
-            className="text-slate-400 hover:text-slate-200 text-xs px-1.5 py-0.5 rounded cursor-pointer"
-            aria-label="Dismiss scan feedback"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* Saved ComfyUI Workflows Dropdown Selector */}
-      <div className="glass-panel p-4 rounded-3xl border border-slate-800/90 shadow-xl bg-slate-900/50 backdrop-blur-md space-y-2.5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
-              <Workflow size={16} />
+            <div className="p-3 rounded-full bg-slate-800/80 text-cyan-400 shadow-inner">
+              <Upload size={22} className={isDragOver ? 'animate-bounce' : ''} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold text-slate-100">
-                  Select Existing ComfyUI Workflow
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                  {savedWorkflows.length} {savedWorkflows.length === 1 ? 'workflow' : 'workflows'} found
+            <p className="text-sm font-bold text-slate-200">
+              Drop any ComfyUI <code className="text-cyan-300 font-mono text-xs">.json</code> workflow or generated <code className="text-cyan-300 font-mono text-xs">.png</code> here
+            </p>
+            <p className="text-xs text-slate-400">
+              CMM extracts embedded canvas layouts, models, and custom node dependencies automatically
+            </p>
+          </div>
+
+          {/* Workflows Loaded Selector Carousel */}
+          {workflows.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                  <Layers size={14} className="text-purple-400" />
+                  <span>Loaded Workflows ({workflows.length})</span>
                 </span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Workflows automatically detected in your ComfyUI directory (<code className="text-purple-300 text-[10px]">workflows/</code>, <code className="text-purple-300 text-[10px]">user/default/workflows/</code>)
-              </p>
-            </div>
-          </div>
 
-          <button
-            onClick={() => {
-              loadWorkflows(true);
-              const active = workflows.length > 0 ? workflows[selectedWorkflowIndex] : null;
-              if (active) resolveWorkflowNodes(active, true);
-            }}
-            disabled={isLoadingWorkflows}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 text-slate-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
-            title="Rescan ComfyUI directories for newly downloaded or modified workflows"
-          >
-            <RefreshCw size={12} className={isLoadingWorkflows ? 'animate-spin text-purple-400' : ''} />
-            <span>Rescan ComfyUI Folder</span>
-          </button>
-        </div>
-
-        {/* Custom Styled Select Dropdown */}
-        <div className="relative w-full">
-          <select
-            value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
-            onChange={(e) => handleSelectFromDropdown(e.target.value)}
-            className="w-full bg-slate-950/80 border border-slate-700/80 hover:border-purple-500/60 focus:border-purple-400 rounded-2xl px-4 py-2.5 text-xs md:text-sm text-slate-100 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer pr-10"
-          >
-            <option value="" disabled>
-              {savedWorkflows.length > 0
-                ? '-- Select an existing ComfyUI workflow to load & map --'
-                : '-- No saved workflows found in ComfyUI workflow folders --'}
-            </option>
-            {savedWorkflows.map((wf, idx) => (
-              <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
-                {wf.fileName} ({wf.fileType.toUpperCase()}) — {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''}, {wf.nodeTypes?.length || 0} nodes
-              </option>
-            ))}
-          </select>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
-            <ChevronDown size={16} />
-          </div>
-        </div>
-      </div>
-
-      {/* Drag and Drop Zone */}
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragOver(true);
-        }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragOver(false);
-          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            handleFileUpload(e.dataTransfer.files[0]);
-          }
-        }}
-        onClick={() => fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-3xl p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${isDragOver
-          ? 'border-cyan-400 bg-cyan-950/30 scale-[1.01]'
-          : 'border-slate-800/80 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
-          }`}
-      >
-        <div className="p-3 rounded-full bg-slate-800/80 text-cyan-400 shadow-inner">
-          <Upload size={22} className={isDragOver ? 'animate-bounce' : ''} />
-        </div>
-        <p className="text-sm font-bold text-slate-200">
-          Drop any ComfyUI <code className="text-cyan-300 font-mono text-xs">.json</code> workflow or generated <code className="text-cyan-300 font-mono text-xs">.png</code> here
-        </p>
-        <p className="text-xs text-slate-400">
-          CMM extracts embedded canvas layouts, models, and custom node dependencies automatically
-        </p>
-      </div>
-
-      {/* Workflows Loaded Selector Carousel */}
-      {workflows.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <Layers size={14} className="text-purple-400" />
-              <span>Loaded Workflows ({workflows.length})</span>
-            </span>
-
-            {/* View Mode & Live Action Toggles */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-1 rounded-xl">
-                {comfyStatus?.online && (
-                  <>
-                    <button
-                      onClick={() => setViewMode('live')}
-                      className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        viewMode === 'live'
-                          ? 'bg-emerald-600 text-white shadow'
-                          : 'text-emerald-400 hover:text-emerald-200'
-                      }`}
-                      title="View live running ComfyUI interface"
-                    >
-                      <MonitorPlay size={13} />
-                      <span>Live ComfyUI</span>
-                    </button>
-                    <button
-                      onClick={() => setViewMode('split')}
-                      className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        viewMode === 'split'
-                          ? 'bg-emerald-600 text-white shadow'
-                          : 'text-emerald-400 hover:text-emerald-200'
-                      }`}
-                      title="Live ComfyUI with side-by-side missing node and model installer"
-                    >
-                      <Columns size={13} />
-                      <span>Live + Inspector</span>
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => setViewMode('both')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                    viewMode === 'both'
-                      ? 'bg-purple-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Preview LiteGraph map and dependency matrix"
-                >
-                  Preview All
-                </button>
-                <button
-                  onClick={() => setViewMode('map')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                    viewMode === 'map'
-                      ? 'bg-purple-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Read-only visual node map"
-                >
-                  Visual Map
-                </button>
-                <button
-                  onClick={() => setViewMode('matrix')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                    viewMode === 'matrix'
-                      ? 'bg-purple-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Missing nodes and model resolver cards"
-                >
-                  Dependencies
-                </button>
-              </div>
-
-              {comfyStatus?.online && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => handleInjectWorkflowIntoComfyUI(activeWorkflow)}
-                    disabled={isInjecting || !activeWorkflow}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
-                    title="Push active workflow into running ComfyUI canvas"
-                  >
-                    <Send size={13} className={isInjecting ? 'animate-bounce' : ''} />
-                    <span className="hidden sm:inline">Push to Canvas</span>
-                  </button>
-
-                  <button
-                    onClick={() => setIsComfyFullscreen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
-                    title="Maximize ComfyUI wrapper to full screen"
-                  >
-                    <Maximize2 size={13} />
-                    <span className="hidden sm:inline">Maximize</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 overflow-x-auto pb-2 custom-scrollbar">
-            {workflows.map((wf, idx) => {
-              const isSelected = idx === selectedWorkflowIndex;
-              return (
-                <div key={idx} className="relative group shrink-0">
-                  <button
-                    onClick={() => handleSelectWorkflow(idx)}
-                    className={`flex items-center gap-2.5 pl-4 pr-8 py-3 rounded-2xl border transition-all cursor-pointer text-left ${isSelected
-                      ? 'bg-linear-to-r from-purple-950/60 to-indigo-950/60 border-purple-500/60 shadow-lg shadow-purple-900/30'
-                      : 'bg-slate-900/70 border-slate-800 hover:border-slate-700 text-slate-300'
-                      }`}
-                  >
-                    {wf.fileType === 'png' ? (
-                      <ImageIcon size={18} className="text-emerald-400 shrink-0" />
-                    ) : (
-                      <FileJson size={18} className="text-purple-400 shrink-0" />
+                {/* View Mode & Live Action Toggles */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-1 rounded-xl">
+                    {comfyStatus?.online && (
+                      <>
+                        <button
+                          onClick={() => setViewMode('live')}
+                          className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            viewMode === 'live'
+                              ? 'bg-emerald-600 text-white shadow'
+                              : 'text-emerald-400 hover:text-emerald-200'
+                          }`}
+                          title="View live running ComfyUI interface"
+                        >
+                          <MonitorPlay size={13} />
+                          <span>Live ComfyUI</span>
+                        </button>
+                        <button
+                          onClick={() => setViewMode('split')}
+                          className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            viewMode === 'split'
+                              ? 'bg-emerald-600 text-white shadow'
+                              : 'text-emerald-400 hover:text-emerald-200'
+                          }`}
+                          title="Live ComfyUI with side-by-side missing node and model installer"
+                        >
+                          <Columns size={13} />
+                          <span>Live + Inspector</span>
+                        </button>
+                      </>
                     )}
-                    <div>
-                      <p className="text-xs font-bold text-slate-100 truncate max-w-[180px]">
-                        {wf.fileName}
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''} • {wf.nodeTypes?.length || 0} nodes
-                      </p>
+                    <button
+                      onClick={() => setViewMode('both')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        viewMode === 'both'
+                          ? 'bg-purple-600 text-white shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Preview LiteGraph map and dependency matrix"
+                    >
+                      Preview All
+                    </button>
+                    <button
+                      onClick={() => setViewMode('map')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        viewMode === 'map'
+                          ? 'bg-purple-600 text-white shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Read-only visual node map"
+                    >
+                      Visual Map
+                    </button>
+                    <button
+                      onClick={() => setViewMode('matrix')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        viewMode === 'matrix'
+                          ? 'bg-purple-600 text-white shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Missing nodes and model resolver cards"
+                    >
+                      Dependencies
+                    </button>
+                  </div>
+
+                  {comfyStatus?.online && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleInjectWorkflowIntoComfyUI(activeWorkflow)}
+                        disabled={isInjecting || !activeWorkflow}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                        title="Push active workflow into running ComfyUI canvas"
+                      >
+                        <Send size={13} className={isInjecting ? 'animate-bounce' : ''} />
+                        <span className="hidden sm:inline">Push to Canvas</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleFullscreen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                        title="Maximize ComfyUI workspace to fit between header and footer"
+                      >
+                        <Maximize2 size={13} />
+                        <span className="hidden sm:inline">Maximize</span>
+                      </button>
                     </div>
-                  </button>
-
-                  {/* Top-Right (X) Dismiss / Remove Button */}
-                  <button
-                    onClick={(e) => handleRemoveWorkflow(e, idx)}
-                    className="absolute top-2 right-2 p-1 rounded-full bg-slate-800/90 hover:bg-rose-600 border border-slate-700/80 hover:border-rose-500 text-slate-400 hover:text-white transition-all shadow-md cursor-pointer opacity-70 group-hover:opacity-100"
-                    title="Remove workflow from list"
-                  >
-                    <X size={11} />
-                  </button>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Active Workflow Health Banner */}
-      {activeWorkflow && (
-        <div className="glass-panel p-5 rounded-3xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div
-              className={`p-3 rounded-2xl ${isWorkflowFullyReady
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                }`}
-            >
-              {isWorkflowFullyReady ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-bold text-slate-100">{activeWorkflow.fileName}</h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">
-                  {activeWorkflow.fileType}
-                </span>
-                {viewMode === 'live' || viewMode === 'split' || isComfyFullscreen ? (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Edit Possible (Live Canvas)</span>
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-800 text-amber-300/90 border border-amber-500/30 flex items-center gap-1">
-                    <span>Embedded (Read-Only Preview)</span>
-                  </span>
-                )}
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {isWorkflowFullyReady
-                  ? 'All models and custom node dependencies are installed and ready.'
-                  : `Missing ${missingModelsCount} model${missingModelsCount !== 1 ? 's' : ''} and ${missingCustomNodesCount} custom node extension${missingCustomNodesCount !== 1 ? 's' : ''}.`}
-              </p>
-            </div>
-          </div>
 
-          {/* Quick Metrics Badges */}
-          <div className="flex items-center gap-2">
-            <span
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${missingModelsCount === 0
-                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
-                : 'bg-amber-950/40 text-amber-300 border-amber-500/30'
-                }`}
-            >
-              {installedModelsCount}/{totalModelsCount} Models Ready
-            </span>
-            <span
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${missingCustomNodesCount === 0
-                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
-                : 'bg-rose-950/40 text-rose-300 border-rose-500/30'
-                }`}
-            >
-              {installedCustomNodesCount}/{totalCustomNodesCount} Nodes Ready
-            </span>
-          </div>
-        </div>
+              <div className="flex items-center gap-2.5 overflow-x-auto pb-2 custom-scrollbar">
+                {workflows.map((wf, idx) => {
+                  const isSelected = idx === selectedWorkflowIndex;
+                  return (
+                    <div key={idx} className="relative group shrink-0">
+                      <button
+                        onClick={() => handleSelectWorkflow(idx)}
+                        className={`flex items-center gap-2.5 pl-4 pr-8 py-3 rounded-2xl border transition-all cursor-pointer text-left ${isSelected
+                          ? 'bg-linear-to-r from-purple-950/60 to-indigo-950/60 border-purple-500/60 shadow-lg shadow-purple-900/30'
+                          : 'bg-slate-900/70 border-slate-800 hover:border-slate-700 text-slate-300'
+                          }`}
+                      >
+                        {wf.fileType === 'png' ? (
+                          <ImageIcon size={18} className="text-emerald-400 shrink-0" />
+                        ) : (
+                          <FileJson size={18} className="text-purple-400 shrink-0" />
+                        )}
+                        <div>
+                          <p className="text-xs font-bold text-slate-100 truncate max-w-[180px]">
+                            {wf.fileName}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''} • {wf.nodeTypes?.length || 0} nodes
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Top-Right (X) Dismiss / Remove Button */}
+                      <button
+                        onClick={(e) => handleRemoveWorkflow(e, idx)}
+                        className="absolute top-2 right-2 p-1 rounded-full bg-slate-800/90 hover:bg-rose-600 border border-slate-700/80 hover:border-rose-500 text-slate-400 hover:text-white transition-all shadow-md cursor-pointer opacity-70 group-hover:opacity-100"
+                        title="Remove workflow from list"
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Active Workflow Health Banner */}
+          {activeWorkflow && (
+            <div className="glass-panel p-5 rounded-3xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div
+                  className={`p-3 rounded-2xl ${isWorkflowFullyReady
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    }`}
+                >
+                  {isWorkflowFullyReady ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base font-bold text-slate-100">{activeWorkflow.fileName}</h2>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">
+                      {activeWorkflow.fileType}
+                    </span>
+                    {viewMode === 'live' || viewMode === 'split' ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>Edit Possible (Live Canvas)</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-800 text-amber-300/90 border border-amber-500/30 flex items-center gap-1">
+                        <span>Embedded (Read-Only Preview)</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {isWorkflowFullyReady
+                      ? 'All models and custom node dependencies are installed and ready.'
+                      : `Missing ${missingModelsCount} model${missingModelsCount !== 1 ? 's' : ''} and ${missingCustomNodesCount} custom node extension${missingCustomNodesCount !== 1 ? 's' : ''}.`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Metrics Badges */}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${missingModelsCount === 0
+                    ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
+                    : 'bg-amber-950/40 text-amber-300 border-amber-500/30'
+                    }`}
+                >
+                  {installedModelsCount}/{totalModelsCount} Models Ready
+                </span>
+                <span
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${missingCustomNodesCount === 0
+                    ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
+                    : 'bg-rose-950/40 text-rose-300 border-rose-500/30'
+                    }`}
+                >
+                  {installedCustomNodesCount}/{totalCustomNodesCount} Nodes Ready
+                </span>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Unified Live ComfyUI Workspace Embed with Resident Keep-Alive */}
       {hasMountedComfyUI && (
         <div
+          ref={comfySectionRef}
           className={
             isComfyFullscreen
-              ? 'fixed inset-0 z-50 bg-slate-950 flex flex-col animate-fadeIn select-none'
+              ? 'h-full w-full flex-1 min-h-0 bg-slate-950 flex flex-col animate-fadeIn select-none overflow-hidden'
               : viewMode === 'live' || viewMode === 'split'
               ? `flex flex-col ${viewMode === 'split' ? 'xl:flex-row gap-6' : 'w-full'} transition-all`
               : 'opacity-0 pointer-events-none absolute -left-[99999px] top-0 w-full h-0 overflow-hidden'
@@ -1349,10 +1381,10 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
         >
           {/* Main ComfyUI Box */}
           <div
-            className={`flex-1 flex flex-col overflow-hidden ${
+            className={`flex-1 flex flex-col overflow-hidden min-h-0 ${
               isComfyFullscreen
                 ? 'w-full h-full'
-                : 'glass-panel rounded-3xl border border-slate-800 shadow-2xl min-h-[640px] h-[75vh]'
+                : 'glass-panel rounded-3xl border border-slate-800 shadow-2xl min-h-[720px] h-[82vh]'
             }`}
           >
             {/* Header Toolbar (switches between Fullscreen top bar and Inline top bar) */}
@@ -1363,10 +1395,10 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                     <Workflow size={18} />
                   </div>
                   <span className="font-black text-sm text-slate-100 hidden md:inline">
-                    ComfyUI Workspace Wrapper
+                    ComfyUI Workspace
                   </span>
                   <span
-                    className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                       comfyStatus?.online
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                         : 'bg-slate-800 border-slate-700 text-slate-400'
@@ -1377,32 +1409,52 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         comfyStatus?.online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
                       }`}
                     />
-                    <span>{comfyStatus?.online ? 'Online — Edit Possible' : 'Offline'}</span>
+                    <span>{comfyStatus?.online ? 'Live Canvas — Edit Possible' : 'Offline'}</span>
                   </span>
                 </div>
 
                 {/* Center: Workflow Quick Selector */}
                 <div className="flex items-center gap-2 flex-1 max-w-xl">
-                  <select
-                    value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
-                    onChange={(e) => handleSelectFromDropdown(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-700/80 hover:border-purple-500/60 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-medium truncate focus:outline-none"
-                  >
-                    {savedWorkflows.map((wf, idx) => (
-                      <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
-                        {wf.fileName} ({wf.modelCount} models, {wf.nodeTypes?.length || 0} nodes)
-                      </option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const allDropdownWorkflows: WorkflowInfo[] = [];
+                    const seen = new Set<string>();
+                    for (const wf of [...workflows, ...savedWorkflows]) {
+                      const id = wf.filePath || wf.fileName;
+                      if (id && !seen.has(id)) {
+                        seen.add(id);
+                        allDropdownWorkflows.push(wf);
+                      }
+                    }
+                    const hasWorkflows = allDropdownWorkflows.length > 0;
+
+                    return (
+                      <select
+                        value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
+                        onChange={(e) => handleSelectFromDropdown(e.target.value)}
+                        className="flex-1 bg-slate-950 border border-slate-700/80 hover:border-purple-500/60 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-medium truncate focus:outline-none cursor-pointer"
+                      >
+                        <option value="" disabled>
+                          {hasWorkflows
+                            ? '-- Select a ComfyUI workflow to inject --'
+                            : '-- No workflows found in ComfyUI folders --'}
+                        </option>
+                        {allDropdownWorkflows.map((wf, idx) => (
+                          <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
+                            {wf.fileName} ({wf.modelCount} models, {wf.nodeTypes?.length || 0} nodes)
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()}
 
                   {activeWorkflow && (
                     <button
                       onClick={() => handleInjectWorkflowIntoComfyUI(activeWorkflow)}
                       disabled={isInjecting}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
                       title="Push this workflow to the live canvas"
                     >
-                      <Send size={12} />
+                      <Send size={12} className={isInjecting ? 'animate-bounce' : ''} />
                       <span>Push to Canvas</span>
                     </button>
                   )}
@@ -1442,37 +1494,43 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                   </button>
 
                   <button
-                    onClick={() => setIsComfyFullscreen(false)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer"
-                    title="Exit Fullscreen (Esc)"
+                    onClick={() => handleToggleFullscreen(false)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-900/40 border border-purple-400/40 transition-all cursor-pointer active:scale-95"
+                    title="Minimize ComfyUI / Return to Workflows Tab (Esc)"
                   >
-                    <Minimize2 size={13} />
-                    <span>Exit Fullscreen</span>
+                    <Minimize2 size={13} className="stroke-[2.5]" />
+                    <span>Minimize</span>
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-between px-5 py-3 bg-slate-900/90 border-b border-slate-800/80 gap-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
-                      comfyStatus?.online
-                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                        : 'bg-slate-800 border-slate-700 text-slate-400'
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        comfyStatus?.online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                      }`}
-                    />
-                    <span>
-                      {comfyStatus?.online
-                        ? `Live ComfyUI (${comfyStatus.version || 'Connected'}) — Edit Possible`
-                        : 'ComfyUI Server Disconnected'}
-                    </span>
+              <div className="flex items-center justify-between px-5 py-3 bg-slate-900/95 border-b border-slate-800 shadow-lg backdrop-blur-md gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="p-1.5 rounded-xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                    <MonitorPlay size={16} />
                   </div>
-                  <span className="text-slate-400 text-xs font-mono hidden sm:inline">{serverUrl}</span>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="font-bold text-sm text-slate-100 hidden sm:inline">Live ComfyUI Workspace</span>
+                    <div
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                        comfyStatus?.online
+                          ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                          : 'bg-slate-800 border-slate-700 text-slate-400'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          comfyStatus?.online ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                        }`}
+                      />
+                      <span>
+                        {comfyStatus?.online
+                          ? `Online (${comfyStatus.version || 'Connected'}) — Edit Possible`
+                          : 'ComfyUI Server Disconnected'}
+                      </span>
+                    </div>
+                    <span className="text-slate-400 text-xs font-mono hidden md:inline">{serverUrl}</span>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1503,9 +1561,9 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                   </button>
 
                   <button
-                    onClick={() => setIsComfyFullscreen(true)}
+                    onClick={() => handleToggleFullscreen(true)}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
-                    title="Maximize ComfyUI wrapper to full screen"
+                    title="Maximize ComfyUI workspace to fit between header and footer"
                   >
                     <Maximize2 size={13} />
                     <span>Maximize</span>
