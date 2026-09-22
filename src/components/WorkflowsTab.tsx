@@ -787,6 +787,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
             metadata: parsedWf.rawGraph?.extra || {},
             canvasGraph: parsedWf.canvasGraph,
             modelCount: parsedWf.modelCount || 0,
+            workflowFormat: parsedWf.workflowFormat,
           });
           setIsImportModalOpen(true);
         } else if (ext === 'png') {
@@ -814,6 +815,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
             metadata: parsedWf.rawGraph?.extra || {},
             canvasGraph: parsedWf.canvasGraph,
             modelCount: parsedWf.modelCount || 0,
+            workflowFormat: parsedWf.workflowFormat,
           });
           setIsImportModalOpen(true);
         }
@@ -914,6 +916,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
       nodeTypes: Array.from(nodeTypes),
       rawGraph: rawData,
       canvasGraph: nodes.length > 0 ? { nodes, links: rawData.links || [] } : undefined,
+      workflowFormat: nodes.length > 0 ? 'full_canvas' : 'api_prompt',
     };
   };
 
@@ -1349,7 +1352,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                     </option>
                     {savedWorkflows.map((wf, idx) => (
                       <option key={wf.filePath || `${wf.fileName}-${idx}`} value={wf.filePath || wf.fileName}>
-                        {wf.fileName} ({wf.fileType.toUpperCase()}) — {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''}, {wf.nodeTypes?.length || 0} nodes
+                        {wf.fileName} ({wf.fileType.toUpperCase()}{wf.workflowFormat === 'api_prompt' ? ' • API Format' : ''}) — {wf.modelCount} model{wf.modelCount !== 1 ? 's' : ''}, {wf.nodeTypes?.length || 0} nodes
                       </option>
                     ))}
                   </select>

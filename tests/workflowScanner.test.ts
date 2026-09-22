@@ -120,18 +120,25 @@ describe('WorkflowScanner', () => {
     expect(result.canvasGraph?.nodes?.length).toBe(2);
   });
 
-  it('should build canvasGraph from prompt execution dictionary', async () => {
+  it('should build canvasGraph from prompt execution dictionary with multi-slot outputs', async () => {
     const promptWorkflow = {
       prompt: {
         '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'flux.safetensors' } },
-        '2': { class_type: 'KSampler', inputs: { model: ['1', 0] } },
+        '2': { class_type: 'KSampler', inputs: { model: ['1', 0], latent_image: ['3', 0] } },
+        '3': { class_type: 'EmptyLatentImage', inputs: { width: 512, height: 512 } },
+        '4': { class_type: 'CLIPTextEncode', inputs: { clip: ['1', 1], text: 'a photo of a cat' } },
+        '5': { class_type: 'VAEDecode', inputs: { samples: ['2', 0], vae: ['1', 2] } },
       },
     };
 
     const result = await scanner.parseWorkflow(promptWorkflow, 'prompt_graph.json');
     expect(result.canvasGraph).toBeDefined();
-    expect(result.canvasGraph?.nodes?.length).toBe(2);
-    expect(result.canvasGraph?.links?.length).toBe(1);
+    expect(result.canvasGraph?.nodes?.length).toBe(5);
+    expect(result.canvasGraph?.links?.length).toBe(5);
+
+    const ckptNode = result.canvasGraph?.nodes?.find((n) => String(n.id) === '1');
+    expect(ckptNode).toBeDefined();
+    expect(ckptNode?.outputs?.length).toBe(3); // slots 0, 1, 2
   });
 
   it('should reject invalid non-ComfyUI JSON payloads with a descriptive error', async () => {
@@ -160,6 +167,34 @@ describe('WorkflowScanner', () => {
     expect(result.models.length).toBe(1);
     expect(result.models[0].modelName).toBe('Illustrious_vPred_XL.safetensors');
     expect(result.nodeTypes).toContain('CheckpointLoaderSimple');
+    expect(result.workflowFormat).toBe('full_canvas');
+  });
+
+  it('should accurately detect full_canvas vs api_prompt formats', () => {
+    const fullCanvas = {
+      nodes: [
+        { id: 1, type: 'KSampler', pos: [100, 100], size: [200, 100], inputs: [], outputs: [] },
+      ],
+      links: [],
+    };
+    expect(scanner.detectWorkflowFormat(fullCanvas)).toBe('full_canvas');
+
+    const apiPrompt = {
+      '3': {
+        class_type: 'KSampler',
+        inputs: { seed: 12345, model: ['4', 0] },
+      },
+      '4': {
+        class_type: 'CheckpointLoaderSimple',
+        inputs: { ckpt_name: 'v1-5.safetensors' },
+      },
+    };
+    expect(scanner.detectWorkflowFormat(apiPrompt)).toBe('api_prompt');
+
+    const promptWrapper = {
+      prompt: apiPrompt,
+    };
+    expect(scanner.detectWorkflowFormat(promptWrapper)).toBe('api_prompt');
   });
 });
 

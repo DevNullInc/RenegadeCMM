@@ -244,6 +244,8 @@ export class VersionManager {
           if (fullModel) {
             modelCache.set(modelId, fullModel);
           }
+          // Pacing pause between uncached model lookups to avoid hammering the CivitAI endpoint
+          await new Promise((r) => setTimeout(r, 120));
         }
 
         if (fullModel && fullModel.modelVersions && fullModel.modelVersions.length > 0) {

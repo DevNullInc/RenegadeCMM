@@ -17,6 +17,8 @@ import {
   X,
   ArrowRight,
   Cpu,
+  Code2,
+  CheckCircle2,
 } from 'lucide-react';
 import { WorkflowInfo } from '../types/app';
 import { WorkflowParseResult } from '../services/workflowScanner';
@@ -42,7 +44,10 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
 }) => {
   const [targetName, setTargetName] = useState<string>('');
   const [allowOverwrite, setAllowOverwrite] = useState<boolean>(false);
+  const [hasConfirmedApiNotice, setHasConfirmedApiNotice] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const isApiWorkflow = parsedData?.workflowFormat === 'api_prompt';
 
   // Initialize workflow name when modal opens with parsed data
   useEffect(() => {
@@ -53,6 +58,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
         .trim();
       setTargetName(base || 'imported_workflow');
       setAllowOverwrite(false);
+      setHasConfirmedApiNotice(false);
       setErrorMsg(null);
     }
   }, [parsedData, isOpen]);
@@ -72,7 +78,8 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
 
   const isNameValid = NAME_REGEX.test(targetName.trim()) && targetName.trim().length > 0;
   const isBlockedByCollision = !!existingCollision && !allowOverwrite;
-  const canSubmit = isNameValid && !isBlockedByCollision && !isImporting;
+  const isApiConfirmed = !isApiWorkflow || hasConfirmedApiNotice;
+  const canSubmit = isNameValid && !isBlockedByCollision && !isImporting && isApiConfirmed;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +89,10 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
     }
     if (isBlockedByCollision) {
       setErrorMsg('A workflow with this name already exists. Enable overwrite to replace it.');
+      return;
+    }
+    if (isApiWorkflow && !hasConfirmedApiNotice) {
+      setErrorMsg('Please confirm that you intended to import an API-specific workflow file.');
       return;
     }
     setErrorMsg(null);
@@ -94,12 +105,20 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800/80 bg-slate-950/40">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">
-              <Workflow size={22} />
+            <div
+              className={`p-2.5 rounded-2xl border ${
+                isApiWorkflow
+                  ? 'bg-purple-600/20 text-purple-400 border-purple-500/30'
+                  : 'bg-cyan-600/20 text-cyan-400 border-cyan-500/30'
+              }`}
+            >
+              {isApiWorkflow ? <Code2 size={22} /> : <Workflow size={22} />}
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-100 flex items-center gap-2">
-                <span>Import ComfyUI Workflow</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-black text-slate-100">
+                  {isApiWorkflow ? 'Import API Prompt Workflow' : 'Import ComfyUI Workflow'}
+                </h2>
                 <span
                   className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
                     parsedData.fileType === 'png'
@@ -109,7 +128,16 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
                 >
                   {parsedData.fileType.toUpperCase()}
                 </span>
-              </h2>
+                <span
+                  className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full border ${
+                    isApiWorkflow
+                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                      : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                  }`}
+                >
+                  {isApiWorkflow ? 'API Prompt Format' : 'Full Canvas'}
+                </span>
+              </div>
               <p className="text-xs text-slate-400">
                 Source: <span className="text-slate-200 font-mono text-[11px]">{parsedData.fileName}</span>{' '}
                 ({(parsedData.fileSize / 1024).toFixed(1)} KB)
@@ -170,6 +198,51 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
               </p>
             </div>
           </div>
+
+          {/* Exported API Workflow Detection & User Confirmation Notice */}
+          {isApiWorkflow && (
+            <div className="p-4 rounded-2xl bg-purple-950/30 border border-purple-500/40 text-purple-200 space-y-3 animate-fadeIn shadow-lg">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0 mt-0.5">
+                  <Code2 size={18} />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-purple-100">Exported API Workflow Detected</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                      Dev API Format
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-200/90 leading-relaxed">
+                    This file is an <strong>API prompt execution dictionary</strong> (exported via ComfyUI <em>"Save (API format)"</em>) rather than a full visual canvas workflow.
+                  </p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    API format files contain backend execution instructions without visual canvas positioning, notes, or node group layouts. RenegadeCMM has synthesized a spatial layered layout and extracted all model and extension dependencies so you can still resolve and run them.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-purple-800/40 flex items-center justify-between gap-3 flex-wrap">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hasConfirmedApiNotice}
+                    onChange={(e) => {
+                      setHasConfirmedApiNotice(e.target.checked);
+                      setErrorMsg(null);
+                    }}
+                    className="w-4 h-4 rounded text-purple-500 bg-slate-900 border-slate-700 focus:ring-purple-400"
+                  />
+                  <span className="text-xs font-semibold text-purple-100">
+                    I understand and want to import this API-specific workflow
+                  </span>
+                </label>
+                <span className="text-[10px] text-purple-300/70 italic">
+                  Tip: In ComfyUI, use standard "Save" for full visual canvas files.
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Workflow Name Input */}
           <div className="space-y-2">
@@ -302,12 +375,20 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
               disabled={!canSubmit}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all cursor-pointer ${
                 canSubmit
-                  ? 'bg-linear-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-cyan-600/25 active:scale-95'
+                  ? isApiWorkflow
+                    ? 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/25 active:scale-95'
+                    : 'bg-linear-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-cyan-600/25 active:scale-95'
                   : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
               }`}
             >
               <Sparkles size={15} className={isImporting ? 'animate-spin' : ''} />
-              <span>{isImporting ? 'Archiving & Resolving...' : 'Import & Check Missing Nodes'}</span>
+              <span>
+                {isImporting
+                  ? 'Archiving & Resolving...'
+                  : isApiWorkflow
+                  ? 'Import API Workflow'
+                  : 'Import & Check Missing Nodes'}
+              </span>
               <ArrowRight size={14} />
             </button>
           </div>

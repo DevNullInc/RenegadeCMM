@@ -27,7 +27,8 @@ export class CivitAIClient {
   constructor(apiKey?: string, baseUrl = 'https://civitai.com/api/v1') {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
-    this.rateLimiter = new RateLimiter(apiKey ? 20 : 10);
+    // Gentle default rate limiting: 3 req/sec unauthenticated (250ms spacing), 5 req/sec with key (150ms spacing)
+    this.rateLimiter = new RateLimiter(apiKey ? 5 : 3, apiKey ? 150 : 250);
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
       timeout: 15000,
@@ -39,7 +40,7 @@ export class CivitAIClient {
 
   setApiKey(key?: string) {
     this.apiKey = key;
-    this.rateLimiter.setRateLimit(key ? 20 : 10);
+    this.rateLimiter.setRateLimit(key ? 5 : 3, key ? 150 : 250);
   }
 
   setBaseUrl(url: string) {
@@ -172,7 +173,8 @@ export class CivitAIClient {
     if (hashes.length === 0) return new Map();
 
     const resultMap = new Map<string, CivitAIModelVersion>();
-    const CONCURRENCY = 4;
+    // Reduced concurrency from 4 to 2 to protect against Cloudflare 429 burst detection
+    const CONCURRENCY = 2;
     let completed = 0;
 
     for (let i = 0; i < hashes.length; i += CONCURRENCY) {
@@ -201,6 +203,10 @@ export class CivitAIClient {
         }
       });
       await Promise.all(promises);
+      if (i + CONCURRENCY < hashes.length) {
+        // Inter-chunk pacing delay
+        await new Promise((r) => setTimeout(r, 100));
+      }
     }
 
     return resultMap;

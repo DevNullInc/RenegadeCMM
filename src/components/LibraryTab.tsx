@@ -445,7 +445,15 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   const getModelExternalUrl = (
     model: LocalModel
   ): { url: string; label: string; isHf: boolean; isNsfw: boolean } => {
-    if (isHuggingFaceModel(model)) {
+    if (model.source === 'huggingface' || model.hfRepoId || isHuggingFaceModel(model)) {
+      if (model.hfRepoId) {
+        return {
+          url: `https://huggingface.co/${model.hfRepoId}`,
+          label: `Open repository on Hugging Face (${model.hfRepoId})`,
+          isHf: true,
+          isNsfw: false,
+        };
+      }
       const q = getHuggingFaceQuery(model);
       return {
         url: `https://huggingface.co/search/full-text?q=${encodeURIComponent(q)}`,
@@ -576,15 +584,19 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
       await loadLocalModels();
       if (result && result.newlyMatched !== undefined) {
         if (result.newlyMatched > 0) {
-          setUpdateSummary(`Successfully matched ${result.newlyMatched} of ${result.totalChecked} unidentified models with CivitAI!`);
+          const details: string[] = [];
+          if (result.civitaiMatched) details.push(`${result.civitaiMatched} CivitAI`);
+          if (result.hfMatched) details.push(`${result.hfMatched} Hugging Face`);
+          const detailStr = details.length > 0 ? ` (${details.join(', ')})` : '';
+          setUpdateSummary(`Successfully identified ${result.newlyMatched} of ${result.totalChecked} models${detailStr}!`);
         } else {
-          setUpdateSummary(`Checked ${result.totalChecked} unidentified models (no matches found on CivitAI).`);
+          setUpdateSummary(`Checked ${result.totalChecked} unidentified models (no matches found on CivitAI or Hugging Face).`);
         }
       }
       setTimeout(() => setUpdateSummary(null), 8000);
     } catch (e: any) {
-      console.error('Failed to match models with CivitAI:', e);
-      alert(`CivitAI matching failed: ${e?.message || e}`);
+      console.error('Failed to match models:', e);
+      alert(`Model identification failed: ${e?.message || e}`);
     } finally {
       setMatchingUnidentified(false);
     }
@@ -791,11 +803,11 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             </button>
           )}
 
-          {/* Identify with CivitAI Button */}
+          {/* Identify Models Button (Two-pronged CivitAI + Hugging Face) */}
           <button
             onClick={handleMatchUnidentified}
             disabled={isScanning || matchingUnidentified || checkingUpdates || localModels.length === 0}
-            title="Query CivitAI hash database for all unidentified models to fetch names, preview images, and metadata"
+            title="Two-pronged identification: Query CivitAI (primary) and Hugging Face (fallback for LLMs, text encoders, GGUF) to fetch names, preview images, and metadata"
             className={`flex items-center gap-2 px-5 py-3 border font-bold rounded-2xl text-sm transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95 ${
               localModels.some((m) => !m.isMatched)
                 ? 'bg-linear-to-r from-indigo-900/60 to-purple-900/60 hover:from-indigo-900/80 hover:to-purple-900/80 border-indigo-500/40 text-indigo-200 glow-purple'
@@ -806,7 +818,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             <span>
               {matchingUnidentified
                 ? 'Identifying...'
-                : `Identify with CivitAI${localModels.filter((m) => !m.isMatched).length > 0 ? ` (${localModels.filter((m) => !m.isMatched).length})` : ''}`}
+                : `Identify Models${localModels.filter((m) => !m.isMatched).length > 0 ? ` (${localModels.filter((m) => !m.isMatched).length})` : ''}`}
             </span>
           </button>
 

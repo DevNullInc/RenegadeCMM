@@ -17,32 +17,92 @@ export class DatabaseManager {
   private dbPath: string;
 
   constructor(customDbPath?: string) {
-    const defaultNewPath = path.join(process.cwd(), 'renegadecmm.sqlite');
-    const legacyPath = path.join(process.cwd(), 'civitai_manager.sqlite');
+    this.dbPath = this.resolveDatabasePath(customDbPath);
+  }
 
-    // Auto-migrate legacy civitai_manager.sqlite to renegadecmm.sqlite if not already migrated
-    if (!customDbPath && !fs.existsSync(defaultNewPath) && fs.existsSync(legacyPath)) {
-      try {
-        fs.renameSync(legacyPath, defaultNewPath);
-        if (fs.existsSync(`${legacyPath}-wal`)) {
-          fs.renameSync(`${legacyPath}-wal`, `${defaultNewPath}-wal`);
-        }
-        if (fs.existsSync(`${legacyPath}-shm`)) {
-          fs.renameSync(`${legacyPath}-shm`, `${defaultNewPath}-shm`);
-        }
-        logger.info(`Migrated legacy database civitai_manager.sqlite to renegadecmm.sqlite`);
-      } catch (renameErr) {
-        logger.warn('Could not rename legacy civitai_manager.sqlite, copying instead:', renameErr);
+  private resolveDatabasePath(customDbPath?: string): string {
+    if (customDbPath) {
+      return customDbPath;
+    }
+
+    let baseDir = process.cwd();
+    try {
+      // If running inside Electron main process, resolve to persistent app userData
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const electron = require('electron');
+      const electronApp = electron?.app || electron?.remote?.app;
+      if (electronApp && typeof electronApp.getPath === 'function') {
+        baseDir = electronApp.getPath('userData');
+      }
+    } catch {
+      baseDir = process.cwd();
+    }
+
+    try {
+      if (!fs.existsSync(baseDir)) {
+        fs.mkdirSync(baseDir, { recursive: true });
+      }
+    } catch (err) {
+      logger.warn(`Could not ensure directory for database at ${baseDir}:`, err);
+    }
+
+    const defaultNewPath = path.join(baseDir, 'renegadecmm.sqlite');
+    const legacyPath = path.join(baseDir, 'civitai_manager.sqlite');
+    const cwdNewPath = path.join(process.cwd(), 'renegadecmm.sqlite');
+    const cwdLegacyPath = path.join(process.cwd(), 'civitai_manager.sqlite');
+
+    // Auto-migrate legacy civitai_manager.sqlite to renegadecmm.sqlite in baseDir if present
+    if (!fs.existsSync(defaultNewPath)) {
+      if (fs.existsSync(legacyPath)) {
         try {
-          fs.copyFileSync(legacyPath, defaultNewPath);
-        } catch {}
+          fs.renameSync(legacyPath, defaultNewPath);
+          if (fs.existsSync(`${legacyPath}-wal`)) fs.renameSync(`${legacyPath}-wal`, `${defaultNewPath}-wal`);
+          if (fs.existsSync(`${legacyPath}-shm`)) fs.renameSync(`${legacyPath}-shm`, `${defaultNewPath}-shm`);
+          logger.info(`Migrated legacy database civitai_manager.sqlite to renegadecmm.sqlite in ${baseDir}`);
+        } catch (renameErr) {
+          logger.warn('Could not rename legacy civitai_manager.sqlite, copying instead:', renameErr);
+          try {
+            fs.copyFileSync(legacyPath, defaultNewPath);
+          } catch {}
+        }
+      } else if (baseDir !== process.cwd() && fs.existsSync(cwdNewPath)) {
+        // Carry over existing database from previous workspace/cwd runs into persistent userData
+        try {
+          fs.copyFileSync(cwdNewPath, defaultNewPath);
+          if (fs.existsSync(`${cwdNewPath}-wal`)) fs.copyFileSync(`${cwdNewPath}-wal`, `${defaultNewPath}-wal`);
+          if (fs.existsSync(`${cwdNewPath}-shm`)) fs.copyFileSync(`${cwdNewPath}-shm`, `${defaultNewPath}-shm`);
+          logger.info(`Migrated existing database from working directory (${cwdNewPath}) to persistent userData (${defaultNewPath})`);
+        } catch (copyErr) {
+          logger.warn('Could not copy existing database from cwd to userData:', copyErr);
+        }
+      } else if (baseDir !== process.cwd() && fs.existsSync(cwdLegacyPath)) {
+        try {
+          fs.copyFileSync(cwdLegacyPath, defaultNewPath);
+          if (fs.existsSync(`${cwdLegacyPath}-wal`)) fs.copyFileSync(`${cwdLegacyPath}-wal`, `${defaultNewPath}-wal`);
+          if (fs.existsSync(`${cwdLegacyPath}-shm`)) fs.copyFileSync(`${cwdLegacyPath}-shm`, `${defaultNewPath}-shm`);
+          logger.info(`Migrated legacy database from working directory (${cwdLegacyPath}) to persistent userData (${defaultNewPath})`);
+        } catch (copyErr) {
+          logger.warn('Could not copy legacy database from cwd to userData:', copyErr);
+        }
       }
     }
 
-    this.dbPath = customDbPath || defaultNewPath;
+    return defaultNewPath;
   }
 
-  async init(): Promise<void> {
+  getDbPath(): string {
+    return this.dbPath;
+  }
+
+  async init(customDbPath?: string): Promise<void> {
+    if (customDbPath) {
+      this.dbPath = customDbPath;
+    }
+
+    if (this.db) {
+      await this.close();
+    }
+
     return new Promise((resolve, reject) => {
       this.db = new sqlite3.Database(this.dbPath, async (err) => {
         if (err) {
@@ -440,10 +500,15 @@ export class DatabaseManager {
 
       for (const r of rows) {
         try {
-          if (!r.file_path || !fs.existsSync(r.file_path)) {
-            toDelete.push(r.id);
+          if (!r.file_path) {
             continue;
           }
+
+          // Retain records even if unmounted or unreachable on startup (e.g. offline drives or sleeping HDDs)
+          if (!fs.existsSync(r.file_path)) {
+            continue;
+          }
+
           let real: string;
           try {
             real = fs.realpathSync.native(r.file_path);
@@ -453,6 +518,7 @@ export class DatabaseManager {
 
           const realKey = real.toLowerCase();
           if (seenRealPaths.has(realKey)) {
+            // Only clean up genuine duplicate records pointing to the exact same physical path
             toDelete.push(r.id);
           } else {
             seenRealPaths.set(realKey, r.id);
@@ -464,7 +530,8 @@ export class DatabaseManager {
             }
           }
         } catch (e) {
-          toDelete.push(r.id);
+          // Do not delete on non-fatal filesystem read errors
+          logger.warn(`Non-fatal check on model path ${r.file_path}:`, e);
         }
       }
 
@@ -486,7 +553,7 @@ export class DatabaseManager {
       `);
 
       if (toDelete.length > 0) {
-        logger.info(`Cleaned up ${toDelete.length} phantom / missing duplicate records from database.`);
+        logger.info(`Cleaned up ${toDelete.length} duplicate records from database.`);
       }
     } catch (err) {
       logger.warn('Failed during startup duplicate database cleanup:', err);

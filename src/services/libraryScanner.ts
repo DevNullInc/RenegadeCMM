@@ -12,6 +12,7 @@ import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
 import { LocalModel, ScanProgress } from '../types/app';
 import { civitaiClient } from './civitaiClient';
+import { huggingfaceClient } from './huggingfaceClient';
 import { dbManager } from '../db/db';
 import { computeFileSHA256 } from '../utils/hash';
 import { logger } from '../utils/logger';
@@ -438,12 +439,36 @@ export class LibraryScanner {
               item.nsfw = isNsfw;
 
               await dbManager.run(
-                'UPDATE local_models SET civitai_model_id = ?, civitai_version_id = ?, civitai_name = ?, preview_url = ?, model_type = COALESCE(?, model_type), nsfw = ? WHERE id = ?',
-                [matchedVersion.modelId, matchedVersion.id, item.civitaiName || null, preview, modelType || null, isNsfw ? 1 : 0, item.id]
+                'UPDATE local_models SET civitai_model_id = ?, civitai_version_id = ?, civitai_name = ?, preview_url = ?, model_type = COALESCE(?, model_type), nsfw = ?, source = ? WHERE id = ?',
+                [matchedVersion.modelId, matchedVersion.id, item.civitaiName || null, preview, modelType || null, isNsfw ? 1 : 0, 'civitai', item.id]
               );
               if (preview) {
                 imageCacheService.prefetchToPermanentCache(preview);
               }
+            }
+          }
+        }
+
+        // Hugging Face Fallback Identification for remaining unmatched models
+        for (const item of scannedModels) {
+          if (!item.isMatched) {
+            try {
+              const hfResult = await huggingfaceClient.matchModel(item.filePath, item.fileName, item.sha256);
+              if (hfResult && hfResult.matched && hfResult.repoId) {
+                item.isMatched = true;
+                item.source = 'huggingface';
+                item.hfRepoId = hfResult.repoId;
+                item.civitaiName = hfResult.modelName ? `${hfResult.repoId} (${hfResult.modelName})` : hfResult.repoId;
+                if (hfResult.modelType) {
+                  item.modelType = hfResult.modelType as any;
+                }
+                await dbManager.run(
+                  'UPDATE local_models SET source = ?, hf_repo_id = ?, civitai_name = ?, model_type = COALESCE(?, model_type) WHERE id = ?',
+                  ['huggingface', hfResult.repoId, item.civitaiName, hfResult.modelType || null, item.id]
+                );
+              }
+            } catch (hfErr) {
+              logger.warn(`Hugging Face lookup skipped for ${item.fileName}:`, hfErr);
             }
           }
         }
@@ -653,23 +678,28 @@ export class LibraryScanner {
 
   async matchUnidentifiedModels(
     onProgress?: (done: number, total: number) => void
-  ): Promise<{ totalChecked: number; newlyMatched: number }> {
+  ): Promise<{ totalChecked: number; newlyMatched: number; civitaiMatched: number; hfMatched: number }> {
     const rows: any[] = await dbManager.all(
-      'SELECT id, sha256, file_name, file_path FROM local_models WHERE civitai_version_id IS NULL AND sha256 IS NOT NULL;'
+      'SELECT id, sha256, file_name, file_path, source, hf_repo_id FROM local_models WHERE civitai_version_id IS NULL AND hf_repo_id IS NULL;'
     );
 
     if (rows.length === 0) {
-      return { totalChecked: 0, newlyMatched: 0 };
+      return { totalChecked: 0, newlyMatched: 0, civitaiMatched: 0, hfMatched: 0 };
     }
 
-    logger.info(`Starting CivitAI hash matching for ${rows.length} unidentified model(s)...`);
-    const uniqueHashes = Array.from(new Set(rows.map((r) => r.sha256.toUpperCase())));
+    logger.info(`Starting two-pronged identification (CivitAI primary + Hugging Face fallback) for ${rows.length} unidentified model(s)...`);
+
+    // 1. First Prong: CivitAI Bulk Hash Matching
+    const rowsWithHash = rows.filter((r) => r.sha256 && r.sha256.trim().length > 0);
+    const uniqueHashes = Array.from(new Set(rowsWithHash.map((r) => r.sha256.toUpperCase())));
     const versionMap = await civitaiClient.bulkLookupByHashes(uniqueHashes, onProgress);
 
-    let newlyMatched = 0;
+    let civitaiMatched = 0;
+    const unmatchedRows: any[] = [];
+
     for (const r of rows) {
-      const hashKey = r.sha256.toUpperCase();
-      const matchedVersion = versionMap.get(hashKey);
+      const hashKey = r.sha256 ? r.sha256.toUpperCase() : '';
+      const matchedVersion = hashKey ? versionMap.get(hashKey) : null;
       if (matchedVersion) {
         const preview = this.extractPreviewImage(matchedVersion);
         const modelType = matchedVersion.model?.type || matchedVersion.type;
@@ -679,19 +709,42 @@ export class LibraryScanner {
           (matchedVersion.images && matchedVersion.images.some((img: any) => img && (img.nsfw || (img.nsfwLevel && img.nsfwLevel > 1))))
         );
         await dbManager.run(
-          'UPDATE local_models SET civitai_model_id = ?, civitai_version_id = ?, civitai_name = ?, preview_url = ?, model_type = COALESCE(?, model_type), nsfw = ? WHERE id = ?',
-          [matchedVersion.modelId, matchedVersion.id, civitaiName, preview, modelType || null, isNsfw ? 1 : 0, r.id]
+          'UPDATE local_models SET civitai_model_id = ?, civitai_version_id = ?, civitai_name = ?, preview_url = ?, model_type = COALESCE(?, model_type), nsfw = ?, source = ? WHERE id = ?',
+          [matchedVersion.modelId, matchedVersion.id, civitaiName, preview, modelType || null, isNsfw ? 1 : 0, 'civitai', r.id]
         );
         if (preview) {
           imageCacheService.prefetchToPermanentCache(preview);
         }
-        newlyMatched++;
+        civitaiMatched++;
+      } else {
+        unmatchedRows.push(r);
+      }
+    }
+
+    // 2. Second Prong: Hugging Face Fallback Identification (LLMs, GGUF, Text Encoders, Diffusers)
+    let hfMatched = 0;
+    for (const r of unmatchedRows) {
+      try {
+        const hfResult = await huggingfaceClient.matchModel(r.file_path, r.file_name, r.sha256);
+        if (hfResult && hfResult.matched && hfResult.repoId) {
+          const title = hfResult.modelName ? `${hfResult.repoId} (${hfResult.modelName})` : hfResult.repoId;
+          await dbManager.run(
+            'UPDATE local_models SET source = ?, hf_repo_id = ?, civitai_name = ?, model_type = COALESCE(?, model_type) WHERE id = ?',
+            ['huggingface', hfResult.repoId, title, hfResult.modelType || null, r.id]
+          );
+          hfMatched++;
+        }
+      } catch (hfErr) {
+        logger.warn(`Hugging Face fallback matching skipped for ${r.file_name}:`, hfErr);
       }
     }
 
     await this.flagDuplicates();
-    logger.info(`Matched ${newlyMatched}/${rows.length} previously unidentified models with CivitAI.`);
-    return { totalChecked: rows.length, newlyMatched };
+    const newlyMatched = civitaiMatched + hfMatched;
+    logger.info(
+      `Two-pronged model identification complete. Checked: ${rows.length}, Total Matched: ${newlyMatched} (CivitAI: ${civitaiMatched}, Hugging Face: ${hfMatched}).`
+    );
+    return { totalChecked: rows.length, newlyMatched, civitaiMatched, hfMatched };
   }
 
   async getIgnoredDuplicates(): Promise<{ sha256: string; knownCount: number }[]> {

@@ -340,6 +340,8 @@ export interface CanvasGraph {
   groups?: any[];
 }
 
+export type WorkflowFormat = 'full_canvas' | 'api_prompt';
+
 export interface WorkflowInfo {
   filePath: string;
   fileName: string;
@@ -349,6 +351,7 @@ export interface WorkflowInfo {
   nodeTypes?: string[];
   rawGraph?: any;
   canvasGraph?: CanvasGraph;
+  workflowFormat?: WorkflowFormat;
 }
 
 export interface DownloadTask {

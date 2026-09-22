@@ -82,4 +82,44 @@ describe('HuggingFaceClient', () => {
     expect(result2.exists).toBe(false);
     expect(result2.error).toContain('Invalid Hugging Face repo ID format');
   });
+
+  it('should identify local model via Hugging Face search and match siblings', async () => {
+    const client = new HuggingFaceClient();
+    (client as any).axiosInstance.get = vi.fn().mockResolvedValueOnce({
+      data: [
+        {
+          id: 'Qwen/Qwen2.5-Coder-7B-Instruct-GGUF',
+          author: 'Qwen',
+          pipeline_tag: 'text-generation',
+          tags: ['llm', 'qwen', 'gguf'],
+          siblings: [
+            {
+              rfilename: 'qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+              size: 4500000000,
+              lfs: { sha256: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2' },
+            },
+          ],
+        },
+      ],
+    });
+
+    const match = await client.matchModel(
+      'D:/ComfyUI/models/LLM/qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+      'qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+      'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'
+    );
+
+    expect(match).not.toBeNull();
+    expect(match?.matched).toBe(true);
+    expect(match?.repoId).toBe('Qwen/Qwen2.5-Coder-7B-Instruct-GGUF');
+    expect(match?.modelType).toBe('GGUF');
+  });
+
+  it('should infer appropriate model types from metadata and filenames', () => {
+    const client = new HuggingFaceClient();
+    expect(client.inferModelType({ id: 'test', modelName: 'test', private: false, gated: false, tags: ['llm'] }, 'model.gguf')).toBe('GGUF');
+    expect(client.inferModelType({ id: 'test', modelName: 'test', private: false, gated: false, tags: ['llm'], pipelineTag: 'text-generation' }, 'model.safetensors')).toBe('LLM');
+    expect(client.inferModelType({ id: 'test', modelName: 'test', private: false, gated: false, tags: ['diffusers'], pipelineTag: 'text-to-image' }, 'flux1-lora.safetensors')).toBe('LORA');
+    expect(client.inferModelType({ id: 'test', modelName: 'test', private: false, gated: false, tags: ['diffusers'], pipelineTag: 'text-to-image' }, 'flux1-dev.safetensors')).toBe('Checkpoint');
+  });
 });

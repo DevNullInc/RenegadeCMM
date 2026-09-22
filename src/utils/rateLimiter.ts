@@ -13,18 +13,24 @@ export class RateLimiter {
   private maxRequestsPerSec: number;
   private tokens: number;
   private lastRefill: number;
+  private lastReleaseTime: number = 0;
+  private minIntervalMs: number;
   private queue: Array<() => void> = [];
   private isProcessing = false;
 
-  constructor(requestsPerSecond = 10) {
-    this.maxRequestsPerSec = requestsPerSecond;
-    this.tokens = requestsPerSecond;
+  constructor(requestsPerSecond = 3, minIntervalMs = 150) {
+    this.maxRequestsPerSec = Math.max(1, requestsPerSecond);
+    this.tokens = this.maxRequestsPerSec;
     this.lastRefill = Date.now();
+    this.minIntervalMs = minIntervalMs;
   }
 
-  setRateLimit(requestsPerSecond: number) {
+  setRateLimit(requestsPerSecond: number, minIntervalMs?: number) {
     this.maxRequestsPerSec = Math.max(1, requestsPerSecond);
     this.tokens = Math.min(this.tokens, this.maxRequestsPerSec);
+    if (minIntervalMs !== undefined) {
+      this.minIntervalMs = minIntervalMs;
+    }
   }
 
   private refillTokens() {
@@ -52,13 +58,21 @@ export class RateLimiter {
 
     while (this.queue.length > 0) {
       this.refillTokens();
-      if (this.tokens >= 1) {
+      const now = Date.now();
+      const timeSinceLast = now - this.lastReleaseTime;
+      const pacingWait = Math.max(0, this.minIntervalMs - timeSinceLast);
+
+      if (this.tokens >= 1 && pacingWait === 0) {
         this.tokens -= 1;
+        this.lastReleaseTime = Date.now();
         const next = this.queue.shift();
         if (next) next();
       } else {
-        const waitMs = Math.ceil((1 - this.tokens) * (1000 / this.maxRequestsPerSec));
-        await new Promise((r) => setTimeout(r, Math.max(50, waitMs)));
+        const tokenWaitMs = this.tokens < 1
+          ? Math.ceil((1 - this.tokens) * (1000 / this.maxRequestsPerSec))
+          : 0;
+        const waitMs = Math.max(pacingWait, tokenWaitMs, 25);
+        await new Promise((r) => setTimeout(r, waitMs));
       }
     }
 
@@ -68,7 +82,7 @@ export class RateLimiter {
   async executeWithRetry<T>(
     fn: () => Promise<T>,
     maxRetries = 4,
-    initialBackoffMs = 1000
+    initialBackoffMs = 1200
   ): Promise<T> {
     let attempt = 0;
     while (true) {
@@ -78,7 +92,7 @@ export class RateLimiter {
       } catch (err: any) {
         attempt++;
         const status = err?.response?.status;
-        const isRateLimited = status === 429 || status === 503;
+        const isRateLimited = status === 429 || status === 503 || status === 502 || status === 520 || status === 524 || status === 408;
         // Node's http client marks a response stream cut short as "aborted"
         // (code ECONNABORTED). CivitAI/Cloudflare occasionally reset a large body
         // after sending the 200 headers, which logs as "GET /models failed
@@ -86,7 +100,9 @@ export class RateLimiter {
         // letting one bad response wipe the entire browse grid.
         const isAborted =
           err?.code === 'ECONNABORTED' ||
-          (typeof err?.message === 'string' && /aborted/i.test(err.message));
+          err?.code === 'ETIMEDOUT' ||
+          err?.code === 'ECONNRESET' ||
+          (typeof err?.message === 'string' && /aborted|timeout|reset/i.test(err.message));
         const retryable = isRateLimited || isAborted;
 
         if (!retryable || attempt > maxRetries) {
@@ -104,14 +120,14 @@ export class RateLimiter {
           }
         }
 
-        // Add jitter (0-250ms)
-        const jitter = Math.random() * 250;
-        const totalWait = backoffMs + jitter;
+        // Add jitter (50-400ms) and cap backoff at 30 seconds
+        const jitter = Math.random() * 350 + 50;
+        const totalWait = Math.min(backoffMs + jitter, 30000);
 
         logger.warn(
-          `API Rate limited (Status ${status}). Retrying attempt ${attempt}/${maxRetries} in ${Math.round(
+          `CivitAI/API throttled or returned transient error (Status ${status || err?.code}). Retrying attempt ${attempt}/${maxRetries} in ${Math.round(
             totalWait
-          )}ms`
+          )}ms...`
         );
 
         await new Promise((r) => setTimeout(r, totalWait));

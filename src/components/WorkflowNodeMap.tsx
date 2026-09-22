@@ -124,11 +124,14 @@ function ComfyUINodeComponent({ data, selected }: NodeProps<Node<CustomNodeData>
 
   const inputs = canvasNode?.inputs || [];
   const outputs = canvasNode?.outputs || [];
+  const maxSockets = Math.max(inputs.length, outputs.length);
+  const minHeightPx = Math.max(80, 44 + maxSockets * 22);
 
   return (
     <div
       onClick={() => onFocus(canvasNode?.type || canvasNode?.id)}
-      className={`group relative min-w-[240px] max-w-[320px] rounded-xl border backdrop-blur-md transition-all duration-150 select-none shadow-xl ${
+      style={{ minHeight: `${minHeightPx}px` }}
+      className={`group relative min-w-[240px] max-w-[320px] rounded-xl border backdrop-blur-md transition-all duration-150 select-none shadow-xl flex flex-col justify-between ${
         theme.border
       } ${theme.bg} ${selected ? 'ring-2 ring-indigo-500 shadow-indigo-500/20' : ''}`}
     >
@@ -140,7 +143,7 @@ function ComfyUINodeComponent({ data, selected }: NodeProps<Node<CustomNodeData>
           position={Position.Left}
           id={`in_${idx}`}
           style={{
-            top: `${36 + idx * 20}px`,
+            top: `${36 + idx * 22}px`,
             background: '#6366f1',
             width: 10,
             height: 10,
@@ -158,7 +161,7 @@ function ComfyUINodeComponent({ data, selected }: NodeProps<Node<CustomNodeData>
           position={Position.Right}
           id={`out_${idx}`}
           style={{
-            top: `${36 + idx * 20}px`,
+            top: `${36 + idx * 22}px`,
             background: '#10b981',
             width: 10,
             height: 10,
@@ -185,7 +188,7 @@ function ComfyUINodeComponent({ data, selected }: NodeProps<Node<CustomNodeData>
       </div>
 
       {/* Body Details */}
-      <div className="p-3 space-y-2 text-xs">
+      <div className="p-3 space-y-2 text-xs flex-1">
         {isTypeDifferent && (
           <div className="text-[11px] text-slate-400 font-mono truncate" title={canvasNode?.type}>
             type: {canvasNode?.type}
@@ -247,17 +250,72 @@ function WorkflowNodeMapInner(
       return;
     }
 
+    // 1. Index existing node IDs and compute max referenced socket slots for inputs & outputs
+    const existingNodeIds = new Set<string>();
+    const maxOriginSlotPerNode = new Map<string, number>();
+    const maxTargetSlotPerNode = new Map<string, number>();
+
+    graph.nodes.forEach((n) => {
+      existingNodeIds.add(String(n.id));
+    });
+
+    if (Array.isArray(graph.links)) {
+      graph.links.forEach((l) => {
+        if (!Array.isArray(l) || l.length < 5) return;
+        const [_, originId, originSlot, targetId, targetSlot] = l;
+        const srcIdStr = String(originId);
+        const tgtIdStr = String(targetId);
+
+        if (existingNodeIds.has(srcIdStr)) {
+          const slotNum = typeof originSlot === 'number' ? originSlot : (parseInt(originSlot, 10) || 0);
+          const currentSrcMax = maxOriginSlotPerNode.get(srcIdStr) ?? -1;
+          if (slotNum > currentSrcMax) {
+            maxOriginSlotPerNode.set(srcIdStr, slotNum);
+          }
+        }
+
+        if (existingNodeIds.has(tgtIdStr)) {
+          const slotNum = typeof targetSlot === 'number' ? targetSlot : (parseInt(targetSlot, 10) || 0);
+          const currentTgtMax = maxTargetSlotPerNode.get(tgtIdStr) ?? -1;
+          if (slotNum > currentTgtMax) {
+            maxTargetSlotPerNode.set(tgtIdStr, slotNum);
+          }
+        }
+      });
+    }
+
     const flowNodes: Node<CustomNodeData>[] = graph.nodes.map((n) => {
       const status = getNodeStatus(n);
       const posX = Array.isArray(n.pos) && typeof n.pos[0] === 'number' ? n.pos[0] : 0;
       const posY = Array.isArray(n.pos) && typeof n.pos[1] === 'number' ? n.pos[1] : 0;
+      const idStr = String(n.id);
+
+      // Ensure inputs array has enough slots for all referenced links
+      const rawInputs = Array.isArray(n.inputs) ? [...n.inputs] : [];
+      const maxTargetSlot = maxTargetSlotPerNode.get(idStr) ?? -1;
+      while (rawInputs.length <= maxTargetSlot) {
+        rawInputs.push({ name: `Input ${rawInputs.length}`, type: 'any' });
+      }
+
+      // Ensure outputs array has enough slots for all referenced links
+      const rawOutputs = Array.isArray(n.outputs) ? [...n.outputs] : [];
+      const maxOriginSlot = maxOriginSlotPerNode.get(idStr) ?? -1;
+      while (rawOutputs.length <= maxOriginSlot) {
+        rawOutputs.push({ name: `Output ${rawOutputs.length}`, type: 'any' });
+      }
+
+      const normalizedCanvasNode: CanvasNode = {
+        ...n,
+        inputs: rawInputs,
+        outputs: rawOutputs,
+      };
 
       return {
-        id: String(n.id),
+        id: idStr,
         type: 'comfyNode',
         position: { x: posX, y: posY },
         data: {
-          canvasNode: n,
+          canvasNode: normalizedCanvasNode,
           status,
           onFocus: onFocusNode,
         },
@@ -269,12 +327,23 @@ function WorkflowNodeMapInner(
       graph.links.forEach((l, idx) => {
         if (!Array.isArray(l) || l.length < 5) return;
         const [linkId, originId, originSlot, targetId, targetSlot] = l;
+        const srcIdStr = String(originId);
+        const tgtIdStr = String(targetId);
+
+        // Discard dangling links where source or target node does not exist in graph
+        if (!existingNodeIds.has(srcIdStr) || !existingNodeIds.has(tgtIdStr)) {
+          return;
+        }
+
+        const srcSlot = typeof originSlot === 'number' ? originSlot : (parseInt(originSlot, 10) || 0);
+        const tgtSlot = typeof targetSlot === 'number' ? targetSlot : (parseInt(targetSlot, 10) || 0);
+
         flowEdges.push({
           id: `edge-${linkId || idx}`,
-          source: String(originId),
-          target: String(targetId),
-          sourceHandle: `out_${originSlot}`,
-          targetHandle: `in_${targetSlot}`,
+          source: srcIdStr,
+          target: tgtIdStr,
+          sourceHandle: `out_${srcSlot}`,
+          targetHandle: `in_${tgtSlot}`,
           animated: false,
           style: { stroke: '#6366f1', strokeWidth: 2 },
         });
@@ -332,7 +401,6 @@ function WorkflowNodeMapInner(
         onMove={(_e, viewport) => {
           setZoomLevel(Math.round(viewport.zoom * 100));
         }}
-        proOptions={{ hideAttribution: true }}
         className="touch-none"
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#334155" />

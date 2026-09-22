@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
-import { WorkflowInfo, WorkflowModelReference, CanvasGraph } from '../types/app';
+import { WorkflowInfo, WorkflowModelReference, CanvasGraph, WorkflowFormat } from '../types/app';
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
 
@@ -38,6 +38,7 @@ export interface WorkflowParseResult {
   metadata: any;
   canvasGraph?: CanvasGraph;
   modelCount: number;
+  workflowFormat?: WorkflowFormat;
 }
 
 const MODEL_NODE_KEYS: Record<string, string[]> = {
@@ -106,6 +107,7 @@ export class WorkflowScanner {
         const modelRefs = this.extractModelReferences(parsedData, localModelMap);
         const nodeTypes = this.extractNodeTypes(parsedData);
         const canvasGraph = this.buildCanvasGraph(parsedData);
+        const workflowFormat = this.detectWorkflowFormat(parsedData);
         if (modelRefs.length > 0 || nodeTypes.length > 0 || canvasGraph) {
           results.push({
             filePath,
@@ -116,6 +118,7 @@ export class WorkflowScanner {
             nodeTypes,
             rawGraph: parsedData,
             canvasGraph,
+            workflowFormat,
           });
         }
       } catch (err: any) {
@@ -187,6 +190,58 @@ export class WorkflowScanner {
   }
 
   /**
+   * Distinguish between a Full Visual Canvas Workflow (.nodes array with spatial metadata)
+   * versus an Exported Backend API Execution Prompt dictionary ("Save (API format)").
+   */
+  detectWorkflowFormat(raw: any): WorkflowFormat {
+    if (!raw) return 'api_prompt';
+    let data = raw;
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch {
+        return 'api_prompt';
+      }
+    }
+    if (!data || typeof data !== 'object') return 'api_prompt';
+
+    // 1. Direct or nested full UI canvas workflow format
+    if (Array.isArray(data.nodes) && data.nodes.length > 0) {
+      return 'full_canvas';
+    }
+    if (data.workflow && typeof data.workflow === 'object' && Array.isArray(data.workflow.nodes)) {
+      return 'full_canvas';
+    }
+    if (data.extra_pnginfo?.workflow) {
+      const nested =
+        typeof data.extra_pnginfo.workflow === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(data.extra_pnginfo.workflow);
+              } catch {
+                return null;
+              }
+            })()
+          : data.extra_pnginfo.workflow;
+      if (nested && Array.isArray(nested.nodes)) return 'full_canvas';
+    }
+
+    // 2. API prompt format execution dictionary
+    const promptObj = data.prompt ? data.prompt : data;
+    if (promptObj && typeof promptObj === 'object' && !Array.isArray(promptObj)) {
+      const values = Object.values(promptObj);
+      const isApiFormat = values.some(
+        (v: any) => v && typeof v === 'object' && (v.class_type !== undefined || v.inputs !== undefined)
+      );
+      if (isApiFormat) {
+        return 'api_prompt';
+      }
+    }
+
+    return 'full_canvas';
+  }
+
+  /**
    * Parse a raw JSON workflow or API prompt object/string directly from memory
    * with strict validation.
    */
@@ -216,6 +271,7 @@ export class WorkflowScanner {
     const modelRefs = this.extractModelReferences(normalized, localModelMap);
     const nodeTypes = this.extractNodeTypes(normalized);
     const canvasGraph = this.buildCanvasGraph(normalized);
+    const workflowFormat = this.detectWorkflowFormat(workflowData);
 
     const hasNodes = (canvasGraph?.nodes && canvasGraph.nodes.length > 0) || nodeTypes.length > 0;
     if (!hasNodes && modelRefs.length === 0) {
@@ -233,6 +289,7 @@ export class WorkflowScanner {
       nodeTypes,
       rawGraph: normalized,
       canvasGraph,
+      workflowFormat,
     };
   }
 
@@ -272,15 +329,31 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
         const links: any[] = [];
         let linkIdCounter = 1;
 
-        nodeEntries.forEach(([id, nodeObj], index) => {
+        // Collect max output slot used across all links for each source node
+        const maxOutputSlotPerNode = new Map<string, number>();
+        nodeEntries.forEach(([_, nodeObj]) => {
+          const inputs = nodeObj.inputs || {};
+          for (const inVal of Object.values(inputs)) {
+            if (Array.isArray(inVal) && inVal.length === 2 && (typeof inVal[0] === 'string' || typeof inVal[0] === 'number')) {
+              const srcNodeId = String(inVal[0]);
+              const srcSlot = typeof inVal[1] === 'number' ? inVal[1] : (parseInt(inVal[1], 10) || 0);
+              const currentMax = maxOutputSlotPerNode.get(srcNodeId) ?? -1;
+              if (srcSlot > currentMax) {
+                maxOutputSlotPerNode.set(srcNodeId, srcSlot);
+              }
+            }
+          }
+        });
+
+        nodeEntries.forEach(([id, nodeObj]) => {
           const classType = this.resolveNodeTypeLabel(nodeObj.class_type || nodeObj.type, subgraphNames) || 'Node';
           const inputs = nodeObj.inputs || {};
 
           const nodeInputs: any[] = [];
           for (const [inKey, inVal] of Object.entries(inputs)) {
-            if (Array.isArray(inVal) && inVal.length === 2 && typeof inVal[0] === 'string') {
+            if (Array.isArray(inVal) && inVal.length === 2 && (typeof inVal[0] === 'string' || typeof inVal[0] === 'number')) {
               const srcNodeId = inVal[0];
-              const srcSlot = inVal[1];
+              const srcSlot = typeof inVal[1] === 'number' ? inVal[1] : (parseInt(inVal[1], 10) || 0);
               const linkId = linkIdCounter++;
               nodeInputs.push({ name: inKey, type: 'any', link: linkId });
               links.push([linkId, Number(srcNodeId) || srcNodeId, srcSlot, Number(id) || id, nodeInputs.length - 1, 'any']);
@@ -289,13 +362,19 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
             }
           }
 
+          const maxOutputSlot = maxOutputSlotPerNode.get(String(id)) ?? 0;
+          const nodeOutputs: any[] = [];
+          for (let s = 0; s <= maxOutputSlot; s++) {
+            nodeOutputs.push({ name: maxOutputSlot === 0 ? 'OUT' : `OUT ${s}`, type: 'any' });
+          }
+
           nodes.push({
             id: Number(id) || id,
             type: classType,
             pos: [0, 0],
             size: [240, 140],
             inputs: nodeInputs,
-            outputs: [{ name: 'OUT', type: 'any' }],
+            outputs: nodeOutputs,
           });
         });
 
@@ -765,6 +844,7 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
       metadata: parsedWorkflowInfo.rawGraph?.extra || parsedWorkflowInfo.rawGraph?.config || {},
       canvasGraph: parsedWorkflowInfo.canvasGraph,
       modelCount: parsedWorkflowInfo.modelCount || 0,
+      workflowFormat: parsedWorkflowInfo.workflowFormat,
     };
   }
 

@@ -253,6 +253,155 @@ export class HuggingFaceClient {
     }
     return `hf download ${cleanRepo}`;
   }
+
+  inferModelType(info: HFModelInfo, fileName: string): string {
+    const fn = fileName.toLowerCase();
+    if (fn.endsWith('.gguf')) return 'GGUF';
+    const tag = (info.pipelineTag || '').toLowerCase();
+    const tags = (info.tags || []).map((t) => t.toLowerCase());
+
+    if (tag === 'text-generation' || tags.includes('llm') || tags.includes('llama') || tags.includes('qwen') || tags.includes('text-generation')) {
+      return 'LLM';
+    }
+    if (tag === 'text-to-image' || tags.includes('diffusers') || tags.includes('stable-diffusion') || tags.includes('flux')) {
+      if (fn.includes('lora') || tags.includes('lora')) return 'LORA';
+      if (fn.includes('controlnet') || tags.includes('controlnet')) return 'Controlnet';
+      if (fn.includes('vae') || tags.includes('vae')) return 'VAE';
+      return 'Checkpoint';
+    }
+    if (fn.includes('t5') || fn.includes('clip') || tags.includes('text-encoder')) {
+      return 'TextualInversion';
+    }
+    return 'Other';
+  }
+
+  /**
+   * Identifies an unmatched local model file against Hugging Face repositories.
+   * Checks HF cache structures, exact SHA256 LFS hash matches, and repository sibling file matches.
+   */
+  async matchModel(
+    filePath: string,
+    fileName: string,
+    sha256?: string
+  ): Promise<{
+    matched: boolean;
+    repoId?: string;
+    modelName?: string;
+    author?: string;
+    modelType?: string;
+    pipelineTag?: string;
+    tags?: string[];
+    fileInRepo?: string;
+    info?: HFModelInfo;
+  } | null> {
+    // 1. Direct local Hugging Face cache folder check
+    const cacheInfo = this.parseLocalHFCache(filePath);
+    if (cacheInfo.isHFCache && cacheInfo.repoId) {
+      const repoCheck = await this.checkModelRepo(cacheInfo.repoId);
+      if (repoCheck.exists && repoCheck.info) {
+        return {
+          matched: true,
+          repoId: cacheInfo.repoId,
+          modelName: repoCheck.info.modelName,
+          author: repoCheck.info.author,
+          pipelineTag: repoCheck.info.pipelineTag,
+          tags: repoCheck.info.tags,
+          modelType: this.inferModelType(repoCheck.info, fileName),
+          fileInRepo: fileName,
+          info: repoCheck.info,
+        };
+      }
+    }
+
+    // 2. Clean base filename for searching
+    const cleanBaseName = fileName
+      .replace(/\.(safetensors|gguf|bin|pt|ckpt|onnx)$/i, '')
+      .replace(/^models--/, '')
+      .replace(/[_\.]/g, ' ')
+      .replace(/\b(fp8|fp16|bf16|e4m3fn|e5m2|q4_k_m|q4_0|q4_1|q5_k_m|q5_0|q8_0|q8_1)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleanBaseName.length < 3) {
+      return null;
+    }
+
+    // 3. Search Hugging Face model hub
+    const searchResults = await this.searchModels(cleanBaseName, 6);
+    if (!searchResults || searchResults.length === 0) {
+      return null;
+    }
+
+    const targetShaUpper = sha256 ? sha256.toUpperCase().trim() : null;
+    const targetFileLower = fileName.toLowerCase().trim();
+
+    // 3a. Exact SHA256 match in LFS siblings
+    if (targetShaUpper) {
+      for (const repo of searchResults) {
+        if (repo.siblings && Array.isArray(repo.siblings)) {
+          for (const sib of repo.siblings) {
+            const sibSha = sib.lfs?.sha256 ? String(sib.lfs.sha256).toUpperCase().trim() : null;
+            if (sibSha && sibSha === targetShaUpper) {
+              return {
+                matched: true,
+                repoId: repo.id,
+                modelName: repo.modelName,
+                author: repo.author,
+                pipelineTag: repo.pipelineTag,
+                tags: repo.tags,
+                modelType: this.inferModelType(repo, fileName),
+                fileInRepo: sib.rfilename,
+                info: repo,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    // 3b. Exact filename match in repo siblings
+    for (const repo of searchResults) {
+      if (repo.siblings && Array.isArray(repo.siblings)) {
+        for (const sib of repo.siblings) {
+          const sibBase = path.basename(sib.rfilename || '').toLowerCase();
+          if (sibBase === targetFileLower) {
+            return {
+              matched: true,
+              repoId: repo.id,
+              modelName: repo.modelName,
+              author: repo.author,
+              pipelineTag: repo.pipelineTag,
+              tags: repo.tags,
+              modelType: this.inferModelType(repo, fileName),
+              fileInRepo: sib.rfilename,
+              info: repo,
+            };
+          }
+        }
+      }
+    }
+
+    // 3c. Direct name match (e.g. repo name corresponds directly to query)
+    const normalizedQuery = cleanBaseName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const repo of searchResults) {
+      const normalizedRepoName = repo.modelName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (normalizedRepoName === normalizedQuery && normalizedRepoName.length >= 4) {
+        return {
+          matched: true,
+          repoId: repo.id,
+          modelName: repo.modelName,
+          author: repo.author,
+          pipelineTag: repo.pipelineTag,
+          tags: repo.tags,
+          modelType: this.inferModelType(repo, fileName),
+          fileInRepo: fileName,
+          info: repo,
+        };
+      }
+    }
+
+    return null;
+  }
 }
 
 export const huggingfaceClient = new HuggingFaceClient();

@@ -3093,6 +3093,10 @@ function registerIpcHandlers() {
     const rows = await dbManager.all('SELECT * FROM local_models ORDER BY file_name ASC;');
     return rows.map((r: any) => ({
       id: r.id,
+      source: r.source || (r.hf_repo_id ? 'huggingface' : 'civitai'),
+      hfRepoId: r.hf_repo_id || undefined,
+      hfCommitSha: r.hf_commit_sha || undefined,
+      quantization: r.quantization || undefined,
       filePath: r.file_path,
       fileName: r.file_name,
       fileSize: r.file_size,
@@ -3104,7 +3108,7 @@ function registerIpcHandlers() {
       previewUrl: r.preview_url,
       modelType: r.model_type,
       nsfw: !!r.nsfw,
-      isMatched: !!r.civitai_version_id,
+      isMatched: !!r.civitai_version_id || !!r.hf_repo_id,
       isMissing: !fs.existsSync(r.file_path),
       hasUpdate: !!r.has_update,
       updateVersionId: r.update_version_id,
