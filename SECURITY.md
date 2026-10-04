@@ -69,6 +69,16 @@ RenegadeCMM provides an embedded REST API bridge on `127.0.0.1:5174` to support 
 - **Strict Origin Checking & CSRF Defense**: Cross-Origin Resource Sharing (CORS) headers are restricted to trusted local development and runtime origins (`http://localhost:*`, `http://127.0.0.1:*`). Arbitrary web pages visited in external web browsers cannot access the bridge or exfiltrate local models and directory data.
 - **Bridge Kill-Switch (`local_api_enabled`)**: Users can disable the local API bridge entirely via the Settings tab. When set to `false`, the server rejects all operational API routes with `HTTP 503 Service Unavailable`, permitting only internal configuration management.
 
+### No Remote Administrative Access
+
+CMM contains **no remote access capabilities**, backdoors, or administrative overrides:
+- No remote code execution (RCE) capabilities
+- No remote configuration management
+- No remote logging or telemetry transmission
+- No cloud-based admin panels or dashboards
+
+All security controls are enforced locally on your machine. The developers cannot access, modify, or monitor your CMM installation.
+
 ---
 
 ### 2. REST API Endpoints & Input Sanitization

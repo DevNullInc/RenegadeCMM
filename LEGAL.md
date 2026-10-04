@@ -7,6 +7,18 @@
 
 ---
 
+## Software Classification
+
+Renegade Core Model Manager is **desktop productivity software**, not a:
+- Content hosting platform
+- Social media service  
+- Cloud computing service
+- Online marketplace
+
+**Legal Status**: CMM is functionally equivalent to package managers (npm, pip, Steam) or download clients (curl, wget) — a local desktop tool for fetching and organizing files from public repositories on your personal workstation.
+
+---
+
 ## 1. Copyright & Business Source License 1.1 (BUSL-1.1)
 
 Renegade Core Model Manager is Copyright (C) 2025–2026 TheStygianRenegade / /dev/null Inc.
@@ -79,10 +91,15 @@ To the maximum extent permitted by applicable law, /dev/null Inc, TheStygianRene
 
 RenegadeCMM is an automation and management tool. **It does not host, curate, store, or distribute model weights, checkpoints, LoRAs, VAEs, or generative AI assets.**
 
-- **CivitAI Integration:** Model downloads and metadata queries communicate directly with civitai.com. Models retrieved from CivitAI are created by third parties and governed by the respective creator's license (e.g., OpenRAIL, Creative Commons, or custom permissions). Users are solely responsible for verifying and complying with model usage rights.
-- **Hugging Face Integration:** Model repository queries and gated downloads connect directly to huggingface.co. Access to gated or restricted models requires compliance with individual repository licenses and user agreements established on Hugging Face.
+- **CivitAI Integration:** Model downloads and metadata queries communicate directly with civitai.com. Models retrieved from CivitAI are created by third parties and governed by the respective creator's license (e.g., OpenRAIL, Creative Commons, or custom permissions). Users are solely responsible for verifying and complying with model usage rights and [CivitAI Terms of Service](https://civitai.com/terms).
+- **Hugging Face Integration:** Model repository queries and gated downloads connect directly to huggingface.co. Access to gated or restricted models requires compliance with individual repository licenses and [Hugging Face Terms of Service](https://huggingface.co/terms).
 - **GitHub Integration:** Custom node resolution references public repositories on github.com. Cloned repositories are licensed under terms set by their respective authors.
+- **ComfyUI Integration:** Target workflow execution environments are licensed under the upstream [ComfyUI License](https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE).
 - **Trademark Notice:** "ComfyUI", "CivitAI", "Hugging Face", "GitHub", "Electron", "SQLite", "React Flow", "PyTorch", and other product names or marks referenced herein are trademarks or registered trademarks of their respective owners. RenegadeCMM is an independent open-source project and is not affiliated with, sponsored by, or endorsed by any of these organizations.
+
+### Age Requirements & Mature Content Opt-In
+
+CMM includes optional access to mature content (via CivitAI and mirror integration). By enabling NSFW filters in application settings, you certify that you are at least 18 years of age (or the legal age of majority in your jurisdiction).
 
 ---
 

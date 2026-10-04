@@ -19,6 +19,24 @@ Renegade Core Model Manager ("CMM", "the Application", "we") is built from the g
 - **NO Central Storage:** We do not operate remote servers that collect, store, or log your personal data, local directory paths, downloaded model files, or generated AI workflows.
 - **User as Sole Custodian:** You retain 100% control and custody over your local database, downloaded files, and stored configuration options.
 
+### Content Classification Scope
+
+CMM performs **technical content-type classification** solely for:
+- **File format identification**: Routing `.gguf`, `.safetensors`, `.bin` to appropriate folders
+- **Model architecture detection**: Identifying LoRA vs. Checkpoint vs. VAE for metadata display
+- **Security validation**: Magic-byte inspection to prevent executable/malware injection
+
+**CMM does NOT perform:**
+- Semantic content analysis (evaluating what images a model can generate)
+- Artistic style classification or filtering
+- Compliance verification with third-party terms of service
+- Legal review of model training data or licensing
+
+**User Responsibility**: You are solely responsible for:
+- Reviewing model descriptions and tags on CivitAI/Hugging Face before download
+- Ensuring models comply with platform terms of service
+- Complying with applicable laws regarding AI model possession and use
+
 ---
 
 ## 2. API Keys, Secret Storage & Ephemeral Authentication
@@ -156,6 +174,21 @@ As Renegade CMM continues to evolve, this privacy policy may be updated. All upd
 
 - **Major Changes:** Any architectural change that introduces new network destinations or modifies data handling will be announced in release notes at least 30 days before taking effect.
 - **Security Hardening:** Improvements that strengthen encryption, restrict network endpoints, or sanitize logs may be released immediately to protect users.
+
+---
+
+## 11. Remote Access via Android Companion App (Future Feature)
+
+When using the optional Android companion app with Cloudflare Zero Trust:
+
+| Data Element | Storage | Encryption |
+|--------------|---------|------------|
+| Ed25519 private key | Android Keystore | Hardware-backed (TEE/StrongBox) |
+| Bearer token | CMM SQLite (hash only) | AES-256-GCM |
+| Tunnel metadata | Cloudflare (ephemeral) | TLS 1.3 |
+| Model data | Local CMM only | Not transmitted |
+
+**Automatic Data Purge:** Bearer tokens are cryptographically burned after 24 hours (try.cloudflare.com) or 7 days (personal tunnel).
 
 ---
 

@@ -22,6 +22,11 @@ This document provides a concise, categorized breakdown of all technical capabil
 - **Interactive Repository File Inspector**: Inspect remote Hugging Face branch trees, file extensions (`.safetensors`, `.gguf`, `.bin`), and individual file sizes, with direct one-click downloading into mapped ComfyUI folders.
 - **Gated Model Authentication**: Configure Hugging Face User Access Tokens (`hf_...`) in Settings to authenticate and download gated models (FLUX.1-dev, SD3.5, Wan2.1, HunyuanVideo).
 - **Mirror Endpoint Support**: Configurable endpoints for alternative CivitAI mirrors (e.g. `civitai.red`).
+  - **Mirror Endpoint Disclosure**: The optional `civitai.red` mirror provides access to the same model catalog as `civitai.com`, including content flagged as mature/NSFW.
+    - **Default Behavior**: All NSFW content is filtered OFF by default
+    - **User Control**: NSFW visibility requires explicit opt-in in Settings
+    - **Display**: When enabled, NSFW images are blurred by default (user can toggle unblur)
+    - **Age Requirement**: Users must be 18+ to enable mature content filters
 - **Configurable NSFW Filtering**: Rating-level gates (PG to XXX) with instant image blur/unblur toggles.
 
 ---

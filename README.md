@@ -1,5 +1,14 @@
 # Renegade Core Model Manager (CMM)
 
+## Software Classification
+
+RenegadeCMM is a **local desktop application** for managing AI model files on your personal workstation. It does not:
+- Host or distribute content to others (see [RenegadeSwarm](https://github.com/DevNullInc/RenegadeSwarm) for P2P distribution)
+- Operate as a service or platform
+- Transmit your models or data to third parties (except direct API calls to CivitAI/Hugging Face that you initiate)
+
+**Legal Status**: CMM is functionally equivalent to package managers (npm, pip, Steam) or download clients (curl, wget) — a tool for fetching and organizing files from public repositories.
+
 <!-- markdownlint-disable MD033 -->
 <p align="center">
   <img src="build/icon.svg" alt="Renegade CMM Logo" width="128" height="128" />
