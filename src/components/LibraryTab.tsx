@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -43,10 +45,28 @@ import {
   Cpu,
   Activity,
   Package,
+  Tag,
+  Hash,
+  Info,
+  Plus,
+  Layers,
+  Link2,
+  Globe,
+  Save,
+  Edit3,
+  ArrowRight,
 } from 'lucide-react';
 import { FallbackImage } from './FallbackImage';
 import { useScan } from '../context/ScanContext';
-import { LocalModel, ModelType, HardwareProfile, ConversionSafetyAssessment } from '../types/app';
+import {
+  LocalModel,
+  ModelType,
+  HardwareProfile,
+  ConversionSafetyAssessment,
+  MisplacedModel,
+  LibrarySortPlan,
+  ExecuteLibrarySortResult,
+} from '../types/app';
 
 interface LibraryTabProps {
   onCheckUpdate: (model: LocalModel) => void;
@@ -60,6 +80,16 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   const [matchingUnidentified, setMatchingUnidentified] = useState(false);
   const [updateSummary, setUpdateSummary] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+
+  // Library Sorter / Auto-Organize State
+  const [sortPlan, setSortPlan] = useState<LibrarySortPlan | null>(null);
+  const [isAnalyzingSort, setIsAnalyzingSort] = useState<boolean>(false);
+  const [isSorting, setIsSorting] = useState<boolean>(false);
+  const [sortProgress, setSortProgress] = useState<{ current: number; total: number; file: string } | null>(null);
+  const [selectedSortModelIds, setSelectedSortModelIds] = useState<Set<string>>(new Set());
+  const [isSortModalOpen, setIsSortModalOpen] = useState<boolean>(false);
+  const [sortFeedback, setSortFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
+  const [sortCategoryFilter, setSortCategoryFilter] = useState<'all' | 'controlnet' | 'diffusion_models' | 'LLM' | 'loras' | 'other'>('all');
 
   // Missing Model Pulling State
   const [pullingModelId, setPullingModelId] = useState<string | null>(null);
@@ -78,6 +108,34 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   // Swarm Companion Packaging State
   const [packagingModelId, setPackagingModelId] = useState<string | null>(null);
   const [packageFeedback, setPackageFeedback] = useState<{ id?: string; message: string; isError?: boolean } | null>(null);
+
+  // Model Detail & LoRA Trigger Word Modal State
+  const [selectedModelDetail, setSelectedModelDetail] = useState<LocalModel | null>(null);
+  const [selectedTriggerTags, setSelectedTriggerTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState<string>('');
+  const [isSavingTags, setIsSavingTags] = useState<boolean>(false);
+  const [tagSaveSuccess, setTagSaveSuccess] = useState<boolean>(false);
+  const [copiedTriggerWord, setCopiedTriggerWord] = useState<string | null>(null);
+  const [copiedAllTriggers, setCopiedAllTriggers] = useState<boolean>(false);
+  const [copiedFilePath, setCopiedFilePath] = useState<boolean>(false);
+  const [copiedSha256, setCopiedSha256] = useState<boolean>(false);
+
+  // Model Specifics & Link Modal State
+  const [modelToLinkSpecifics, setModelToLinkSpecifics] = useState<LocalModel | null>(null);
+  const [linkInputUrl, setLinkInputUrl] = useState<string>('');
+  const [isFetchingLinkMetadata, setIsFetchingLinkMetadata] = useState<boolean>(false);
+  const [isSavingSpecifics, setIsSavingSpecifics] = useState<boolean>(false);
+  const [specificsFeedback, setSpecificsFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
+  const [specificsName, setSpecificsName] = useState<string>('');
+  const [specificsCreator, setSpecificsCreator] = useState<string>('');
+  const [specificsBaseModel, setSpecificsBaseModel] = useState<string>('');
+  const [specificsModelType, setSpecificsModelType] = useState<string>('');
+  const [specificsCustomLink, setSpecificsCustomLink] = useState<string>('');
+  const [specificsDescription, setSpecificsDescription] = useState<string>('');
+  const [specificsTrainedWords, setSpecificsTrainedWords] = useState<string[]>([]);
+  const [specificsNewTag, setSpecificsNewTag] = useState<string>('');
+  const [specificsPreviewUrl, setSpecificsPreviewUrl] = useState<string>('');
+  const [specificsNsfw, setSpecificsNsfw] = useState<boolean>(false);
 
   // Delete Options Modal State
   const [modelToDelete, setModelToDelete] = useState<LocalModel | null>(null);
@@ -152,12 +210,83 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     }
   };
 
+  const handleAnalyzeSort = async (modelsList?: LocalModel[]) => {
+    if (!window.civitaiAPI || typeof window.civitaiAPI.analyzeLibrarySorting !== 'function') return;
+    setIsAnalyzingSort(true);
+    try {
+      const plan: LibrarySortPlan = await window.civitaiAPI.analyzeLibrarySorting(
+        modelsList ? { models: modelsList } : undefined
+      );
+      setSortPlan(plan);
+      if (plan && plan.items) {
+        setSelectedSortModelIds(new Set(plan.items.map((i) => i.id)));
+      }
+    } catch (err) {
+      console.error('Failed to analyze library sorting:', err);
+    } finally {
+      setIsAnalyzingSort(false);
+    }
+  };
+
+  const handleOpenSortModal = async () => {
+    setIsSortModalOpen(true);
+    setSortFeedback(null);
+    setSortCategoryFilter('all');
+    await handleAnalyzeSort();
+  };
+
+  const handleExecuteSort = async () => {
+    if (!sortPlan || selectedSortModelIds.size === 0) return;
+    const itemsToMove = sortPlan.items.filter((i) => selectedSortModelIds.has(i.id));
+    if (itemsToMove.length === 0) return;
+
+    setIsSorting(true);
+    setSortProgress({ current: 0, total: itemsToMove.length, file: 'Starting relocation...' });
+    setSortFeedback(null);
+
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.executeLibrarySorting === 'function') {
+        const planPayload = itemsToMove.map((i) => ({
+          modelId: i.id,
+          sourcePath: i.currentPath,
+          targetPath: i.targetPath,
+        }));
+
+        const res: ExecuteLibrarySortResult = await window.civitaiAPI.executeLibrarySorting(planPayload);
+        if (res && res.movedCount > 0) {
+          setSortFeedback({
+            message: `Successfully relocated ${res.movedCount} model(s) and their companion files to standard ComfyUI folders!`,
+            isError: false,
+          });
+          await loadLocalModels();
+          await handleAnalyzeSort();
+        } else if (res && res.errors && res.errors.length > 0) {
+          setSortFeedback({
+            message: `Sort finished with issues: ${res.errors.map((e) => e.error).join(', ')}`,
+            isError: true,
+          });
+        }
+      }
+    } catch (err: any) {
+      setSortFeedback({
+        message: `Sort failed: ${err?.message || err}`,
+        isError: true,
+      });
+    } finally {
+      setIsSorting(false);
+      setSortProgress(null);
+    }
+  };
+
   const loadLocalModels = async () => {
     setLoading(true);
     try {
       if (window.civitaiAPI) {
         const models = await window.civitaiAPI.getLocalModels();
         setLocalModels(models || []);
+        if (models && models.length > 0) {
+          handleAnalyzeSort(models);
+        }
       }
     } catch (err) {
       console.error('Failed to load local models:', err);
@@ -170,6 +299,16 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     loadLocalModels();
     loadIgnoredDuplicates();
   }, [lastCompletedAt]);
+
+  useEffect(() => {
+    if (!window.civitaiAPI || typeof window.civitaiAPI.onLibrarySortProgress !== 'function') return;
+    const unsub = window.civitaiAPI.onLibrarySortProgress((prog) => {
+      setSortProgress(prog);
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, []);
 
   // Auto-refresh the library when a download completes, so a model downloaded through
   // the app shows up immediately — no manual re-scan required.
@@ -267,6 +406,17 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     );
   };
 
+  const isModelDeemedSafe = (model: LocalModel): boolean => {
+    if (!model.pickleScanStatus) return false;
+    if (model.pickleScanStatus === 'safe_yolo_pt' || model.pickleScanStatus === 'safe') {
+      if (model.pickleScannedSha256 && model.sha256 && model.pickleScannedSha256 !== model.sha256) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     if (!modelToConvert) {
       setHardwareAssessment(null);
@@ -345,6 +495,13 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
         });
         await loadLocalModels();
         setTimeout(() => setConvertFeedback(null), 8000);
+      } else if (res && res.isYolo) {
+        setConvertFeedback({
+          id: model.id,
+          message: `Safe YOLO Detector Model: Preserved as .pt (Ultralytics / YOLO models require Python layer definitions and must remain as .pt to function).`,
+        });
+        await loadLocalModels();
+        setTimeout(() => setConvertFeedback(null), 10000);
       } else {
         setConvertFeedback({
           id: model.id,
@@ -445,6 +602,16 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   const getModelExternalUrl = (
     model: LocalModel
   ): { url: string; label: string; isHf: boolean; isNsfw: boolean } => {
+    if (model.customLink) {
+      const isHf = model.customLink.includes('huggingface.co');
+      return {
+        url: model.customLink,
+        label: isHf ? `Open on Hugging Face (${model.customLink})` : `Open Model Specifics Link (${model.customLink})`,
+        isHf,
+        isNsfw: isModelNsfw(model),
+      };
+    }
+
     if (model.source === 'huggingface' || model.hfRepoId || isHuggingFaceModel(model)) {
       if (model.hfRepoId) {
         return {
@@ -468,9 +635,8 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     let url = '';
 
     if (model.civitaiModelId) {
-      url = `${domain}/models/${model.civitaiModelId}${
-        model.civitaiVersionId ? `?modelVersionId=${model.civitaiVersionId}` : ''
-      }`;
+      url = `${domain}/models/${model.civitaiModelId}${model.civitaiVersionId ? `?modelVersionId=${model.civitaiVersionId}` : ''
+        }`;
     } else {
       // Clean query string from filename
       const cleanName = model.fileName
@@ -488,8 +654,8 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           ? 'Open model on CivitAI.red (NSFW)'
           : 'Search model on CivitAI.red (NSFW)'
         : model.civitaiModelId
-        ? 'Open model on CivitAI.com (SFW)'
-        : 'Search model on CivitAI.com',
+          ? 'Open model on CivitAI.com (SFW)'
+          : 'Search model on CivitAI.com',
       isHf: false,
       isNsfw: nsfw,
     };
@@ -503,6 +669,322 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
       window.civitaiAPI.openExternal(url);
     } else {
       window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleCopyText = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return true;
+    } catch (e) {
+      console.error('Failed to copy text:', e);
+      return false;
+    }
+  };
+
+  const handleCopyFilePath = async (filePath: string) => {
+    const success = await handleCopyText(filePath);
+    if (success) {
+      setCopiedFilePath(true);
+      setTimeout(() => setCopiedFilePath(false), 2000);
+    }
+  };
+
+  const handleCopySha256 = async (hash: string) => {
+    const success = await handleCopyText(hash);
+    if (success) {
+      setCopiedSha256(true);
+      setTimeout(() => setCopiedSha256(false), 2000);
+    }
+  };
+
+  const handleToggleTagSelection = (tag: string) => {
+    setSelectedTriggerTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleSelectAllTags = (tags: string[]) => {
+    if (selectedTriggerTags.length === tags.length) {
+      setSelectedTriggerTags([]);
+    } else {
+      setSelectedTriggerTags([...tags]);
+    }
+  };
+
+  const handleCopyTriggerWord = async (word: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const success = await handleCopyText(word);
+    if (success) {
+      setCopiedTriggerWord(word);
+      setTimeout(() => setCopiedTriggerWord(null), 2000);
+    }
+  };
+
+  const handleCopyTriggerTags = async (allTags: string[]) => {
+    const tagsToCopy = selectedTriggerTags.length > 0 ? selectedTriggerTags : allTags;
+    if (!tagsToCopy || tagsToCopy.length === 0) return;
+
+    const text = tagsToCopy.join(', ');
+    const success = await handleCopyText(text);
+    if (success) {
+      setCopiedAllTriggers(true);
+      setTimeout(() => setCopiedAllTriggers(false), 2000);
+    }
+  };
+
+  const handlePersistTriggerWords = async (updatedWords: string[]) => {
+    if (!selectedModelDetail) return;
+
+    setIsSavingTags(true);
+    try {
+      let res: any;
+      if (window.civitaiAPI && typeof window.civitaiAPI.saveModelTriggerWords === 'function') {
+        res = await window.civitaiAPI.saveModelTriggerWords(selectedModelDetail.filePath, updatedWords);
+      } else {
+        const response = await fetch('/api/models/trigger-words', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filePath: selectedModelDetail.filePath, triggerWords: updatedWords }),
+        });
+        res = await response.json();
+      }
+
+      if (res && res.success) {
+        setSelectedModelDetail((prev) =>
+          prev ? { ...prev, trainedWords: updatedWords, companionInfoPath: res.companionInfoPath || prev.companionInfoPath } : null
+        );
+        setLocalModels((prev) =>
+          prev.map((m) =>
+            m.id === selectedModelDetail.id || m.filePath === selectedModelDetail.filePath
+              ? { ...m, trainedWords: updatedWords, companionInfoPath: res.companionInfoPath || m.companionInfoPath }
+              : m
+          )
+        );
+        setTagSaveSuccess(true);
+        setTimeout(() => setTagSaveSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to save trigger words to companion file:', err);
+    } finally {
+      setIsSavingTags(false);
+    }
+  };
+
+  const handleAddTriggerWords = async (rawInput: string) => {
+    if (!selectedModelDetail || !rawInput.trim()) return;
+
+    const tokens = rawInput
+      .split(/[,;\r\n]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    if (tokens.length === 0) return;
+
+    const existing = selectedModelDetail.trainedWords || [];
+    const seen = new Set(existing.map((w) => w.toLowerCase()));
+    const newAdditions: string[] = [];
+
+    for (const token of tokens) {
+      if (!seen.has(token.toLowerCase())) {
+        seen.add(token.toLowerCase());
+        newAdditions.push(token);
+      }
+    }
+
+    if (newAdditions.length === 0) {
+      setNewTagInput('');
+      return;
+    }
+
+    const updatedWords = [...existing, ...newAdditions];
+    await handlePersistTriggerWords(updatedWords);
+    setNewTagInput('');
+  };
+
+  const handleRemoveTriggerWord = async (tagToRemove: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedModelDetail) return;
+
+    const existing = selectedModelDetail.trainedWords || [];
+    const updatedWords = existing.filter((w) => w.toLowerCase() !== tagToRemove.toLowerCase());
+    setSelectedTriggerTags((prev) => prev.filter((t) => t.toLowerCase() !== tagToRemove.toLowerCase()));
+    await handlePersistTriggerWords(updatedWords);
+  };
+
+  const openLinkSpecificsModal = (model: LocalModel) => {
+    setModelToLinkSpecifics(model);
+    setSpecificsFeedback(null);
+    setSpecificsName(model.civitaiName || model.fileName.replace(/\.(safetensors|pt|ckpt|bin|gguf)$/i, ''));
+    setSpecificsCreator(model.civitaiCreator || (model.hfRepoId ? model.hfRepoId.split('/')[0] : ''));
+    setSpecificsBaseModel(model.civitaiBaseModel || '');
+    setSpecificsModelType(model.modelType || model.civitaiType || 'Checkpoint');
+    const existingLink = model.customLink || (model.hfRepoId ? `https://huggingface.co/${model.hfRepoId}` : model.civitaiModelId ? `https://civitai.com/models/${model.civitaiModelId}` : '');
+    setSpecificsCustomLink(existingLink);
+    setLinkInputUrl(existingLink);
+    setSpecificsDescription(model.description || '');
+    setSpecificsTrainedWords(model.trainedWords ? [...model.trainedWords] : []);
+    setSpecificsNewTag('');
+    setSpecificsPreviewUrl(model.previewUrl || '');
+    setSpecificsNsfw(isModelNsfw(model));
+  };
+
+  const handleAutoFetchLink = async () => {
+    if (!linkInputUrl.trim()) return;
+    setIsFetchingLinkMetadata(true);
+    setSpecificsFeedback(null);
+    try {
+      let meta: any;
+      if (window.civitaiAPI && typeof window.civitaiAPI.fetchModelMetadataByUrl === 'function') {
+        meta = await window.civitaiAPI.fetchModelMetadataByUrl(linkInputUrl.trim());
+      } else {
+        const response = await fetch('/api/models/fetch-metadata-by-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: linkInputUrl.trim() }),
+        });
+        meta = await response.json();
+      }
+
+      if (meta && !meta.error) {
+        if (meta.name) setSpecificsName(meta.name);
+        if (meta.creatorName) setSpecificsCreator(meta.creatorName);
+        if (meta.baseModel) setSpecificsBaseModel(meta.baseModel);
+        if (meta.modelType) setSpecificsModelType(meta.modelType);
+        if (meta.description) setSpecificsDescription(meta.description);
+        if (meta.previewUrl) setSpecificsPreviewUrl(meta.previewUrl);
+        if (meta.trainedWords && Array.isArray(meta.trainedWords) && meta.trainedWords.length > 0) {
+          setSpecificsTrainedWords(meta.trainedWords);
+        }
+        if (typeof meta.nsfw === 'boolean') setSpecificsNsfw(meta.nsfw);
+        setSpecificsCustomLink(linkInputUrl.trim());
+        setSpecificsFeedback({ message: `Successfully fetched metadata from ${meta.source || 'online resource'}!`, isError: false });
+      } else {
+        setSpecificsFeedback({ message: meta?.error || 'Could not auto-fetch metadata from the given URL. You can still fill in the details manually.', isError: true });
+      }
+    } catch (err: any) {
+      setSpecificsFeedback({ message: `Auto-fetch failed: ${err?.message || err}`, isError: true });
+    } finally {
+      setIsFetchingLinkMetadata(false);
+    }
+  };
+
+  const handleAddSpecificsTriggerWords = (rawInput: string) => {
+    if (!rawInput.trim()) return;
+    const tokens = rawInput
+      .split(/[,;\r\n]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+    if (tokens.length === 0) return;
+
+    const seen = new Set(specificsTrainedWords.map((w) => w.toLowerCase()));
+    const newAdditions: string[] = [];
+    for (const token of tokens) {
+      if (!seen.has(token.toLowerCase())) {
+        seen.add(token.toLowerCase());
+        newAdditions.push(token);
+      }
+    }
+    if (newAdditions.length > 0) {
+      setSpecificsTrainedWords((prev) => [...prev, ...newAdditions]);
+    }
+    setSpecificsNewTag('');
+  };
+
+  const handleRemoveSpecificsTriggerWord = (tagToRemove: string) => {
+    setSpecificsTrainedWords((prev) => prev.filter((t) => t.toLowerCase() !== tagToRemove.toLowerCase()));
+  };
+
+  const handleSaveSpecifics = async () => {
+    if (!modelToLinkSpecifics) return;
+    setIsSavingSpecifics(true);
+    setSpecificsFeedback(null);
+    try {
+      const payload = {
+        filePath: modelToLinkSpecifics.filePath,
+        name: specificsName.trim() || undefined,
+        creatorName: specificsCreator.trim() || undefined,
+        baseModel: specificsBaseModel.trim() || undefined,
+        modelType: specificsModelType.trim() || undefined,
+        customLink: specificsCustomLink.trim() || undefined,
+        description: specificsDescription.trim() || undefined,
+        trainedWords: specificsTrainedWords,
+        previewUrl: specificsPreviewUrl.trim() || undefined,
+        nsfw: specificsNsfw,
+      };
+
+      let res: any;
+      if (window.civitaiAPI && typeof window.civitaiAPI.saveModelMetadata === 'function') {
+        res = await window.civitaiAPI.saveModelMetadata(payload);
+      } else {
+        const response = await fetch('/api/models/save-metadata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        res = await response.json();
+      }
+
+      if (res && res.success) {
+        setLocalModels((prev) =>
+          prev.map((m) =>
+            m.id === modelToLinkSpecifics.id || m.filePath === modelToLinkSpecifics.filePath
+              ? {
+                  ...m,
+                  civitaiName: specificsName.trim() || m.civitaiName,
+                  civitaiCreator: specificsCreator.trim() || m.civitaiCreator,
+                  civitaiBaseModel: specificsBaseModel.trim() || m.civitaiBaseModel,
+                  modelType: (specificsModelType.trim() as ModelType) || m.modelType,
+                  customLink: specificsCustomLink.trim() || m.customLink,
+                  description: specificsDescription.trim() || m.description,
+                  trainedWords: specificsTrainedWords,
+                  previewUrl: specificsPreviewUrl.trim() || m.previewUrl,
+                  nsfw: specificsNsfw,
+                  isMatched: true,
+                  companionInfoPath: res.companionInfoPath || m.companionInfoPath,
+                }
+              : m
+          )
+        );
+
+        if (selectedModelDetail && (selectedModelDetail.id === modelToLinkSpecifics.id || selectedModelDetail.filePath === modelToLinkSpecifics.filePath)) {
+          setSelectedModelDetail((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  civitaiName: specificsName.trim() || prev.civitaiName,
+                  civitaiCreator: specificsCreator.trim() || prev.civitaiCreator,
+                  civitaiBaseModel: specificsBaseModel.trim() || prev.civitaiBaseModel,
+                  modelType: (specificsModelType.trim() as ModelType) || prev.modelType,
+                  customLink: specificsCustomLink.trim() || prev.customLink,
+                  description: specificsDescription.trim() || prev.description,
+                  trainedWords: specificsTrainedWords,
+                  previewUrl: specificsPreviewUrl.trim() || prev.previewUrl,
+                  nsfw: specificsNsfw,
+                  isMatched: true,
+                  companionInfoPath: res.companionInfoPath || prev.companionInfoPath,
+                }
+              : null
+          );
+        }
+
+        setModelToLinkSpecifics(null);
+      } else {
+        setSpecificsFeedback({ message: res?.error || 'Failed to save model specifics.', isError: true });
+      }
+    } catch (err: any) {
+      setSpecificsFeedback({ message: `Save error: ${err?.message || err}`, isError: true });
+    } finally {
+      setIsSavingSpecifics(false);
     }
   };
 
@@ -808,11 +1290,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             onClick={handleMatchUnidentified}
             disabled={isScanning || matchingUnidentified || checkingUpdates || localModels.length === 0}
             title="Two-pronged identification: Query CivitAI (primary) and Hugging Face (fallback for LLMs, text encoders, GGUF) to fetch names, preview images, and metadata"
-            className={`flex items-center gap-2 px-5 py-3 border font-bold rounded-2xl text-sm transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95 ${
-              localModels.some((m) => !m.isMatched)
+            className={`flex items-center gap-2 px-5 py-3 border font-bold rounded-2xl text-sm transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95 ${localModels.some((m) => !m.isMatched)
                 ? 'bg-linear-to-r from-indigo-900/60 to-purple-900/60 hover:from-indigo-900/80 hover:to-purple-900/80 border-indigo-500/40 text-indigo-200 glow-purple'
                 : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 hover:border-indigo-500/50 text-slate-200 hover:text-indigo-300'
-            }`}
+              }`}
           >
             <SearchCheck size={18} className={matchingUnidentified ? 'text-indigo-400 animate-spin' : 'text-indigo-400'} />
             <span>
@@ -831,6 +1312,27 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           >
             <Sparkles size={18} className={checkingUpdates ? 'text-amber-400 animate-spin' : 'text-amber-400'} />
             <span>{checkingUpdates ? 'Checking Updates...' : 'Check for Updates'}</span>
+          </button>
+
+          {/* Auto-Sort Library Button */}
+          <button
+            onClick={handleOpenSortModal}
+            disabled={isScanning || isAnalyzingSort || localModels.length === 0}
+            title="Auto-organize your model library: scans your folders and relocates ControlNets, diffusion models (Anima/Flux/Wan), LLMs, and LoRAs into their proper ComfyUI directories"
+            className={`flex items-center gap-2 px-5 py-3 border font-bold rounded-2xl text-sm transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95 ${
+              sortPlan && sortPlan.misplacedCount > 0
+                ? 'bg-linear-to-r from-amber-600/30 via-purple-600/30 to-indigo-600/30 hover:from-amber-600/50 hover:to-purple-600/50 border-amber-500/50 text-amber-200 glow-amber'
+                : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 hover:border-indigo-500/50 text-slate-200 hover:text-indigo-300'
+            }`}
+          >
+            <ArrowUpDown size={18} className={isAnalyzingSort ? 'text-amber-400 animate-spin' : 'text-amber-400'} />
+            <span>
+              {isAnalyzingSort
+                ? 'Analyzing Structure...'
+                : sortPlan && sortPlan.misplacedCount > 0
+                ? `Auto-Sort Library (${sortPlan.misplacedCount} Misplaced)`
+                : 'Auto-Sort Library'}
+            </span>
           </button>
 
           {/* Clear Library Button */}
@@ -911,13 +1413,36 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             <div
               className="bg-linear-to-r from-purple-600 via-indigo-500 to-purple-500 h-full transition-all duration-300 rounded-full glow-purple"
               style={{
-                width: `${
-                  scanProgress.totalFiles > 0
+                width: `${scanProgress.totalFiles > 0
                     ? Math.min(100, Math.round((scanProgress.scannedFiles / scanProgress.totalFiles) * 100))
                     : scanProgress.status === 'completed' ? 100 : 5
-                }%`,
+                  }%`,
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Misplaced Models Detected Auto-Sort Banner */}
+      {sortPlan && sortPlan.misplacedCount > 0 && !isSortModalOpen && (
+        <div className="p-4 rounded-2xl bg-linear-to-r from-amber-500/10 via-purple-500/10 to-indigo-500/10 border border-amber-500/40 text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs font-medium animate-fadeIn glow-amber shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <Sparkles size={20} className="text-amber-400 shrink-0" />
+            <div>
+              <strong className="text-amber-100 font-bold">
+                {sortPlan.misplacedCount} model(s) are in the wrong folder
+              </strong>{' '}
+              (e.g. ControlNets, Anima diffusion models, or LLMs stored in checkpoints). Auto-Sort can relocate them into their standardized directories.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+            <button
+              onClick={handleOpenSortModal}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 rounded-xl text-xs font-black transition-all shadow-md cursor-pointer shrink-0 active:scale-95 glow-amber"
+            >
+              <ArrowUpDown size={13} className="text-slate-950 font-bold" />
+              <span>Review &amp; Auto-Sort ({sortPlan.misplacedCount})</span>
+            </button>
           </div>
         </div>
       )}
@@ -986,19 +1511,18 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
               <button
                 key={t}
                 onClick={() => setFilter(t)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer flex items-center gap-1.5 ${
-                  filter === t
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer flex items-center gap-1.5 ${filter === t
                     ? isMissingFilter
                       ? 'bg-linear-to-r from-rose-600 to-amber-600 text-white shadow-md shadow-rose-600/30'
                       : isPickleFilter
-                      ? 'bg-linear-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
-                      : 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
+                        ? 'bg-linear-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
+                        : 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
                     : isMissingFilter && count > 0
-                    ? 'bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-rose-500/40 animate-pulse'
-                    : isPickleFilter && count > 0
-                    ? 'bg-cyan-950/40 text-cyan-300 hover:text-cyan-200 border border-cyan-500/40'
-                    : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
+                      ? 'bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-rose-500/40 animate-pulse'
+                      : isPickleFilter && count > 0
+                        ? 'bg-cyan-950/40 text-cyan-300 hover:text-cyan-200 border border-cyan-500/40'
+                        : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
               >
                 {isMissingFilter && <AlertTriangle size={13} className={count > 0 ? 'text-rose-400' : 'text-slate-500'} />}
                 {isPickleFilter && <Sparkles size={13} className={count > 0 ? 'text-cyan-400' : 'text-slate-500'} />}
@@ -1013,21 +1537,19 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-xl p-1 shadow-sm">
             <button
               onClick={() => setNsfwFilter('all')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                nsfwFilter === 'all'
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${nsfwFilter === 'all'
                   ? 'bg-slate-800 text-slate-100 font-bold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               All Content
             </button>
             <button
               onClick={() => setNsfwFilter('sfw')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                nsfwFilter === 'sfw'
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${nsfwFilter === 'sfw'
                   ? 'bg-emerald-500/20 text-emerald-300 font-bold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
               title="Show only SFW models"
             >
               <ShieldCheck size={12} className={nsfwFilter === 'sfw' ? 'text-emerald-400' : 'text-slate-400'} />
@@ -1035,11 +1557,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             </button>
             <button
               onClick={() => setNsfwFilter('nsfw')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                nsfwFilter === 'nsfw'
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${nsfwFilter === 'nsfw'
                   ? 'bg-rose-500/20 text-rose-300 font-bold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
               title="Show only NSFW models"
             >
               <Flame size={12} className={nsfwFilter === 'nsfw' ? 'text-rose-400' : 'text-slate-400'} />
@@ -1051,11 +1572,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           <button
             onClick={() => setBlurNsfw(!blurNsfw)}
             title={blurNsfw ? 'NSFW preview thumbnails are blurred. Click to unblur.' : 'NSFW preview thumbnails are visible. Click to blur.'}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-sm ${
-              blurNsfw
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-sm ${blurNsfw
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
                 : 'bg-slate-900 border-slate-700/80 text-slate-400 hover:text-slate-200'
-            }`}
+              }`}
           >
             {blurNsfw ? <EyeOff size={13} className="text-amber-400" /> : <Eye size={13} className="text-slate-400" />}
             <span>{blurNsfw ? 'Blur NSFW' : 'Show NSFW'}</span>
@@ -1068,7 +1588,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             className="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
           >
             <option value="all">All Types</option>
-            {['Checkpoint','LORA','LLM','LoCon','DoRA','TextualInversion','Hypernetwork','VAE','Controlnet','Upscaler','MotionModule','AestheticGradient','Poses','Wildcards','Workflows','Detection','Other'].map((t) => (
+            {['Checkpoint', 'LORA', 'LLM', 'LoCon', 'DoRA', 'TextualInversion', 'Hypernetwork', 'VAE', 'Controlnet', 'Upscaler', 'MotionModule', 'AestheticGradient', 'Poses', 'Wildcards', 'Workflows', 'Detection', 'Other'].map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
@@ -1150,25 +1670,27 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             return (
               <div
                 key={model.id}
-                className={`glass-card p-4.5 rounded-2xl flex flex-col justify-between gap-4 border transition-all shadow-md ${
-                  isExpanded
+                className={`glass-card p-4.5 rounded-2xl flex flex-col justify-between gap-4 border transition-all shadow-md ${isExpanded
                     ? 'border-amber-500/50 bg-slate-900/90 shadow-xl shadow-amber-950/20'
                     : 'border-slate-800/80 hover:border-purple-500/30'
-                }`}
+                  }`}
               >
                 {/* Main Card Row */}
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 w-full">
                   <div
-                    className={`flex items-center gap-4 flex-1 min-w-0 transition-all duration-300 ${
-                      shouldBlur
+                    className={`flex items-center gap-4 flex-1 min-w-0 transition-all duration-300 ${shouldBlur
                         ? 'filter blur-[7px] hover:blur-none opacity-60 hover:opacity-100 select-none cursor-pointer'
                         : ''
-                    }`}
+                      }`}
                     title={shouldBlur ? 'NSFW model: Hover to reveal name and path details' : undefined}
                   >
                     {/* Preview thumbnail if available, otherwise HardDrive icon */}
                     {model.previewUrl ? (
-                      <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-purple-500/30 shadow-md bg-slate-950 relative group">
+                      <div
+                        onClick={() => setSelectedModelDetail(model)}
+                        className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-purple-500/30 hover:border-purple-400 shadow-md bg-slate-950 relative group cursor-pointer transition-all hover:scale-105 active:scale-95"
+                        title="Click to view model details & trigger words"
+                      >
                         <FallbackImage
                           src={model.previewUrl}
                           alt={model.civitaiName || model.fileName}
@@ -1190,7 +1712,11 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                         )}
                       </div>
                     ) : (
-                      <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-purple-400 shrink-0 shadow-inner">
+                      <div
+                        onClick={() => setSelectedModelDetail(model)}
+                        className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 flex items-center justify-center text-purple-400 shrink-0 shadow-inner cursor-pointer transition-all hover:scale-105 active:scale-95"
+                        title="Click to view model details & trigger words"
+                      >
                         <HardDrive size={20} />
                       </div>
                     )}
@@ -1198,20 +1724,37 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap max-w-full">
                         <h3
-                          className="font-bold text-slate-100 text-sm truncate max-w-[15rem] sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl"
-                          title={model.civitaiName ? `${model.civitaiName} (${model.fileName})` : model.fileName}
+                          onClick={() => setSelectedModelDetail(model)}
+                          className="font-bold text-slate-100 hover:text-purple-300 text-sm truncate max-w-[15rem] sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl cursor-pointer transition-colors"
+                          title={model.civitaiName ? `${model.civitaiName} (${model.fileName}) — Click to view details & trigger words` : `${model.fileName} — Click to view details & trigger words`}
                         >
                           {model.civitaiName || model.fileName}
                         </h3>
                         {isPickleModel(model) && (
-                          <span className="text-[10px] font-bold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
-                            <Sparkles size={11} className="text-cyan-400" />
-                            <span>Pickle ({model.fileName.split('.').pop()?.toUpperCase()})</span>
-                          </span>
+                          isModelDeemedSafe(model) ? (
+                            <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm" title="Opcode verified safe YOLO detector model. Preserved in .pt format.">
+                              <ShieldCheck size={11} className="text-emerald-400" />
+                              <span>Deemed Safe (YOLO .pt)</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                              <Sparkles size={11} className="text-cyan-400" />
+                              <span>Pickle ({model.fileName.split('.').pop()?.toUpperCase()})</span>
+                            </span>
+                          )
                         )}
                         {(model.modelType || model.civitaiType) && (
                           <span className="text-[10px] font-bold text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md">
                             {model.modelType || model.civitaiType}
+                          </span>
+                        )}
+                        {model.isMultiPart && (
+                          <span
+                            className="text-[10px] font-extrabold text-indigo-300 bg-indigo-500/20 border border-indigo-500/40 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm"
+                            title={`Multi-part sharded model (${model.availableParts || (model.shards?.length || 1)} of ${model.totalParts || (model.shards?.length || 1)} shards available)`}
+                          >
+                            <Layers size={11} className="text-indigo-400" />
+                            <span>Multi-Part ({model.availableParts || (model.shards?.length || 1)}/{model.totalParts || (model.shards?.length || 1)} Shards)</span>
                           </span>
                         )}
                         {shouldBlur && (
@@ -1237,15 +1780,14 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                                 );
                               }
                             }}
-                            className={`flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border transition-all cursor-pointer ${
-                              model.isDuplicate
+                            className={`flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border transition-all cursor-pointer ${model.isDuplicate
                                 ? isExpanded
                                   ? 'text-amber-200 bg-amber-500/30 border-amber-400 glow-amber'
                                   : 'text-amber-400 bg-amber-500/15 border-amber-500/40 hover:bg-amber-500/25 glow-amber'
                                 : isExpanded
-                                ? 'text-emerald-200 bg-emerald-500/30 border-emerald-400'
-                                : 'text-slate-300 bg-slate-800/80 border-slate-700/80 hover:border-slate-600'
-                            }`}
+                                  ? 'text-emerald-200 bg-emerald-500/30 border-emerald-400'
+                                  : 'text-slate-300 bg-slate-800/80 border-slate-700/80 hover:border-slate-600'
+                              }`}
                             title={
                               model.isDuplicate
                                 ? 'Duplicate copies warning (Click to expand copies and choose keeper)'
@@ -1269,6 +1811,68 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                           </button>
                         )}
                       </div>
+
+                      {/* LoRA & Trigger Words Quick Bar */}
+                      {model.trainedWords && model.trainedWords.length > 0 ? (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedModelDetail(model);
+                            }}
+                            className="text-[10px] font-bold text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors glow-amber"
+                            title="Click to view full trigger words and details"
+                          >
+                            <Sparkles size={11} className="text-amber-400" />
+                            <span>{model.trainedWords.length} Trigger{model.trainedWords.length > 1 ? 's' : ''}</span>
+                          </button>
+                          {model.trainedWords.slice(0, 3).map((tw, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={(e) => handleCopyTriggerWord(tw, e)}
+                              className="text-[10px] font-mono bg-slate-900/90 hover:bg-amber-950/40 border border-slate-700/80 hover:border-amber-500/50 text-slate-300 hover:text-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                              title={`Click to copy: "${tw}"`}
+                            >
+                              {copiedTriggerWord === tw ? (
+                                <Check size={10} className="text-emerald-400" />
+                              ) : (
+                                <Copy size={10} className="text-slate-500 hover:text-amber-400" />
+                              )}
+                              <span className="truncate max-w-[130px]">{tw}</span>
+                            </button>
+                          ))}
+                          {model.trainedWords.length > 3 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedModelDetail(model);
+                              }}
+                              className="text-[10px] text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                            >
+                              +{model.trainedWords.length - 3} more...
+                            </button>
+                          )}
+                        </div>
+                      ) : (model.modelType === 'LORA' || model.modelType === 'LoCon' || model.modelType === 'DoRA' || model.civitaiType === 'LORA') ? (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedModelDetail(model);
+                            }}
+                            className="text-[10px] font-semibold text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Click to inspect LoRA trigger words and info"
+                          >
+                            <Sparkles size={10} className="text-purple-400" />
+                            <span>Inspect LoRA Triggers</span>
+                          </button>
+                        </div>
+                      ) : null}
+
                       <p className="text-xs text-slate-400 font-mono truncate mt-1 flex items-center gap-1.5">
                         <Folder size={12} className="text-slate-500 shrink-0" />
                         <span className="truncate">{model.filePath}</span>
@@ -1285,11 +1889,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     {/* Manual NSFW / SFW Toggle Button */}
                     <button
                       onClick={() => handleToggleModelNsfw(model)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs shadow-sm ${
-                        isModelNsfw(model)
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer text-xs shadow-sm ${isModelNsfw(model)
                           ? 'bg-rose-500/15 border border-rose-500/30 text-rose-300 hover:bg-rose-500/25 glow-rose'
                           : 'bg-slate-900/90 border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
+                        }`}
                       title={
                         isModelNsfw(model)
                           ? 'Flagged as NSFW. Click to switch to SFW.'
@@ -1345,15 +1948,33 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       </button>
                     )}
 
-                    {model.isMatched ? (
-                      <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl font-semibold">
-                        <CheckCircle size={14} /> Matched
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-xl font-semibold">
-                        <HelpCircle size={14} /> Unidentified
-                      </span>
-                    )}
+                    {/* Matched / Unidentified Badge (Clickable to Edit/Link Specifics) */}
+                    <button
+                      type="button"
+                      onClick={() => openLinkSpecificsModal(model)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer text-xs shadow-sm ${
+                        model.isMatched
+                          ? 'text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 hover:border-emerald-500/50'
+                          : 'text-slate-300 hover:text-amber-200 bg-slate-800/90 hover:bg-amber-500/20 border border-slate-700/80 hover:border-amber-500/40'
+                      }`}
+                      title={
+                        model.isMatched
+                          ? 'Model matched with metadata. Click to view or edit specifics / custom link.'
+                          : 'Unidentified model. Click to link specifics from Hugging Face / CivitAI or enter manual info.'
+                      }
+                    >
+                      {model.isMatched ? (
+                        <>
+                          <CheckCircle size={14} className="text-emerald-400" />
+                          <span>Matched</span>
+                        </>
+                      ) : (
+                        <>
+                          <HelpCircle size={14} className="text-amber-400" />
+                          <span>Unidentified</span>
+                        </>
+                      )}
+                    </button>
 
                     {model.hasUpdate && (
                       <button
@@ -1366,27 +1987,46 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       </button>
                     )}
 
-                    {/* Convert to SafeTensors Action Button */}
+                    {/* Convert to SafeTensors Action Button / Deemed Safe Badge */}
                     {isPickleModel(model) && !model.isMissing && (
-                      <button
-                        onClick={() => setModelToConvert(model)}
-                        disabled={convertingModelId === model.id}
-                        className="flex items-center gap-1.5 text-cyan-200 bg-cyan-500/20 border border-cyan-500/40 hover:bg-cyan-500/30 hover:text-white px-3 py-1.5 rounded-xl transition-all font-bold glow-cyan cursor-pointer text-xs shadow-md shadow-cyan-950/40"
-                        title="Convert this PyTorch pickle model (.ckpt/.pt/.bin) to SafeTensors format"
-                      >
-                        {convertingModelId === model.id ? (
-                          <>
-                            <Loader2 size={13} className="animate-spin text-cyan-300" />
-                            <span>Converting...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={13} className="text-cyan-400" />
-                            <span>Convert to Safetensors</span>
-                          </>
-                        )}
-                      </button>
+                      isModelDeemedSafe(model) ? (
+                        <span
+                          className="flex items-center gap-1.5 text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1.5 rounded-xl font-bold text-xs select-none shadow-sm shadow-emerald-950/30"
+                          title="Opcode verified safe YOLO detector model. Preserved in .pt format to maintain PyTorch bounding box and segmentation detector functionality."
+                        >
+                          <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
+                          <span>Deemed Safe (YOLO .pt)</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setModelToConvert(model)}
+                          disabled={convertingModelId === model.id}
+                          className="flex items-center gap-1.5 text-cyan-200 bg-cyan-500/20 border border-cyan-500/40 hover:bg-cyan-500/30 hover:text-white px-3 py-1.5 rounded-xl transition-all font-bold glow-cyan cursor-pointer text-xs shadow-md shadow-cyan-950/40"
+                          title="Convert this PyTorch pickle model (.ckpt/.pt/.bin) to SafeTensors format"
+                        >
+                          {convertingModelId === model.id ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin text-cyan-300" />
+                              <span>Converting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={13} className="text-cyan-400" />
+                              <span>Convert to Safetensors</span>
+                            </>
+                          )}
+                        </button>
+                      )
                     )}
+
+                    {/* Link / Edit Specifics Button */}
+                    <button
+                      onClick={() => openLinkSpecificsModal(model)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-indigo-500/15 transition-colors cursor-pointer"
+                      title="Link / Edit Model Specifics (CivitAI / Hugging Face / Custom Info)"
+                    >
+                      <Link2 size={16} />
+                    </button>
 
                     {/* External Link Button (Hugging Face for GGUF/blobs, CivitAI / CivitAI.red for others) */}
                     {(() => {
@@ -1394,13 +2034,12 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       return (
                         <button
                           onClick={() => handleOpenModelLink(model)}
-                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                            isHf
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isHf
                               ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/15'
                               : isNsfw
-                              ? 'text-rose-400 hover:text-rose-300 hover:bg-rose-500/15'
-                              : 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/15'
-                          }`}
+                                ? 'text-rose-400 hover:text-rose-300 hover:bg-rose-500/15'
+                                : 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/15'
+                            }`}
                           title={label}
                         >
                           <ExternalLink size={16} />
@@ -1446,11 +2085,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 {/* Inline Companion Packaging Toast on Model Card */}
                 {packageFeedback && packageFeedback.id === model.id && (
                   <div
-                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${
-                      packageFeedback.isError
+                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${packageFeedback.isError
                         ? 'bg-rose-950/70 border-rose-500/40 text-rose-200 glow-rose'
                         : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-200 glow-emerald'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-2">
                       {packageFeedback.isError ? (
@@ -1472,11 +2110,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 {/* Inline Conversion Toast on Model Card */}
                 {convertFeedback && convertFeedback.id === model.id && (
                   <div
-                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${
-                      convertFeedback.isError
+                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${convertFeedback.isError
                         ? 'bg-rose-950/70 border-rose-500/40 text-rose-200 glow-rose'
                         : 'bg-cyan-950/70 border-cyan-500/40 text-cyan-200 glow-cyan'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-2">
                       {convertFeedback.isError ? (
@@ -1498,11 +2135,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 {/* Inline Pull / Download Toast on Model Card */}
                 {pullFeedback && pullFeedback.id === model.id && (
                   <div
-                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${
-                      pullFeedback.isError
+                    className={`w-full p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${pullFeedback.isError
                         ? 'bg-rose-950/70 border-rose-500/40 text-rose-200 glow-rose'
                         : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-200 glow-emerald'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-2">
                       {pullFeedback.isError ? (
@@ -1555,11 +2191,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                           <div
                             key={copy.id}
                             onClick={() => model.sha256 && setSelectedKeepers((prev) => ({ ...prev, [model.sha256!]: copy.id }))}
-                            className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 cursor-pointer ${
-                              isKeeper
+                            className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 cursor-pointer ${isKeeper
                                 ? 'bg-emerald-950/30 border-emerald-500/50 shadow-md shadow-emerald-950/20'
                                 : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center gap-3 min-w-0 flex-1">
                               <div className="shrink-0">
@@ -1870,19 +2505,18 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     </span>
                   ) : hardwareAssessment ? (
                     <span
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                        hardwareAssessment.riskLevel === 'safe'
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${hardwareAssessment.riskLevel === 'safe'
                           ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
                           : hardwareAssessment.riskLevel === 'warning'
-                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
-                          : 'bg-rose-500/10 border border-rose-500/30 text-rose-400 animate-pulse'
-                      }`}
+                            ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+                            : 'bg-rose-500/10 border border-rose-500/30 text-rose-400 animate-pulse'
+                        }`}
                     >
                       {hardwareAssessment.riskLevel === 'safe'
                         ? 'Safe for Conversion'
                         : hardwareAssessment.riskLevel === 'warning'
-                        ? 'Moderate Memory Risk'
-                        : 'High OOM Risk'}
+                          ? 'Moderate Memory Risk'
+                          : 'High OOM Risk'}
                     </span>
                   ) : null}
                 </div>
@@ -1906,13 +2540,12 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
 
                 {hardwareAssessment && (
                   <div
-                    className={`p-2.5 rounded-xl border text-[11px] flex items-start gap-2 ${
-                      hardwareAssessment.riskLevel === 'safe'
+                    className={`p-2.5 rounded-xl border text-[11px] flex items-start gap-2 ${hardwareAssessment.riskLevel === 'safe'
                         ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
                         : hardwareAssessment.riskLevel === 'warning'
-                        ? 'bg-amber-950/20 border-amber-800/40 text-amber-200'
-                        : 'bg-rose-950/30 border-rose-800/50 text-rose-200'
-                    }`}
+                          ? 'bg-amber-950/20 border-amber-800/40 text-amber-200'
+                          : 'bg-rose-950/30 border-rose-800/50 text-rose-200'
+                      }`}
                   >
                     {hardwareAssessment.riskLevel === 'safe' ? (
                       <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
@@ -1978,6 +2611,1140 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           </div>
         </div>
       )}
+
+      {/* LoRA & Model Trigger Words / Metadata Inspector Modal */}
+      {selectedModelDetail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
+          onClick={() => setSelectedModelDetail(null)}
+        >
+          <div
+            className="w-full max-w-3xl glass-panel bg-slate-900/95 border border-purple-500/40 rounded-3xl overflow-hidden shadow-2xl glow-purple max-h-[90vh] flex flex-col animate-scaleUp"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-800/80 bg-slate-950/60 flex items-start justify-between gap-4">
+              <div className="space-y-1.5 min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-purple-300 bg-purple-500/15 border border-purple-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-xs">
+                    <Sparkles size={12} className="text-purple-400" />
+                    <span>{selectedModelDetail.modelType || selectedModelDetail.civitaiType || 'Model'}</span>
+                  </span>
+                  {selectedModelDetail.civitaiBaseModel && (
+                    <span className="text-[11px] font-bold text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-0.5 rounded-lg">
+                      {selectedModelDetail.civitaiBaseModel}
+                    </span>
+                  )}
+                  {isPickleModel(selectedModelDetail) && (
+                    isModelDeemedSafe(selectedModelDetail) ? (
+                      <span className="text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-xs" title="Opcode verified safe YOLO detector model. Preserved in .pt format.">
+                        <ShieldCheck size={12} className="text-emerald-400" />
+                        <span>Deemed Safe (YOLO .pt)</span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                        <span>Pickle ({selectedModelDetail.fileName.split('.').pop()?.toUpperCase()})</span>
+                      </span>
+                    )
+                  )}
+                  {isModelNsfw(selectedModelDetail) ? (
+                    <span className="text-[11px] font-bold text-rose-300 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                      <Flame size={12} className="text-rose-400" />
+                      <span>NSFW</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                      <ShieldCheck size={12} className="text-emerald-400" />
+                      <span>SFW</span>
+                    </span>
+                  )}
+                </div>
+
+                <h2 className="text-xl font-extrabold text-slate-100 tracking-tight truncate" title={selectedModelDetail.civitaiName || selectedModelDetail.fileName}>
+                  {selectedModelDetail.civitaiName || selectedModelDetail.fileName}
+                </h2>
+                {selectedModelDetail.civitaiCreator && (
+                  <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                    <span>By</span>
+                    <strong className="text-purple-300">{selectedModelDetail.civitaiCreator}</strong>
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedModelDetail(null)}
+                className="p-2 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar">
+              {/* Top Row: Preview Thumbnail & Quick Info */}
+              <div className="flex flex-col sm:flex-row gap-5 items-start">
+                {/* Preview Image */}
+                <div className="w-full sm:w-44 h-48 rounded-2xl overflow-hidden shrink-0 border border-purple-500/30 bg-slate-950 relative shadow-lg group">
+                  <FallbackImage
+                    src={selectedModelDetail.previewUrl}
+                    candidateUrls={selectedModelDetail.localPreviewPath ? [`/api/local-image?path=${encodeURIComponent(selectedModelDetail.localPreviewPath)}`] : []}
+                    alt={selectedModelDetail.civitaiName || selectedModelDetail.fileName}
+                    isBlurred={isModelNsfw(selectedModelDetail) && blurNsfw}
+                    className="w-full h-full object-cover"
+                    fallbackIcon={
+                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-purple-400 gap-2">
+                        <HardDrive size={32} />
+                        <span className="text-[10px] text-slate-500 font-mono">No Preview</span>
+                      </div>
+                    }
+                  />
+                  {isModelNsfw(selectedModelDetail) && blurNsfw && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none">
+                      <span className="text-xs font-bold text-rose-300 font-mono px-2 py-1 bg-rose-950/90 rounded border border-rose-500/50 shadow-sm">
+                        18+ NSFW
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Primary Stats & File Details */}
+                <div className="flex-1 space-y-3 w-full">
+                  <div className="grid grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+                      <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">File Size</span>
+                      <span className="font-bold text-slate-100 font-mono mt-0.5 block">
+                        {(selectedModelDetail.fileSize / (1024 * 1024)).toFixed(2)} MB
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+                      <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Base Model</span>
+                      <span className="font-bold text-indigo-300 font-mono mt-0.5 block truncate">
+                        {selectedModelDetail.civitaiBaseModel || 'Standard / Unspecified'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+                      <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">CivitAI Version ID</span>
+                      <span className="font-bold text-slate-200 font-mono mt-0.5 block">
+                        {selectedModelDetail.civitaiVersionId ? `#${selectedModelDetail.civitaiVersionId}` : 'Unmatched'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+                      <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">File Format</span>
+                      <span className="font-bold text-purple-300 font-mono mt-0.5 block uppercase">
+                        {selectedModelDetail.fileName.split('.').pop() || 'Unknown'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* File Path with Copy Button */}
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                        <Folder size={11} /> File Path on Disk
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyFilePath(selectedModelDetail.filePath)}
+                        className="text-[10px] font-semibold text-purple-300 hover:text-purple-200 flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedFilePath ? (
+                          <>
+                            <Check size={11} className="text-emerald-400" />
+                            <span className="text-emerald-400">Copied Path!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={11} />
+                            <span>Copy Path</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-300 font-mono break-all line-clamp-2">
+                      {selectedModelDetail.filePath}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Multi-Part Shards Breakdown Section if applicable */}
+              {selectedModelDetail.isMultiPart && (
+                <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 space-y-3 shadow-md">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Layers size={14} className="text-indigo-400" />
+                      <span>
+                        Multi-Part Model Shards ({selectedModelDetail.availableParts || selectedModelDetail.shards?.length || 1} of {selectedModelDetail.totalParts || selectedModelDetail.shards?.length || 1})
+                      </span>
+                    </h4>
+                    <span className="text-[11px] font-mono text-indigo-300/80 bg-indigo-950/80 px-2 py-0.5 rounded-md border border-indigo-500/20">
+                      Combined: {(selectedModelDetail.fileSize / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                    {selectedModelDetail.shards && selectedModelDetail.shards.length > 0 ? (
+                      selectedModelDetail.shards.map((s, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono">
+                          <span className="text-slate-200 truncate max-w-[280px] sm:max-w-md" title={s.filePath}>
+                            {s.fileName}
+                          </span>
+                          <span className="text-slate-400 shrink-0 ml-2">
+                            {(s.fileSize / 1024 / 1024).toFixed(1)} MB
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-400">
+                        Primary shard: {selectedModelDetail.fileName}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 🔥 Trained Trigger Words Hub Section */}
+              <div className="p-5 rounded-2xl bg-linear-to-br from-amber-500/10 via-purple-950/20 to-slate-950/80 border border-amber-500/30 space-y-4 shadow-xl glow-amber">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300">
+                      <Sparkles size={18} className="text-amber-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
+                        <span>Trained Trigger Words</span>
+                        {selectedModelDetail.trainedWords && selectedModelDetail.trainedWords.length > 0 && (
+                          <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            {selectedModelDetail.trainedWords.length}
+                          </span>
+                        )}
+                        {tagSaveSuccess && (
+                          <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-md">
+                            <Check size={11} /> Saved to companion .info!
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Activation tags required in your prompt to trigger this LoRA&apos;s weights.
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedModelDetail.trainedWords && selectedModelDetail.trainedWords.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      {selectedModelDetail.trainedWords.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectAllTags(selectedModelDetail.trainedWords!)}
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-slate-100 text-xs font-semibold transition-all cursor-pointer"
+                        >
+                          {selectedTriggerTags.length === selectedModelDetail.trainedWords.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCopyTriggerTags(selectedModelDetail.trainedWords!)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition-all cursor-pointer glow-amber active:scale-95 shadow-sm"
+                      >
+                        {copiedAllTriggers ? (
+                          <>
+                            <Check size={14} className="text-emerald-400" />
+                            <span className="text-emerald-300">
+                              {selectedTriggerTags.length > 0
+                                ? `Copied ${selectedTriggerTags.length} Tag${selectedTriggerTags.length > 1 ? 's' : ''}!`
+                                : 'Copied All Triggers!'}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={14} className="text-amber-300" />
+                            <span>
+                              {selectedTriggerTags.length > 0
+                                ? `Copy Tags (${selectedTriggerTags.length})`
+                                : 'Copy All'}
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Interactive Tag Cloud */}
+                {selectedModelDetail.trainedWords && selectedModelDetail.trainedWords.length > 0 ? (
+                  <div className="space-y-2.5">
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {selectedModelDetail.trainedWords.map((word, idx) => {
+                        const isSelected = selectedTriggerTags.includes(word);
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => handleToggleTagSelection(word)}
+                            className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border transition-all cursor-pointer shadow-sm active:scale-95 select-none ${isSelected
+                                ? 'bg-amber-500/30 border-amber-400 text-amber-100 ring-2 ring-amber-500/40 glow-amber font-bold'
+                                : 'bg-slate-900/90 hover:bg-amber-500/15 border-slate-700/80 hover:border-amber-500/50 text-slate-200 hover:text-amber-200'
+                              }`}
+                            title={`Click to ${isSelected ? 'deselect' : 'select'} for Copy Tags`}
+                          >
+                            <span>{word}</span>
+
+                            {/* Copy single tag button */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyTriggerWord(word, e)}
+                              className="p-1 rounded hover:bg-black/30 text-slate-400 hover:text-amber-300 transition-colors ml-0.5"
+                              title={`Copy "${word}" individually`}
+                            >
+                              {copiedTriggerWord === word ? (
+                                <Check size={11} className="text-emerald-400" />
+                              ) : (
+                                <Copy size={11} />
+                              )}
+                            </button>
+
+                            {/* Remove tag button */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleRemoveTriggerWord(word, e)}
+                              className="p-1 rounded hover:bg-rose-900/50 text-slate-500 hover:text-rose-300 transition-colors"
+                              title={`Remove "${word}" tag`}
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-slate-400/90 italic pt-0.5">
+                      Tip: Click tags to select specific triggers and click &quot;Copy Tags&quot;, or click the copy icon on a tag to copy individually.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400 space-y-1.5">
+                    <p className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                      <Info size={14} className="text-amber-400 shrink-0" />
+                      <span>No explicit trigger words recorded for this model yet.</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      You can add custom trigger keywords below from the model&apos;s description or README (e.g. &quot;maplestorypixelstyle6135, pixel art, chibi...&quot;). They will be automatically saved to this model&apos;s companion file.
+                    </p>
+                  </div>
+                )}
+
+                {/* ➕ Quick Add Trigger Words Input Bar */}
+                <div className="pt-3 border-t border-slate-800/80 space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Tag size={12} className="text-amber-400" />
+                      <span>Add Trigger Words</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      Press <kbd className="px-1 py-0.5 bg-slate-800 rounded text-slate-300 font-mono text-[9px]">Enter</kbd> or type <kbd className="px-1 py-0.5 bg-slate-800 rounded text-slate-300 font-mono text-[9px]">,</kbd> (comma) or paste a comma-separated list
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={newTagInput}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val.includes(',')) {
+                            handleAddTriggerWords(val);
+                          } else {
+                            setNewTagInput(val);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddTriggerWords(newTagInput);
+                          }
+                        }}
+                        onPaste={(e) => {
+                          const text = e.clipboardData.getData('text');
+                          if (text && (text.includes(',') || text.includes('\n') || text.includes(';'))) {
+                            e.preventDefault();
+                            handleAddTriggerWords(text);
+                          }
+                        }}
+                        placeholder="e.g. tag1, tag2, tag3, tag4..."
+                        className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 text-xs text-slate-100 placeholder-slate-500 font-mono outline-none transition-all"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!newTagInput.trim() || isSavingTags}
+                      onClick={() => handleAddTriggerWords(newTagInput)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 text-xs font-bold transition-all cursor-pointer active:scale-95 shrink-0 shadow-md glow-amber"
+                    >
+                      {isSavingTags ? (
+                        <Loader2 size={13} className="animate-spin text-slate-950" />
+                      ) : (
+                        <Plus size={14} className="text-slate-950" />
+                      )}
+                      <span>Add Tags</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* SHA256 & Swarm Companions Status */}
+              <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <Hash size={13} className="text-purple-400" /> SHA256 Checksum
+                  </span>
+                  {selectedModelDetail.sha256 && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopySha256(selectedModelDetail.sha256!)}
+                      className="text-[10px] font-semibold text-purple-300 hover:text-purple-200 flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedSha256 ? (
+                        <>
+                          <Check size={11} className="text-emerald-400" />
+                          <span className="text-emerald-400">Copied SHA256!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={11} />
+                          <span>Copy Checksum</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs font-mono text-slate-400 break-all bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                  {selectedModelDetail.sha256 || 'No SHA256 computed yet (Run Scan to compute hash)'}
+                </p>
+              </div>
+
+              {/* Tags Section if available */}
+              {selectedModelDetail.tags && selectedModelDetail.tags.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
+                    <Tag size={12} className="text-slate-500" /> Model Tags
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedModelDetail.tags.map((t, idx) => (
+                      <span key={idx} className="text-[11px] font-medium bg-slate-800/60 text-slate-300 border border-slate-700/60 px-2.5 py-0.5 rounded-lg">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="p-4 border-t border-slate-800/80 bg-slate-950/80 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleOpenFolder(selectedModelDetail.filePath)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                >
+                  <FolderOpen size={14} className="text-amber-400" />
+                  <span>Show in Folder</span>
+                </button>
+
+                {(() => {
+                  const { label, isHf, isNsfw } = getModelExternalUrl(selectedModelDetail);
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenModelLink(selectedModelDetail)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                    >
+                      <ExternalLink size={14} className={isHf ? 'text-amber-400' : isNsfw ? 'text-rose-400' : 'text-purple-400'} />
+                      <span>{label}</span>
+                    </button>
+                  );
+                })()}
+
+                {!selectedModelDetail.isMissing && (
+                  <button
+                    type="button"
+                    onClick={() => handlePackageSingleModel(selectedModelDetail)}
+                    disabled={packagingModelId === selectedModelDetail.id}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-emerald-950/40 border border-slate-700 hover:border-emerald-500/40 text-xs font-semibold text-slate-200 hover:text-emerald-300 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {packagingModelId === selectedModelDetail.id ? (
+                      <Loader2 size={14} className="animate-spin text-emerald-400" />
+                    ) : (
+                      <Package size={14} className="text-emerald-400" />
+                    )}
+                    <span>Generate Companions</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const m = selectedModelDetail;
+                    openLinkSpecificsModal(m);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-950/60 hover:bg-indigo-900/60 border border-indigo-500/40 text-xs font-semibold text-indigo-200 hover:text-white transition-colors cursor-pointer"
+                >
+                  <Edit3 size={14} className="text-indigo-400" />
+                  <span>Edit Specifics / Link</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {selectedModelDetail.hasUpdate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const m = selectedModelDetail;
+                      setSelectedModelDetail(null);
+                      onCheckUpdate(m);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-linear-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 text-xs font-bold transition-all shadow-md shadow-amber-600/30 cursor-pointer glow-amber active:scale-95"
+                  >
+                    <ArrowUpCircle size={14} />
+                    <span>View Update</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedModelDetail(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔗 Link Model Specifics & Metadata Modal */}
+      {modelToLinkSpecifics && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden animate-scaleUp">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-800 bg-slate-950/80 flex items-start justify-between gap-4">
+              <div className="space-y-1 min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-xl bg-indigo-500/20 text-indigo-300">
+                    <Link2 size={16} />
+                  </span>
+                  <h2 className="text-lg font-extrabold text-slate-100 tracking-tight">
+                    Link Model Specifics & Metadata
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-400 truncate" title={modelToLinkSpecifics.filePath}>
+                  {modelToLinkSpecifics.fileName} ({modelToLinkSpecifics.filePath})
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModelToLinkSpecifics(null)}
+                className="p-2 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 custom-scrollbar">
+              {/* Feedback toast if any */}
+              {specificsFeedback && (
+                <div
+                  className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 border animate-fadeIn ${
+                    specificsFeedback.isError
+                      ? 'bg-rose-950/70 border-rose-500/40 text-rose-200 glow-rose'
+                      : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-200 glow-emerald'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {specificsFeedback.isError ? (
+                      <AlertTriangle size={15} className="text-rose-400 shrink-0" />
+                    ) : (
+                      <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+                    )}
+                    <span>{specificsFeedback.message}</span>
+                  </div>
+                  <button
+                    onClick={() => setSpecificsFeedback(null)}
+                    className="text-slate-400 hover:text-slate-200 text-xs px-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* URL Auto-Fetch Section */}
+              <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 space-y-2.5">
+                <label className="text-xs font-bold text-indigo-200 flex items-center gap-1.5">
+                  <Globe size={13} className="text-indigo-400" />
+                  <span>Auto-Fetch Metadata by URL (Hugging Face or CivitAI)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={linkInputUrl}
+                    onChange={(e) => setLinkInputUrl(e.target.value)}
+                    placeholder="e.g. https://huggingface.co/author/repo or https://civitai.com/models/12345"
+                    className="flex-1 px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/50 text-xs text-slate-100 placeholder-slate-500 outline-none transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAutoFetchLink}
+                    disabled={isFetchingLinkMetadata || !linkInputUrl.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-all cursor-pointer shadow-md glow-indigo shrink-0"
+                  >
+                    {isFetchingLinkMetadata ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin text-white" />
+                        <span>Fetching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={13} />
+                        <span>Auto-Fetch</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Paste a Hugging Face repo link or CivitAI model page URL to automatically pull the title, creator, base model, description, preview image, and trigger words.
+                </p>
+              </div>
+
+              {/* Form Fields Grid */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Model Name / Title</label>
+                    <input
+                      type="text"
+                      value={specificsName}
+                      onChange={(e) => setSpecificsName(e.target.value)}
+                      placeholder="e.g. Qwen3-VL-32B-Instruct-FP8"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Creator / Author</label>
+                    <input
+                      type="text"
+                      value={specificsCreator}
+                      onChange={(e) => setSpecificsCreator(e.target.value)}
+                      placeholder="e.g. Qwen / bartowski"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Base Model Architecture</label>
+                    <input
+                      type="text"
+                      value={specificsBaseModel}
+                      onChange={(e) => setSpecificsBaseModel(e.target.value)}
+                      placeholder="e.g. SDXL 1.0, Flux.1 D, Qwen, Gemma, LLaMA"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Model Type</label>
+                    <select
+                      value={specificsModelType}
+                      onChange={(e) => setSpecificsModelType(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 outline-none cursor-pointer"
+                    >
+                      <option value="Checkpoint">Checkpoint</option>
+                      <option value="LORA">LoRA / LoCon</option>
+                      <option value="DoRA">DoRA</option>
+                      <option value="TextualInversion">Textual Inversion / Embedding</option>
+                      <option value="VAE">VAE</option>
+                      <option value="Controlnet">ControlNet</option>
+                      <option value="Upscaler">Upscaler</option>
+                      <option value="MotionModule">Motion Module</option>
+                      <option value="LLM">LLM (GGUF / Safetensors)</option>
+                      <option value="UNet">UNet / Diffusion</option>
+                      <option value="CLIP">CLIP / Vision</option>
+                      <option value="Other">Other / Unknown</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Direct Link / Documentation URL</label>
+                  <input
+                    type="text"
+                    value={specificsCustomLink}
+                    onChange={(e) => setSpecificsCustomLink(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 outline-none font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Preview Image URL</label>
+                  <input
+                    type="text"
+                    value={specificsPreviewUrl}
+                    onChange={(e) => setSpecificsPreviewUrl(e.target.value)}
+                    placeholder="https://... (or leave blank to use auto-discovered image)"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 outline-none font-mono"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={specificsNsfw}
+                      onChange={(e) => setSpecificsNsfw(e.target.checked)}
+                      className="rounded border-slate-700 text-indigo-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1">
+                      <Flame size={13} className={specificsNsfw ? 'text-rose-400' : 'text-slate-500'} />
+                      <span>Flag as Adult / NSFW Content (Enforces Blur &amp; Filter)</span>
+                    </span>
+                  </label>
+                </div>
+
+                {/* Trigger Words Section */}
+                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <Tag size={13} className="text-amber-400" />
+                      <span>Trigger Words / Activation Tags</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      {specificsTrainedWords.length} tag{specificsTrainedWords.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  {specificsTrainedWords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                      {specificsTrainedWords.map((t, idx) => (
+                        <span
+                          key={idx}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/20 text-amber-200 border border-amber-500/30 text-xs font-mono"
+                        >
+                          <span>{t}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSpecificsTriggerWord(t)}
+                            className="text-amber-400/60 hover:text-rose-400 cursor-pointer ml-1"
+                          >
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={specificsNewTag}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.includes(',')) {
+                          handleAddSpecificsTriggerWords(val);
+                        } else {
+                          setSpecificsNewTag(val);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddSpecificsTriggerWords(specificsNewTag);
+                        }
+                      }}
+                      placeholder="Add tag (comma separated or press Enter)..."
+                      className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700/80 focus:border-amber-400 text-xs text-slate-100 placeholder-slate-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!specificsNewTag.trim()}
+                      onClick={() => handleAddSpecificsTriggerWords(specificsNewTag)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Model Description / Usage Notes</label>
+                  <textarea
+                    rows={3}
+                    value={specificsDescription}
+                    onChange={(e) => setSpecificsDescription(e.target.value)}
+                    placeholder="Additional details, recommended settings, prompt templates, or license information..."
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-slate-700/80 focus:border-indigo-400 text-xs text-slate-100 placeholder-slate-500 outline-none resize-none custom-scrollbar"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setModelToLinkSpecifics(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingSpecifics}
+                onClick={handleSaveSpecifics}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-linear-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 cursor-pointer glow-indigo active:scale-95 disabled:opacity-50"
+              >
+                {isSavingSpecifics ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin text-white" />
+                    <span>Saving Specifics...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} />
+                    <span>Save Specifics &amp; Companion Info</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Sort Library Modal */}
+      {isSortModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xl flex items-center justify-center p-4"
+          onClick={() => {
+            if (!isSorting) setIsSortModalOpen(false);
+          }}
+        >
+          <div
+            className="glass-panel w-full max-w-4xl rounded-3xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-700/60 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-linear-to-br from-amber-500/20 to-yellow-500/20 text-amber-300 border border-amber-500/30 glow-amber">
+                  <ArrowUpDown size={22} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-100 flex items-center gap-2">
+                    <span>Automatic Library Folder Sorter</span>
+                    {sortPlan && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 border border-amber-500/40 text-amber-300">
+                        {sortPlan.misplacedCount} Misplaced
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Relocate misplaced models to their standardized ComfyUI subdirectories (<code>controlnet/</code>, <code>diffusion_models/</code>, <code>LLM/</code>, <code>loras/</code>, etc.). Companion files are moved together.
+                  </p>
+                </div>
+              </div>
+
+              {!isSorting && (
+                <button
+                  type="button"
+                  onClick={() => setIsSortModalOpen(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              )}
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
+              {/* Feedback Banner */}
+              {sortFeedback && (
+                <div
+                  className={`p-4 rounded-2xl border flex items-center gap-2.5 text-xs font-semibold animate-fadeIn ${
+                    sortFeedback.isError
+                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 glow-rose'
+                      : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 glow-emerald'
+                  }`}
+                >
+                  {sortFeedback.isError ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                  <span>{sortFeedback.message}</span>
+                </div>
+              )}
+
+              {/* Sorting Progress Banner */}
+              {isSorting && sortProgress && (
+                <div className="p-5 rounded-2xl bg-slate-900/90 border border-amber-500/40 space-y-3 shadow-xl glow-amber animate-fadeIn">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-200">
+                    <span className="flex items-center gap-2">
+                      <Loader2 size={15} className="animate-spin text-amber-400" />
+                      <span>Relocating Models ({sortProgress.current} of {sortProgress.total})...</span>
+                    </span>
+                    <span className="font-mono text-amber-400">
+                      {Math.round((sortProgress.current / sortProgress.total) * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                    <div
+                      className="bg-linear-to-r from-amber-500 via-yellow-400 to-amber-500 h-full transition-all duration-300 rounded-full glow-amber"
+                      style={{ width: `${Math.round((sortProgress.current / sortProgress.total) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-mono line-clamp-1">
+                    {sortProgress.file}
+                  </p>
+                </div>
+              )}
+
+              {/* Category Filter & Selection Bar */}
+              {sortPlan && sortPlan.items.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-900/70 border border-slate-800 rounded-2xl">
+                  {/* Category Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setSortCategoryFilter('all')}
+                      className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                        sortCategoryFilter === 'all'
+                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      All ({sortPlan.items.length})
+                    </button>
+                    {sortPlan.items.some((i) => i.targetFolder === 'controlnet') && (
+                      <button
+                        type="button"
+                        onClick={() => setSortCategoryFilter('controlnet')}
+                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                          sortCategoryFilter === 'controlnet'
+                            ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        ControlNet ({sortPlan.items.filter((i) => i.targetFolder === 'controlnet').length})
+                      </button>
+                    )}
+                    {sortPlan.items.some((i) => i.targetFolder === 'diffusion_models') && (
+                      <button
+                        type="button"
+                        onClick={() => setSortCategoryFilter('diffusion_models')}
+                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                          sortCategoryFilter === 'diffusion_models'
+                            ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Diffusion Models ({sortPlan.items.filter((i) => i.targetFolder === 'diffusion_models').length})
+                      </button>
+                    )}
+                    {sortPlan.items.some((i) => i.targetFolder === 'LLM') && (
+                      <button
+                        type="button"
+                        onClick={() => setSortCategoryFilter('LLM')}
+                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                          sortCategoryFilter === 'LLM'
+                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        LLM / Text ({sortPlan.items.filter((i) => i.targetFolder === 'LLM').length})
+                      </button>
+                    )}
+                    {sortPlan.items.some((i) => i.targetFolder === 'loras') && (
+                      <button
+                        type="button"
+                        onClick={() => setSortCategoryFilter('loras')}
+                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                          sortCategoryFilter === 'loras'
+                            ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        LoRA ({sortPlan.items.filter((i) => i.targetFolder === 'loras').length})
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Select All Toggle */}
+                  <div className="flex items-center gap-2 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedSortModelIds.size === sortPlan.items.length) {
+                          setSelectedSortModelIds(new Set());
+                        } else {
+                          setSelectedSortModelIds(new Set(sortPlan.items.map((i) => i.id)));
+                        }
+                      }}
+                      className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      {selectedSortModelIds.size === sortPlan.items.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    <span className="text-slate-400 text-[11px]">
+                      {selectedSortModelIds.size} of {sortPlan.items.length} selected
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Items List */}
+              {isAnalyzingSort ? (
+                <div className="flex flex-col items-center justify-center py-16 space-y-3">
+                  <Loader2 size={32} className="animate-spin text-amber-400" />
+                  <span className="text-xs text-slate-400 font-medium">Analyzing library model directory hierarchy...</span>
+                </div>
+              ) : sortPlan && sortPlan.items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 glass-panel rounded-2xl border border-emerald-500/30 bg-emerald-500/5">
+                  <CheckCircle2 size={40} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold text-emerald-300">All Models Are Perfectly Placed!</h3>
+                  <p className="text-xs text-slate-400 max-w-md">
+                    Every ControlNet, diffusion model, LLM, LoRA, and Checkpoint in your library is already organized in its designated ComfyUI subfolder.
+                  </p>
+                </div>
+              ) : sortPlan && (
+                <div className="space-y-3">
+                  {sortPlan.items
+                    .filter((item) => {
+                      if (sortCategoryFilter === 'all') return true;
+                      return item.targetFolder === sortCategoryFilter;
+                    })
+                    .map((item) => {
+                      const isSelected = selectedSortModelIds.has(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedSortModelIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                            isSelected
+                              ? 'bg-slate-900/90 border-amber-500/50 shadow-md shadow-amber-950/20'
+                              : 'bg-slate-950/60 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                            {/* Checkbox */}
+                            <div className="pt-1 shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSortModelIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.id)) next.delete(item.id);
+                                    else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                className="rounded border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer h-4 w-4"
+                              />
+                            </div>
+
+                            {/* Thumbnail Preview */}
+                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 shrink-0">
+                              <FallbackImage
+                                src={item.previewUrl}
+                                alt={item.fileName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+
+                            {/* Model Details */}
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-slate-100 text-xs truncate max-w-sm" title={item.fileName}>
+                                  {item.fileName}
+                                </h4>
+                                {item.baseModel && (
+                                  <span className="px-2 py-0.5 rounded-md text-[9px] font-semibold bg-slate-800 border border-slate-700 text-slate-300">
+                                    {item.baseModel}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-[11px] text-amber-300 font-medium">
+                                {item.reason}
+                              </p>
+
+                              {item.companionFiles.length > 0 && (
+                                <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                  <span>+ {item.companionFiles.length} companion file(s) ({item.companionFiles.map((c) => c.split(/[\\/]/).pop()).join(', ')})</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Relocation Route Indicator */}
+                          <div className="flex items-center gap-2 text-xs font-bold shrink-0 self-end sm:self-center bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 shadow-inner">
+                            <span className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/40 text-rose-300 font-mono text-[11px]">
+                              {item.currentFolder}
+                            </span>
+                            <ArrowRight size={14} className="text-amber-400" />
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[11px]">
+                              {item.targetFolder}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                disabled={isSorting}
+                onClick={() => setIsSortModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                disabled={isSorting || isAnalyzingSort || !sortPlan || selectedSortModelIds.size === 0}
+                onClick={handleExecuteSort}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black transition-all shadow-lg shadow-amber-950/50 cursor-pointer glow-amber active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isSorting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin text-slate-950 font-bold" />
+                    <span>Relocating Models...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowUpDown size={15} className="text-slate-950 font-bold" />
+                    <span>Auto-Sort Selected ({selectedSortModelIds.size} Models)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

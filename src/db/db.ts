@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import sqlite3 from 'sqlite3';
 import path from 'path';
@@ -162,7 +164,15 @@ export class DatabaseManager {
         source TEXT DEFAULT 'civitai',
         hf_repo_id TEXT,
         hf_commit_sha TEXT,
-        quantization TEXT
+        quantization TEXT,
+        pickle_scan_status TEXT,
+        pickle_scanned_sha256 TEXT,
+        pickle_scanned_at INTEGER,
+        custom_link TEXT,
+        is_multi_part INTEGER DEFAULT 0,
+        total_parts INTEGER,
+        available_parts INTEGER,
+        shards_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_local_models_sha256 ON local_models(sha256);
       CREATE INDEX IF NOT EXISTS idx_local_models_civitai_version ON local_models(civitai_version_id);
@@ -279,6 +289,14 @@ export class DatabaseManager {
       'ALTER TABLE local_models ADD COLUMN hf_repo_id TEXT;',
       'ALTER TABLE local_models ADD COLUMN hf_commit_sha TEXT;',
       'ALTER TABLE local_models ADD COLUMN quantization TEXT;',
+      'ALTER TABLE local_models ADD COLUMN pickle_scan_status TEXT;',
+      'ALTER TABLE local_models ADD COLUMN pickle_scanned_sha256 TEXT;',
+      'ALTER TABLE local_models ADD COLUMN pickle_scanned_at INTEGER;',
+      'ALTER TABLE local_models ADD COLUMN custom_link TEXT;',
+      'ALTER TABLE local_models ADD COLUMN is_multi_part INTEGER DEFAULT 0;',
+      'ALTER TABLE local_models ADD COLUMN total_parts INTEGER;',
+      'ALTER TABLE local_models ADD COLUMN available_parts INTEGER;',
+      'ALTER TABLE local_models ADD COLUMN shards_json TEXT;',
       'ALTER TABLE downloads ADD COLUMN source TEXT DEFAULT \'civitai\';',
       'ALTER TABLE downloads ADD COLUMN hf_repo_id TEXT;',
       'ALTER TABLE downloads ADD COLUMN hf_commit_sha TEXT;',
@@ -558,6 +576,19 @@ export class DatabaseManager {
     } catch (err) {
       logger.warn('Failed during startup duplicate database cleanup:', err);
     }
+  }
+
+
+  async getConfigValue(key: string): Promise<string | null> {
+    const row = await this.get('SELECT value FROM app_config WHERE key = ?', [key]);
+    return row && (row as any).value !== undefined ? (row as any).value : null;
+  }
+
+  async setConfigValue(key: string, value: string): Promise<void> {
+    await this.run(
+      'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)',
+      [key, value]
+    );
   }
 
   close(): Promise<void> {

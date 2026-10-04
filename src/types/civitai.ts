@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 export type ModelType =
   | 'Checkpoint'
@@ -81,11 +83,14 @@ export interface CivitAIModelVersion {
   files: CivitAIFile[];
   images?: CivitAIImage[];
   type?: ModelType;
+  trainedWords?: string[];
   model?: {
     name?: string;
     type?: ModelType;
     nsfw?: boolean;
     poi?: boolean;
+    trainedWords?: string[];
+    creator?: CivitAICreator;
   };
 }
 
@@ -110,6 +115,7 @@ export interface CivitAIModel {
   nsfw: boolean;
   nsfwLevel?: number; // 1-31 scale
   tags?: string[];
+  trainedWords?: string[];
   creator?: CivitAICreator;
   stats?: CivitAIStats;
   modelVersions: CivitAIModelVersion[];

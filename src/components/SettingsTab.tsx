@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -48,6 +50,7 @@ import {
   Share2,
   Cpu,
   AlertTriangle,
+  KeyRound,
 } from 'lucide-react';
 import {
   AppConfig,
@@ -63,6 +66,7 @@ import {
   DEFAULT_FILENAME_PATTERNS,
 } from '../types/app';
 
+import { LicenseValidationResult } from '../types/license';
 import { NodeResolutionCard } from './NodeResolutionCard';
 import { FolderBrowserModal } from './FolderBrowserModal';
 
@@ -103,6 +107,9 @@ export const SettingsTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [pythonStatus, setPythonStatus] = useState<PythonEnvironmentStatus | null>(null);
+  const [userPublicKey, setUserPublicKey] = useState<string>('');
+  const [licenseStatus, setLicenseStatus] = useState<LicenseValidationResult | null>(null);
+  const [copiedPubKey, setCopiedPubKey] = useState(false);
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
   const [checkingPython, setCheckingPython] = useState(false);
   const [comfyStatus, setComfyStatus] = useState<ComfyUIStatus | null>(null);
@@ -146,6 +153,30 @@ export const SettingsTab: React.FC = () => {
     // also mirror to browser console for DevTools
     console.log(`[Settings Debug] ${msg}`);
   };
+  const [folderAccessStatus, setFolderAccessStatus] = useState<Record<string, { exists: boolean; writable: boolean; error?: string }>>({});
+  const [checkingFolderAccess, setCheckingFolderAccess] = useState(false);
+
+  const checkAllFoldersAccess = async (folders: string[]) => {
+    if (!folders || folders.length === 0) return;
+    setCheckingFolderAccess(true);
+    const results: Record<string, { exists: boolean; writable: boolean; error?: string }> = {};
+    if (window.civitaiAPI?.checkFolderAccess) {
+      await Promise.all(
+        folders.map(async (f) => {
+          if (!f) return;
+          try {
+            const res = await window.civitaiAPI.checkFolderAccess(f);
+            results[f] = res;
+          } catch (err: any) {
+            results[f] = { exists: false, writable: false, error: err?.message || 'Access check failed' };
+          }
+        })
+      );
+    }
+    setFolderAccessStatus((prev) => ({ ...prev, ...results }));
+    setCheckingFolderAccess(false);
+  };
+
   const [folderBrowser, setFolderBrowser] = useState<{ target: 'install' | 'addFolder'; start: string } | null>(null);
 
   const handleAutoDetectComfyUI = async () => {
@@ -272,6 +303,15 @@ export const SettingsTab: React.FC = () => {
         return { ...prev, comfyui_folders: updatedFolders, comfyui_root: updatedFolders[0] || '' };
       });
       setNewFolderInput('');
+      if (window.civitaiAPI?.checkFolderAccess) {
+        window.civitaiAPI.checkFolderAccess(sanitized).then((accessRes) => {
+          setFolderAccessStatus((prev) => ({ ...prev, [sanitized]: accessRes }));
+          if (accessRes && !accessRes.writable) {
+            setImportError(`⚠️ Warning: Selected folder or drive is locked or read-only (${accessRes.error || 'Permission denied'}). Models cannot be downloaded here until unlocked.`);
+            setTimeout(() => setImportError(null), 10000);
+          }
+        }).catch(() => {});
+      }
       if (window.civitaiAPI?.scaffoldModelFolders) {
         window.civitaiAPI.scaffoldModelFolders(sanitized).then((results: any) => {
           let count = 0;
@@ -476,6 +516,15 @@ export const SettingsTab: React.FC = () => {
           checkComfyConnection(loaded.comfyui_server_url || 'http://127.0.0.1:8188');
           checkSwarmConnection(loaded.swarm_server_url || 'http://127.0.0.1:5180');
           probePythonEnv(loaded.custom_python_path, loaded.comfyui_install_dir);
+          checkAllFoldersAccess(folders);
+          if (window.civitaiAPI) {
+            if (typeof window.civitaiAPI.getUserPublicKey === 'function') {
+              window.civitaiAPI.getUserPublicKey().then((pk: string) => setUserPublicKey(pk || '')).catch(() => {});
+            }
+            if (typeof window.civitaiAPI.getLicenseStatus === 'function') {
+              window.civitaiAPI.getLicenseStatus().then((ls: any) => setLicenseStatus(ls || null)).catch(() => {});
+            }
+          }
         }
       }
     };
@@ -690,6 +739,24 @@ export const SettingsTab: React.FC = () => {
     setIsScaffolding(true);
     setScaffoldFeedback(null);
 
+    const effectiveDirs = targetDir ? [targetDir] : config.comfyui_folders;
+    if (window.civitaiAPI?.checkFolderAccess) {
+      for (const d of effectiveDirs) {
+        try {
+          const access = await window.civitaiAPI.checkFolderAccess(d);
+          if (access && !access.writable) {
+            setIsScaffolding(false);
+            setScaffoldFeedback({
+              success: false,
+              message: `Cannot scaffold subfolders: Target drive or directory is locked or read-only (${access.error || 'Permission denied'}). Please unlock the drive first.`,
+            });
+            setTimeout(() => setScaffoldFeedback(null), 10000);
+            return;
+          }
+        } catch {}
+      }
+    }
+
     try {
       const results = await window.civitaiAPI.scaffoldModelFolders(targetDir);
       let createdTotal = 0;
@@ -739,6 +806,15 @@ export const SettingsTab: React.FC = () => {
       return { ...prev, comfyui_folders: updatedFolders, comfyui_root: updatedFolders[0] || '' };
     });
     setNewFolderInput('');
+    if (window.civitaiAPI?.checkFolderAccess) {
+      window.civitaiAPI.checkFolderAccess(sanitized).then((accessRes) => {
+        setFolderAccessStatus((prev) => ({ ...prev, [sanitized]: accessRes }));
+        if (accessRes && !accessRes.writable) {
+          setImportError(`⚠️ Warning: Drive or folder is locked or read-only (${accessRes.error || 'Permission denied'}). Downloads into this folder will fail until the drive is unlocked.`);
+          setTimeout(() => setImportError(null), 10000);
+        }
+      }).catch(() => {});
+    }
 
     // Auto-build missing standard ComfyUI model subdirectories in newly added folder
     if (window.civitaiAPI?.scaffoldModelFolders) {
@@ -1670,10 +1746,16 @@ export const SettingsTab: React.FC = () => {
               <span>No model folders configured! Please set your ComfyUI directory above or add a folder path.</span>
             </div>
           ) : (
-            config.comfyui_folders.map((folderPath, idx) => (
+            config.comfyui_folders.map((folderPath, idx) => {
+              const access = folderAccessStatus[folderPath];
+              return (
               <div
                 key={idx}
-                className="flex items-center justify-between bg-slate-900/70 p-3.5 rounded-2xl border border-slate-800 text-xs font-mono text-slate-200"
+                className={`flex items-center justify-between p-3.5 rounded-2xl border text-xs font-mono text-slate-200 transition-colors ${
+                  access && !access.writable
+                    ? 'bg-rose-950/20 border-rose-500/40 shadow-xs'
+                    : 'bg-slate-900/70 border-slate-800'
+                }`}
               >
                 <div className="flex items-center gap-2.5 truncate flex-1 mr-3">
                   {idx === 0 ? (
@@ -1688,7 +1770,29 @@ export const SettingsTab: React.FC = () => {
                       Secondary
                     </span>
                   )}
-                  <span className="truncate">{folderPath}</span>
+                  {checkingFolderAccess ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 shrink-0">
+                      <Loader2 size={10} className="animate-spin" />
+                    </span>
+                  ) : access ? (
+                    access.writable ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30 shrink-0">
+                        <CheckCircle2 size={10} className="text-emerald-400" />
+                        <span>Writable</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-bold border border-rose-500/40 shrink-0" title={access.error}>
+                        <AlertTriangle size={10} className="text-rose-400" />
+                        <span>Locked / Read-Only</span>
+                      </span>
+                    )
+                  ) : null}
+                  <span className="truncate font-mono">{folderPath}</span>
+                  {access && !access.writable && access.error && (
+                    <span className="text-[11px] text-rose-400 font-sans block w-full pl-0.5 pt-0.5">
+                      ⚠️ {access.error}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={() => removeFolder(idx)}
@@ -1698,7 +1802,8 @@ export const SettingsTab: React.FC = () => {
                   <Trash2 size={16} />
                 </button>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -1802,6 +1907,87 @@ export const SettingsTab: React.FC = () => {
               <span>Paste Config</span>
             </button>
           </div>
+        </div>
+      </div>
+
+            {/* Cryptographic Machine Key & License Status */}
+      <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5 text-slate-100 font-bold text-base">
+            <KeyRound className="text-purple-400" size={20} />
+            <h2>Cryptographic Machine Key &amp; License Status</h2>
+          </div>
+          <span
+            className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
+              licenseStatus?.isValid
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+            }`}
+          >
+            {licenseStatus?.isValid
+              ? `Registered (${licenseStatus.license?.type || 'Active'})`
+              : 'Evaluation / Unregistered'}
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Your local RenegadeCMM installation uses a unique Ed25519 cryptographic keypair for offline license authentication and signature verification. Provide your public key below when generating or requesting license keys.
+        </p>
+
+        <div className="space-y-3 pt-1">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-300">
+                Machine Public Key (Ed25519 SPKI)
+              </label>
+              <span className="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                Hardware Bound
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={userPublicKey || 'Generating machine keypair...'}
+                className="flex-1 bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-purple-300 font-mono focus:outline-none select-all"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!userPublicKey) return;
+                  navigator.clipboard.writeText(userPublicKey);
+                  setCopiedPubKey(true);
+                  setTimeout(() => setCopiedPubKey(false), 2000);
+                }}
+                disabled={!userPublicKey}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-sm"
+                title="Copy machine public key to clipboard"
+              >
+                {copiedPubKey ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                <span>{copiedPubKey ? 'Copied!' : 'Copy Key'}</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              This public key is safe to share with your organization administrator or licensor to generate signed CMM1 license tokens.
+            </p>
+          </div>
+
+          {licenseStatus?.isValid && licenseStatus.license && (
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-slate-400 font-medium">
+                <span>Active Licensee:</span>
+                <span className="font-bold text-slate-200">{licenseStatus.license.licensee}</span>
+              </div>
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-slate-400 font-medium">
+                <span>License Type:</span>
+                <span className="font-semibold text-purple-300 uppercase">{licenseStatus.license.type}</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-400 font-medium">
+                <span>Authorized Seats:</span>
+                <span className="text-slate-200">{licenseStatus.license.seats} concurrent user(s)</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2486,7 +2672,7 @@ export const SettingsTab: React.FC = () => {
             </div>
 
             <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Required Libraries</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Conversion & Architecture Libraries</span>
               <div className="flex items-center gap-2 flex-wrap">
                 <span
                   className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
@@ -2496,7 +2682,7 @@ export const SettingsTab: React.FC = () => {
                   }`}
                 >
                   {pythonStatus?.hasTorch ? <Check size={12} /> : <XCircle size={12} />}
-                  <span>PyTorch (torch)</span>
+                  <span>torch {pythonStatus?.packages?.torch && <span className="font-mono text-[10px] opacity-80">v{pythonStatus.packages.torch}</span>}</span>
                 </span>
                 <span
                   className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
@@ -2506,7 +2692,40 @@ export const SettingsTab: React.FC = () => {
                   }`}
                 >
                   {pythonStatus?.hasSafetensors ? <Check size={12} /> : <XCircle size={12} />}
-                  <span>safetensors</span>
+                  <span>safetensors {pythonStatus?.packages?.safetensors && <span className="font-mono text-[10px] opacity-80">v{pythonStatus.packages.safetensors}</span>}</span>
+                </span>
+                <span
+                  className={`text-[11px] font-medium px-2 py-1 rounded-lg border flex items-center gap-1.5 ${
+                    pythonStatus?.hasNumpy
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                  title={pythonStatus?.packages?.numpy ? `numpy v${pythonStatus.packages.numpy}` : 'numpy (Optional)'}
+                >
+                  {pythonStatus?.hasNumpy ? <Check size={11} className="text-emerald-400" /> : <div className="w-2 h-2 rounded-full bg-slate-600" />}
+                  <span>numpy {pythonStatus?.packages?.numpy && <span className="font-mono text-[10px] opacity-80">v{pythonStatus.packages.numpy}</span>}</span>
+                </span>
+                <span
+                  className={`text-[11px] font-medium px-2 py-1 rounded-lg border flex items-center gap-1.5 ${
+                    pythonStatus?.hasTransformers
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                  title={pythonStatus?.packages?.transformers ? `transformers v${pythonStatus.packages.transformers}` : 'transformers (Optional / DiT & Text Encoders)'}
+                >
+                  {pythonStatus?.hasTransformers ? <Check size={11} className="text-emerald-400" /> : <div className="w-2 h-2 rounded-full bg-slate-600" />}
+                  <span>transformers {pythonStatus?.packages?.transformers && <span className="font-mono text-[10px] opacity-80">v{pythonStatus.packages.transformers}</span>}</span>
+                </span>
+                <span
+                  className={`text-[11px] font-medium px-2 py-1 rounded-lg border flex items-center gap-1.5 ${
+                    pythonStatus?.hasAccelerate
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                  title={pythonStatus?.packages?.accelerate ? `accelerate v${pythonStatus.packages.accelerate}` : 'accelerate (Optional)'}
+                >
+                  {pythonStatus?.hasAccelerate ? <Check size={11} className="text-emerald-400" /> : <div className="w-2 h-2 rounded-full bg-slate-600" />}
+                  <span>accelerate {pythonStatus?.packages?.accelerate && <span className="font-mono text-[10px] opacity-80">v{pythonStatus.packages.accelerate}</span>}</span>
                 </span>
               </div>
             </div>
@@ -2518,7 +2737,7 @@ export const SettingsTab: React.FC = () => {
               <div className="text-[11px] leading-relaxed">
                 <span>{pythonStatus.error}</span>
                 <span className="block text-slate-400 mt-1">
-                  Tip: Point ComfyUI root in settings to use ComfyUI's embedded Python (<code className="text-amber-200 font-mono text-[10px]">python_embeded</code> or <code className="text-amber-200 font-mono text-[10px]">venv</code>), or install dependencies via <code className="text-cyan-300 font-mono text-[10px]">pip install torch safetensors</code>.
+                  Tip: Point ComfyUI root in settings to use ComfyUI's embedded Python (<code className="text-amber-200 font-mono text-[10px]">python_embeded</code> or <code className="text-amber-200 font-mono text-[10px]">venv</code>), or run <code className="text-cyan-300 font-mono text-[10px]">.\cmm.ps1 setup</code> to provision the conversion dependencies.
                 </span>
               </div>
             </div>

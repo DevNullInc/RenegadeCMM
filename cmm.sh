@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# ==============================================================================
-#   Renegade Core Model Manager (CMM) - Linux Launcher Script
-#   Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
-#   Licensed under GNU General Public License v3.0 (GPL-3.0)
-# ==============================================================================
-
+# Renegade Core Model Manager (RenegadeCMM)
+# Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
+#
+# Licensed under the Business Source License 1.1 (BUSL-1.1).
+# Single-user evaluation model with fully functional features.
+# Commercial enterprise license required for organizations with > 5 persons.
+# Inquiries: licensing@renegadeinc.net
+# Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+# See LICENSE for full terms and conditions.
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -233,7 +236,16 @@ ensure_node_installed() {
     write_status "ok" "[2/2] Project dependencies (node_modules) verified." "$C_GREEN"
   fi
 
-  if [ "$include_python" = "true" ]; then
+  local do_install_python="$include_python"
+  if [ "$do_install_python" != "true" ] && [ ! -f "$INSTALLED_FILE" ] && [ -t 0 ] && [ "$HEADLESS" != "true" ]; then
+    echo ""
+    read -r -p "  [?] Install optional Python dependencies for model conversion (PyTorch, SafeTensors)? [y/N]: " user_py_choice || true
+    if [[ "$user_py_choice" =~ ^[Yy]$ ]]; then
+      do_install_python="true"
+    fi
+  fi
+
+  if [ "$do_install_python" = "true" ]; then
     write_status ".." "[3/3] Checking Python runtime and .venv environment..." "$C_GRAY"
     ensure_python_environment "$force_install"
   else
@@ -353,7 +365,7 @@ get_running_pids() {
       seen+=("$proc_pid")
     fi
   done
-  for proc_pid in $(pgrep -f "node.*vite.*$PORT" 2>/dev/null || true); do
+  for proc_pid in $(pgrep -f "node.*$SCRIPT_DIR" 2>/dev/null || true) $(pgrep -f "node.*vite" 2>/dev/null || true); do
     if [[ ! " ${seen[*]} " =~ " ${proc_pid} " ]] && is_safe_to_kill "$proc_pid"; then
       pids+=("$proc_pid")
       seen+=("$proc_pid")
@@ -700,3 +712,4 @@ case "$ACTION" in
     node "$SCRIPT_DIR/bin/cmm.js" "$ACTION" "${CLI_ARGS[@]}"
     ;;
 esac
+

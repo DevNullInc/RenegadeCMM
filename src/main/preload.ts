@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import { contextBridge, ipcRenderer } from 'electron';
 
@@ -34,6 +36,8 @@ const api = {
   scaffoldModelFolders: (targetDir?: string) =>
     ipcRenderer.invoke('scaffold-model-folders', targetDir),
   clearLibrary: () => ipcRenderer.invoke('clear-library'),
+  saveModelMetadata: (params: any) => ipcRenderer.invoke('save-model-metadata', params),
+  fetchModelMetadataByUrl: (urlOrId: string) => ipcRenderer.invoke('fetch-model-metadata-by-url', urlOrId),
   onScanProgress: (callback: (progress: any) => void) => {
     ipcRenderer.on('scan-progress', (_event: unknown, progress: any) => callback(progress));
   },
@@ -77,6 +81,7 @@ const api = {
   openFolder: (filePath: string) => ipcRenderer.invoke('open-folder', filePath),
   browseFolder: (defaultPath?: string) => ipcRenderer.invoke('browse-folder', defaultPath),
   listDirectory: (dirPath?: string) => ipcRenderer.invoke('list-directory', dirPath),
+  checkFolderAccess: (folderPath: string) => ipcRenderer.invoke('check-folder-access', folderPath),
   // Workflows & Webhooks
   scanWorkflows: (folderPaths?: string | string[]) => ipcRenderer.invoke('scan-workflows', folderPaths),
   parseWorkflow: (workflowData: any, workflowName?: string) =>
@@ -142,16 +147,33 @@ const api = {
     ipcRenderer.invoke('package-companion-files', filePath),
   packageAllCompanionFiles: () =>
     ipcRenderer.invoke('package-all-companion-files'),
+  saveModelTriggerWords: (filePath: string, triggerWords: string[]) =>
+    ipcRenderer.invoke('save-model-trigger-words', filePath, triggerWords),
   inspectModelPrecision: (filePath: string) =>
     ipcRenderer.invoke('inspect-model-precision', filePath),
   scanOrphanModels: (workflowDirs?: string | string[]) =>
     ipcRenderer.invoke('scan-orphan-models', workflowDirs),
+
+  // Library Sorter / Auto-Organize
+  analyzeLibrarySorting: (options?: any) =>
+    ipcRenderer.invoke('analyze-library-sorting', options),
+  executeLibrarySorting: (planItems: any) =>
+    ipcRenderer.invoke('execute-library-sorting', planItems),
+  onLibrarySortProgress: (callback: (progress: any) => void) => {
+    const handler = (_event: unknown, prog: any) => callback(prog);
+    ipcRenderer.on('library-sort-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('library-sort-progress', handler);
+    };
+  },
 
   // Model Converter (Pickle to SafeTensors) & Hardware Safety
   getConverterEnvironment: (customPythonPath?: string) =>
     ipcRenderer.invoke('get-converter-environment', customPythonPath),
   convertModelToSafetensors: (filePath: string, options?: any) =>
     ipcRenderer.invoke('convert-model-to-safetensors', filePath, options),
+  scanPickleModel: (filePath: string) =>
+    ipcRenderer.invoke('scan-pickle-model', filePath),
   getHardwareProfile: (forceRefresh?: boolean) =>
     ipcRenderer.invoke('get-hardware-profile', forceRefresh),
   assessConversionSafety: (modelSizeBytes: number) =>
@@ -164,7 +186,17 @@ const api = {
   onAppLog: (callback: (log: { level: string; message: string }) => void) => {
     ipcRenderer.on('app-log', (_event: unknown, log: any) => callback(log));
   },
+
+  // License Management & Cryptographic Verification
+  getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
+  getUserPublicKey: () => ipcRenderer.invoke('get-user-public-key'),
+  activateLicense: (licenseKey: string) => ipcRenderer.invoke('activate-license', licenseKey),
+  deactivateLicense: () => ipcRenderer.invoke('deactivate-license'),
+  verifyLicense: (licenseKey: string) => ipcRenderer.invoke('verify-license', licenseKey),
+  signLicenseChallenge: (challenge: string) => ipcRenderer.invoke('sign-license-challenge', challenge),
+
   // App control
+  getApiPort: () => ipcRenderer.invoke('get-api-port'),
   restartApp: () => ipcRenderer.invoke('restart-app'),
   shutdownApp: () => ipcRenderer.invoke('shutdown-app'),
   onProtocolAction: (callback: (actionPayload: any) => void) => {
@@ -173,4 +205,3 @@ const api = {
 };
 
 contextBridge.exposeInMainWorld('civitaiAPI', api);
-

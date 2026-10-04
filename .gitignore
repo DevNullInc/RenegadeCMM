@@ -35,3 +35,12 @@ releasenotesdraft.md
 .venv/
 __pycache__/
 *.pyc
+scripts/generate_brand_icons.py
+scripts/toggle-release.js
+toggle-release.js
+scripts/generate-license.js
+generate-license.js
+master_*.pem
+*master_priv*
+*master_pub*
+*.license.txt

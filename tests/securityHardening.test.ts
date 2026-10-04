@@ -2,16 +2,18 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
 import { encryptKey, decryptKey, isLegacyEncrypted, getMachineEntropy } from '../src/utils/secureStorage';
 import { redactSecrets } from '../src/utils/logger';
-import { sanitizeDownloadUrl, isCivitaiUrl, attachCivitaiToken } from '../src/services/downloadManager';
+import { sanitizeDownloadUrl, isCivitaiUrl, attachCivitaiToken, isHuggingFaceUrl } from '../src/services/downloadManager';
 import { getSanitizedConfig } from '../src/utils/configSanitizer';
 import { AppConfig } from '../src/types/app';
 
@@ -202,6 +204,80 @@ describe('Security Hardening & Machine-Bound Encryption', () => {
       expect(sanitized.has_huggingface_token).toBe(false);
       expect(sanitized.civitai_api_key).toBe('');
       expect(sanitized.huggingface_token).toBe('');
+    });
+  });
+  describe('credential in transit & redirect auth hygiene', () => {
+    it('should validate Hugging Face HTTPS domains strictly and reject spoofed domains', () => {
+      expect(isHuggingFaceUrl('https://huggingface.co/models/download')).toBe(true);
+      expect(isHuggingFaceUrl('https://cdn-lfs.huggingface.co/repos/123')).toBe(true);
+      expect(isHuggingFaceUrl('https://huggingface.co.evil.com')).toBe(false);
+      expect(isHuggingFaceUrl('http://huggingface.co/model')).toBe(false);
+      expect(isHuggingFaceUrl('')).toBe(false);
+    });
+
+    it('should strip Authorization header when redirecting to S3/CDN or presigned URLs', () => {
+      // Replicate the beforeRedirect hook from downloadManager
+      const sanitizeRedirectHeaders = (options: { hostname?: string; path?: string; headers?: Record<string, string> }) => {
+        const targetHost = (options.hostname || '').toLowerCase();
+        const isStrictApex =
+          targetHost === 'huggingface.co' ||
+          targetHost === 'www.huggingface.co' ||
+          targetHost === 'civitai.com' ||
+          targetHost === 'www.civitai.com' ||
+          targetHost === 'civitai.red' ||
+          targetHost === 'www.civitai.red';
+
+        const targetPath = (options.path || '').toLowerCase();
+        const hasPresignedAuthParams =
+          targetPath.includes('x-amz-') ||
+          targetPath.includes('signature=') ||
+          targetPath.includes('response-content-disposition=');
+
+        if (!isStrictApex || hasPresignedAuthParams) {
+          if (options.headers) {
+            for (const h of Object.keys(options.headers)) {
+              if (h.toLowerCase() === 'authorization') {
+                delete options.headers[h];
+              }
+            }
+          }
+        }
+      };
+
+      // 1. Redirect to S3 presigned URL from Civitai
+      const s3Redirect = {
+        hostname: 'civitai-prod-settled.s3.amazonaws.com',
+        path: '/models/123.safetensors?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA...',
+        headers: {
+          authorization: 'Bearer civitai_secret_key_123',
+          'user-agent': 'RenegadeCMM/1.6.1',
+        },
+      };
+      sanitizeRedirectHeaders(s3Redirect);
+      expect(s3Redirect.headers.authorization).toBeUndefined();
+      expect(s3Redirect.headers['user-agent']).toBe('RenegadeCMM/1.6.1');
+
+      // 2. Redirect to HuggingFace LFS CDN storage
+      const hfCdnRedirect = {
+        hostname: 'cdn-lfs.huggingface.co',
+        path: '/repos/qwen/model.safetensors',
+        headers: {
+          authorization: 'Bearer hf_secret_token_abc',
+        },
+      };
+      sanitizeRedirectHeaders(hfCdnRedirect);
+      expect(hfCdnRedirect.headers.authorization).toBeUndefined();
+
+      // 3. Same-apex redirect (e.g. internal router) preserves authorization
+      const sameApexRedirect = {
+        hostname: 'civitai.com',
+        path: '/api/download/models/123?step=2',
+        headers: {
+          authorization: 'Bearer civitai_secret_key_123',
+        },
+      };
+      sanitizeRedirectHeaders(sameApexRedirect);
+      expect(sameApexRedirect.headers.authorization).toBe('Bearer civitai_secret_key_123');
     });
   });
 });

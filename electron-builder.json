@@ -73,7 +73,10 @@
       }
     ],
     "category": "Graphics",
-    "artifactName": "${productName}-Linux-${version}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "appImage": {
+    "artifactName": "${productName}-${version}-${arch}.AppImage"
   },
   "mac": {
     "category": "public.app-category.graphics-design",

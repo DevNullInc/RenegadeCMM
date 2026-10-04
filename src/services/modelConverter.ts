@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
 import path from 'path';
@@ -13,7 +15,7 @@ import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { dbManager } from '../db/db';
-import { ModelConversionResult, PythonEnvironmentStatus } from '../types/app';
+import { ModelConversionResult, PickleScanResult, PythonEnvironmentStatus } from '../types/app';
 import { logger } from '../utils/logger';
 
 const execFileAsync = promisify(execFile);
@@ -87,22 +89,21 @@ export class ModelConverterService {
           [
             '-c',
             `import sys, json
-has_torch = False
-has_st = False
-try:
-    import torch
-    has_torch = True
-except Exception:
-    pass
-try:
-    import safetensors
-    has_st = True
-except Exception:
-    pass
+pkgs = {}
+for mod in ['torch', 'safetensors', 'numpy', 'transformers', 'accelerate']:
+    try:
+        m = __import__(mod)
+        pkgs[mod] = getattr(m, '__version__', 'installed')
+    except Exception:
+        pkgs[mod] = None
 print(json.dumps({
     "version": sys.version.split()[0],
-    "has_torch": has_torch,
-    "has_st": has_st
+    "packages": pkgs,
+    "has_torch": pkgs['torch'] is not None,
+    "has_st": pkgs['safetensors'] is not None,
+    "has_numpy": pkgs['numpy'] is not None,
+    "has_transformers": pkgs['transformers'] is not None,
+    "has_accelerate": pkgs['accelerate'] is not None
 }))`,
           ],
           { timeout: 6000 }
@@ -110,16 +111,21 @@ print(json.dumps({
 
         const data = JSON.parse(stdout.trim());
         const isReady = Boolean(data.has_torch && data.has_st);
+        const missingCore = [!data.has_torch ? 'torch' : '', !data.has_st ? 'safetensors' : ''].filter(Boolean);
         const resultEnv: PythonEnvironmentStatus = {
           available: true,
           pythonPath: c.path,
           version: data.version,
           source: c.source,
-          hasTorch: data.has_torch,
-          hasSafetensors: data.has_st,
+          hasTorch: Boolean(data.has_torch),
+          hasSafetensors: Boolean(data.has_st),
+          hasNumpy: Boolean(data.has_numpy),
+          hasTransformers: Boolean(data.has_transformers),
+          hasAccelerate: Boolean(data.has_accelerate),
+          packages: data.packages || {},
           readyForConversion: isReady,
           error: !isReady
-            ? `Python found (${data.version}), but missing required packages: ${[!data.has_torch ? 'torch' : '', !data.has_st ? 'safetensors' : ''].filter(Boolean).join(', ')}`
+            ? `Python found (${data.version}), but missing required core packages: ${missingCore.join(', ')}`
             : undefined,
         };
         this.cachedEnv = { env: resultEnv, timestamp: Date.now(), key: cacheKey };
@@ -134,11 +140,86 @@ print(json.dumps({
       source: 'none',
       hasTorch: false,
       hasSafetensors: false,
+      hasNumpy: false,
+      hasTransformers: false,
+      hasAccelerate: false,
+      packages: {},
       readyForConversion: false,
       error: 'No compatible Python interpreter found with PyTorch and safetensors installed.',
     };
     this.cachedEnv = { env: fallbackEnv, timestamp: Date.now(), key: cacheKey };
     return fallbackEnv;
+  }
+
+  /**
+   * Scans a PyTorch / pickle file's byte stream opcodes without code execution.
+   * Identifies dangerous execution sinks (e.g. os.system, eval) and YOLO/Ultralytics layer definitions.
+   */
+  async scanPickleModel(
+    sourcePath: string,
+    options?: {
+      customPythonPath?: string;
+      comfyuiInstallDir?: string;
+    }
+  ): Promise<PickleScanResult> {
+    if (!fs.existsSync(sourcePath)) {
+      return {
+        filePath: sourcePath,
+        isSafe: false,
+        isYolo: false,
+        hasPythonCode: false,
+        requiresPythonRuntime: false,
+        dangerousGlobals: [],
+        safeGlobals: [],
+        yoloLayers: [],
+        totalOpcodes: 0,
+        recommendation: 'not_pickle',
+        details: `File not found on disk: ${sourcePath}`,
+      };
+    }
+
+    const scriptPath = path.join(process.cwd(), 'scripts', 'scan_pickle_safety.py');
+    const env = await this.getPythonEnvironment(options?.customPythonPath, options?.comfyuiInstallDir);
+    const pythonBin =
+      env.available && env.pythonPath ? env.pythonPath : process.platform === 'win32' ? 'python.exe' : 'python3';
+
+    try {
+      const { stdout } = await execFileAsync(pythonBin, [scriptPath, sourcePath], { timeout: 30000 });
+      const parsed: PickleScanResult = JSON.parse(stdout.trim());
+      if (parsed.isSafe && (parsed.isYolo || parsed.recommendation === 'preserve_yolo_pt')) {
+        try {
+          const row: any = await dbManager.get(`SELECT sha256 FROM local_models WHERE file_path = ?`, [sourcePath]);
+          let sha = row?.sha256;
+          if (!sha) {
+            sha = await this.computeFileSha256(sourcePath);
+          }
+          await dbManager.run(
+            `UPDATE local_models
+             SET pickle_scan_status = 'safe_yolo_pt', pickle_scanned_sha256 = ?, pickle_scanned_at = ?
+             WHERE file_path = ?;`,
+            [sha, Date.now(), sourcePath]
+          );
+        } catch (dbErr) {
+          logger.warn(`Failed to update pickle_scan_status in db for ${sourcePath}:`, dbErr);
+        }
+      }
+      return parsed;
+    } catch (err: any) {
+      logger.warn(`Pickle opcode scan failed via Python subprocess for ${sourcePath}:`, err?.message);
+      return {
+        filePath: sourcePath,
+        isSafe: false,
+        isYolo: false,
+        hasPythonCode: false,
+        requiresPythonRuntime: false,
+        dangerousGlobals: [],
+        safeGlobals: [],
+        yoloLayers: [],
+        totalOpcodes: 0,
+        recommendation: 'not_pickle',
+        details: `Opcode scan failed: ${err?.message || 'Unknown error'}`,
+      };
+    }
   }
 
   /**
@@ -178,6 +259,53 @@ print(json.dumps({
         success: false,
         sourcePath,
         error: 'Target path cannot be identical to source path',
+      };
+    }
+
+    // 0. Bytecode Opcode Safety & YOLO Pre-flight Scan (Zero Execution)
+    const scanResult = await this.scanPickleModel(sourcePath, options);
+    if (!scanResult.isSafe) {
+      const dangStr = scanResult.dangerousGlobals.join(', ');
+      logger.error(
+        `[SECURITY BAN] Blocked malicious pickle model from conversion: ${sourcePath} -> Sinks: ${dangStr}`
+      );
+      return {
+        success: false,
+        sourcePath,
+        targetPath,
+        scanResult,
+        error: `SECURITY BAN: Model contains dangerous executable opcodes (${dangStr}). Execution blocked.`,
+      };
+    }
+
+    if (scanResult.isYolo || scanResult.recommendation === 'preserve_yolo_pt') {
+      logger.info(
+        `YOLO detector model detected: ${sourcePath}. Preserving as .pt to maintain bounding box detector functionality.`
+      );
+      try {
+        const row: any = await dbManager.get(`SELECT sha256 FROM local_models WHERE file_path = ?`, [sourcePath]);
+        let sha = row?.sha256;
+        if (!sha) {
+          sha = await this.computeFileSha256(sourcePath);
+        }
+        await dbManager.run(
+          `UPDATE local_models
+           SET pickle_scan_status = 'safe_yolo_pt', pickle_scanned_sha256 = ?, pickle_scanned_at = ?
+           WHERE file_path = ?;`,
+          [sha, Date.now(), sourcePath]
+        );
+      } catch (dbErr) {
+        logger.warn(`Failed to update pickle_scan_status for ${sourcePath}:`, dbErr);
+      }
+      return {
+        success: false,
+        skipped: true,
+        isYolo: true,
+        sourcePath,
+        targetPath,
+        scanResult,
+        error:
+          'YOLO/Ultralytics models require Python layer definitions and will NOT function if converted to .safetensors. File preserved as .pt.',
       };
     }
 
@@ -258,6 +386,9 @@ print(json.dumps({
         originalSize: originalStat.size,
         convertedSize: targetStat.size,
         newSha256,
+        tensorCount: typeof parsedOut?.tensorCount === 'number' ? parsedOut.tensorCount : undefined,
+        modelType: typeof parsedOut?.modelType === 'string' ? parsedOut.modelType : undefined,
+        architecture: typeof parsedOut?.architecture === 'string' ? parsedOut.architecture : undefined,
         timeTakenMs: elapsed,
         deletedOriginal,
       };

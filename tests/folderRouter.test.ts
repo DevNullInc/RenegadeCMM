@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import path from 'path';
 import { describe, it, expect } from 'vitest';
@@ -28,6 +30,55 @@ describe('FolderRouter', () => {
     ).toBe('upscale_models');
   });
 
+  it('should route Anima, Krea, Quan, Qwen, and Wan models intelligently', () => {
+    const router = new FolderRouter({ rootPath: 'D:\\ComfyUI\\models' });
+
+    // Anima diffusion models
+    expect(
+      router.computePath({ fileName: 'anima_pencil_xl.safetensors', modelType: 'Checkpoint' }).folderName
+    ).toBe('diffusion_models');
+
+    expect(
+      router.computePath({ fileName: 'custom_model.safetensors', modelType: 'Checkpoint', baseModel: 'Anima XL' }).folderName
+    ).toBe('diffusion_models');
+
+    // Krea models
+    expect(
+      router.computePath({ fileName: 'krea_realism_v1.safetensors', modelType: 'Checkpoint' }).folderName
+    ).toBe('diffusion_models');
+
+    expect(
+      router.computePath({ fileName: 'custom_weights.safetensors', modelType: 'Other', baseModel: 'Flux.1 Krea' }).folderName
+    ).toBe('diffusion_models');
+
+    // Quan & Qwen models
+    expect(
+      router.computePath({ fileName: 'quan_multimodal_v2.safetensors', modelType: 'Checkpoint' }).folderName
+    ).toBe('LLM');
+
+    expect(
+      router.computePath({ fileName: 'my_assistant.safetensors', modelType: 'Other', baseModel: 'Quan' }).folderName
+    ).toBe('LLM');
+
+    expect(
+      router.computePath({ fileName: 'qwen_2.5_coder.safetensors', modelType: 'Checkpoint' }).folderName
+    ).toBe('LLM');
+
+    // Wan video models
+    expect(
+      router.computePath({ fileName: 'wan2.1_t2v_1.3B.safetensors', modelType: 'Checkpoint' }).folderName
+    ).toBe('diffusion_models');
+
+    // Ensure LoRAs targeting Anima or Qwen stay in loras folder
+    expect(
+      router.computePath({ fileName: 'anima_style_lora.safetensors', modelType: 'LORA', baseModel: 'Anima' }).folderName
+    ).toBe('loras');
+
+    expect(
+      router.computePath({ fileName: 'qwen_instruct_lora.safetensors', modelType: 'LORA', baseModel: 'Qwen 2.5' }).folderName
+    ).toBe('loras');
+  });
+
   it('should match regex pattern overrides', () => {
     const router = new FolderRouter({ rootPath: 'D:\\ComfyUI\\models' });
 
@@ -36,11 +87,15 @@ describe('FolderRouter', () => {
     ).toBe('ipadapter');
 
     expect(
-      router.computePath({ fileName: 'qwen_2.5_coder.gguf', modelType: 'Other' }).folderName
+      router.computePath({ fileName: 'flux1_quant_model.gguf', modelType: 'Other' }).folderName
     ).toBe('gguf');
+
+    expect(
+      router.computePath({ fileName: 'qwen_2.5_coder.gguf', modelType: 'Other' }).folderName
+    ).toBe('LLM');
   });
 
-  it('should scaffold standard ComfyUI model subdirectories and exclude workflows', () => {
+  it('should scaffold standard ComfyUI model subdirectories including LLM and exclude workflows', () => {
     const router = new FolderRouter();
     const fs = require('fs');
     const os = require('os');
@@ -58,11 +113,13 @@ describe('FolderRouter', () => {
       expect(result.created).toContain('embeddings');
       expect(result.created).toContain('diffusion_models');
       expect(result.created).toContain('text_encoders');
+      expect(result.created).toContain('LLM');
       expect(result.created).not.toContain('workflows');
 
       // Verify directories actually exist on disk
       expect(fs.existsSync(path.join(tempDir, 'checkpoints'))).toBe(true);
       expect(fs.existsSync(path.join(tempDir, 'loras'))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, 'LLM'))).toBe(true);
       expect(fs.existsSync(path.join(tempDir, 'workflows'))).toBe(false);
 
       // Running a second time should detect them as existing without re-creating
@@ -70,6 +127,7 @@ describe('FolderRouter', () => {
       expect(secondResult.created.length).toBe(0);
       expect(secondResult.existing).toContain('checkpoints');
       expect(secondResult.existing).toContain('loras');
+      expect(secondResult.existing).toContain('LLM');
     } finally {
       try {
         fs.rmSync(tempDir, { recursive: true, force: true });

@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -42,6 +44,13 @@ import {
 import { FallbackImage } from './FallbackImage';
 import { CivitAIModel, CivitAIModelVersion, ModelType, SearchParams } from '../types/civitai';
 import { LocalModel } from '../types/app';
+import {
+  normalizeBaseModel,
+  isArchitectureMatch,
+  extractModelFlavor,
+  isFlavorMatch,
+  resolveEffectiveModelType,
+} from '../utils/modelUtils';
 
 export interface DebugInfo {
   timestamp: string;
@@ -97,6 +106,31 @@ export function isModelNsfwOrMature(model: CivitAIModel): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Extracts a numeric CivitAI Model ID if the search query is purely digits,
+ * prefixed with #, or a full CivitAI model URL (e.g., https://civitai.com/models/123456).
+ */
+export function extractCivitaiModelId(raw?: string): number | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Direct integer digits only (e.g. "123456" or "#123456")
+  if (/^#?\d{1,12}$/.test(trimmed)) {
+    const parsed = parseInt(trimmed.replace(/^#/, ''), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  // URL matching (e.g. https://civitai.com/models/123456 or civitai.com/models/123456/cyberrealistic)
+  const urlMatch = trimmed.match(/(?:civitai\.com\/models\/|models\/)(\d+)/i);
+  if (urlMatch && urlMatch[1]) {
+    const parsed = parseInt(urlMatch[1], 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  return null;
 }
 
 interface BrowseTabProps {
@@ -319,8 +353,10 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   ];
 
   const PAGE_SIZE = 48;
+  const fetchSeqRef = React.useRef<number>(0);
 
   const fetchModels = async (pageToFetch?: number, cursorOverride?: string, queryOverride?: string) => {
+    const fetchSeq = ++fetchSeqRef.current;
     const pageNum = pageToFetch ?? currentPage;
     const effectiveQuery = queryOverride !== undefined ? queryOverride : query;
     const initialCursor = cursorOverride !== undefined ? cursorOverride : (pageNum > 1 ? pageCursors[pageNum] : undefined);
@@ -328,6 +364,35 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     setLoading(true);
     setError(null);
     const startTime = performance.now();
+
+    // Direct Model ID or CivitAI Model URL Lookup
+    const modelIdFromQuery = extractCivitaiModelId(effectiveQuery);
+    if (modelIdFromQuery && window.civitaiAPI && typeof window.civitaiAPI.getModel === 'function') {
+      try {
+        const directModel = await window.civitaiAPI.getModel(modelIdFromQuery);
+        if (fetchSeq !== fetchSeqRef.current) return;
+        if (directModel && directModel.id) {
+          const durationMs = Math.round(performance.now() - startTime);
+          setModels([directModel]);
+          setMetadata({ totalItems: 1, currentPage: 1, pageSize: 1, totalPages: 1 });
+          setCurrentPage(1);
+          setPageCursors({});
+          setDebugInfo({
+            timestamp: new Date().toLocaleTimeString(),
+            durationMs,
+            status: 'success',
+            requestParams: { modelId: modelIdFromQuery, query: effectiveQuery },
+            apiUrl: `https://civitai.com/api/v1/models/${modelIdFromQuery}`,
+            resultCount: 1,
+          });
+          setLoading(false);
+          return;
+        }
+      } catch (err: any) {
+        if (fetchSeq !== fetchSeqRef.current) return;
+        console.warn(`Direct model #${modelIdFromQuery} lookup failed, attempting standard text search fallback:`, err);
+      }
+    }
 
     try {
       const collected: CivitAIModel[] = [];
@@ -338,6 +403,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       const maxIterations = 8; // Auto-accumulate up to 8 batches (up to 800 CivitAI items) to fill 48 clean items
 
       while (collected.length < PAGE_SIZE && iterations < maxIterations) {
+        if (fetchSeq !== fetchSeqRef.current) return;
         iterations++;
         const requestLimit = (!includeNsfw || maxNsfwLevel < 5) ? 100 : PAGE_SIZE;
 
@@ -357,6 +423,8 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
         if (window.civitaiAPI) {
           result = await window.civitaiAPI.searchModels(params);
         }
+
+        if (fetchSeq !== fetchSeqRef.current) return;
 
         const items: CivitAIModel[] = result?.items || [];
         lastMeta = result?.metadata || lastMeta;
@@ -387,18 +455,21 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
         }
 
         finalNextCursor = nextCur;
-        currentCursor = nextCur;
 
-        // If no more items returned or no next cursor, end of catalog reached
-        if (!nextCur || items.length === 0) {
+        // If no more items returned, cursor did not advance, or end reached
+        if (!nextCur || nextCur === currentCursor || items.length === 0) {
           break;
         }
+
+        currentCursor = nextCur;
 
         // If we filled our 48 items, stop
         if (collected.length >= PAGE_SIZE) {
           break;
         }
       }
+
+      if (fetchSeq !== fetchSeqRef.current) return;
 
       const finalItems = collected.slice(0, PAGE_SIZE);
       const durationMs = Math.round(performance.now() - startTime);
@@ -427,6 +498,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
         resultCount: finalItems.length,
       });
     } catch (err: any) {
+      if (fetchSeq !== fetchSeqRef.current) return;
       const durationMs = Math.round(performance.now() - startTime);
       const errMsg = err?.message || 'Failed to fetch models from CivitAI';
       setError(errMsg);
@@ -442,7 +514,9 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       });
       setShowDebug(true);
     } finally {
-      setLoading(false);
+      if (fetchSeq === fetchSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -542,50 +616,65 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     return set;
   }, [ignoredUpdates]);
 
-  // Helper to determine status for a model in the browse grid
+  // Helper to determine status for a model in the browse grid with architecture matching
   const getModelInstallStatus = (model: CivitAIModel) => {
     const installedVersions = installedMap.get(model.id);
     if (!installedVersions || installedVersions.size === 0) {
       return { isInstalled: false, hasUpdate: false, installedVersions: new Set<number>() };
     }
 
+    const installedLocalList = localModels.filter((m) => m.civitaiModelId === model.id);
+    if (installedLocalList.length === 0) {
+      return { isInstalled: true, hasUpdate: false, installedVersions };
+    }
+
     let hasUninstalledNewer = false;
     let latestUnignoredVersion: CivitAIModelVersion | undefined;
+    let targetInstalledModel: LocalModel | undefined;
 
     if (model.modelVersions && model.modelVersions.length > 0) {
-      // Newest upload date among ALL installed versions of this model. When the model is
-      // installed for multiple consumers, the date check defaults to the LATEST installed
-      // date, so a file uploaded between two installs is never flagged as an update as long
-      // as the newest upload is already installed.
-      let newestInstalledDate = 0;
-      for (const iv of model.modelVersions) {
-        if (installedVersions.has(iv.id)) {
-          const d = new Date(iv.publishedAt || iv.createdAt || 0).getTime();
-          if (Number.isFinite(d) && d > newestInstalledDate) newestInstalledDate = d;
-        }
-      }
+      // Build a flavor profile for each installed version of this model
+      const installedProfiles = installedLocalList.map((loc) => {
+        const verObj = model.modelVersions?.find((v) => v.id === loc.civitaiVersionId);
+        const date = verObj
+          ? new Date(verObj.publishedAt || verObj.createdAt || 0).getTime()
+          : (loc.modifiedAt || 0);
+        const flavor = extractModelFlavor(
+          verObj?.baseModel || loc.civitaiBaseModel,
+          verObj?.name || loc.fileName,
+          loc.fileName
+        );
+        return { loc, verObj, date, flavor };
+      });
 
-      // Sort by upload/publish date (newest first) so the "latest" is a date decision and
-      // older uploads that happen to sit at index 0 are never reported as an update.
+      // Sort candidate remote versions by upload/publish date (newest first)
       const byDate = [...model.modelVersions].sort((a, b) => {
         const da = new Date(a.publishedAt || a.createdAt || 0).getTime();
         const db = new Date(b.publishedAt || b.createdAt || 0).getTime();
         return db - da;
       });
+
       for (const ver of byDate) {
         const isInstalled = installedVersions.has(ver.id);
         const isIgnored = ignoredSet.has(`${model.id}_${ver.id}`);
+        if (isInstalled || isIgnored) continue;
+
         const vDate = new Date(ver.publishedAt || ver.createdAt || 0).getTime();
-        if (
-          !isInstalled &&
-          !isIgnored &&
-          Number.isFinite(vDate) &&
-          vDate > newestInstalledDate
-        ) {
-          hasUninstalledNewer = true;
-          latestUnignoredVersion = ver;
-          break;
+        const verFlavor = extractModelFlavor(ver.baseModel, ver.name);
+
+        // Check if this remote version matches the exact flavor (base architecture + sub-type) of any installed version
+        for (const inst of installedProfiles) {
+          const flavorMatches = isFlavorMatch(verFlavor, inst.flavor);
+
+          if (flavorMatches && Number.isFinite(vDate) && vDate > inst.date) {
+            hasUninstalledNewer = true;
+            latestUnignoredVersion = ver;
+            targetInstalledModel = inst.loc;
+            break;
+          }
         }
+
+        if (hasUninstalledNewer) break;
       }
     }
 
@@ -593,6 +682,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       isInstalled: true,
       hasUpdate: hasUninstalledNewer,
       updateVersion: latestUnignoredVersion,
+      targetInstalledModel,
       installedVersions,
     };
   };
@@ -624,7 +714,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     } else {
       setCurrentPage(1);
       setPageCursors({});
-      fetchModels(1, '');
+      fetchModels(1, '', query);
     }
   };
 
@@ -659,18 +749,38 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     }
   };
 
-  const triggerDownload = (version: CivitAIModelVersion) => {
-    if (!activeModel) return;
-    const oldInstalledModel = (deleteOldOnUpdate && activeModel)
-      ? localModels.find((m) => m.civitaiModelId === activeModel.id)
+  const handleQuickDownload = (model: CivitAIModel, version: CivitAIModelVersion) => {
+    const oldInstalledModel = (deleteOldOnUpdate && model)
+      ? localModels.find((m) => m.civitaiModelId === model.id)
       : undefined;
 
-    onQueueDownload(activeModel, version, {
+    onQueueDownload(model, version, {
       deleteOldVersionFile: oldInstalledModel?.filePath,
       deleteOldModelId: oldInstalledModel?.id,
     });
-    setDownloadSuccess(`Queued download for ${activeModel.name} (${version.name})`);
-    setTimeout(() => setDownloadSuccess(null), 3000);
+    setDownloadSuccess(`Queued download for ${model.name} (${version.name})`);
+    setTimeout(() => setDownloadSuccess(null), 3500);
+  };
+
+  const handleQuickUpdate = (
+    model: CivitAIModel,
+    version: CivitAIModelVersion,
+    targetInstalledModel?: LocalModel
+  ) => {
+    const oldInstalledModel =
+      targetInstalledModel || localModels.find((m) => m.civitaiModelId === model.id);
+
+    onQueueDownload(model, version, {
+      deleteOldVersionFile: oldInstalledModel?.filePath,
+      deleteOldModelId: oldInstalledModel?.id,
+    });
+    setDownloadSuccess(`Queued update for ${model.name} (${version.name})`);
+    setTimeout(() => setDownloadSuccess(null), 3500);
+  };
+
+  const triggerDownload = (version: CivitAIModelVersion) => {
+    if (!activeModel) return;
+    handleQuickDownload(activeModel, version);
   };
 
   const formatCount = (count?: number): string => {
@@ -681,7 +791,15 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-8 max-w-7xl mx-auto space-y-8 relative">
+      {/* Toast Notification for Quick Download outside of Modal */}
+      {downloadSuccess && !activeModel && (
+        <div className="fixed top-20 right-8 z-50 p-4 rounded-2xl bg-emerald-950/95 border border-emerald-500/40 text-emerald-300 flex items-center gap-3 text-xs font-bold shadow-2xl backdrop-blur-xl animate-fadeIn glow-emerald">
+          <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+          <span>{downloadSuccess}</span>
+        </div>
+      )}
+
       {/* Top Header & Search Bar */}
       <div className="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
         <div>
@@ -732,7 +850,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
             <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${searchSource === 'huggingface' ? 'text-amber-400' : 'text-purple-400'}`} size={18} />
             <input
               type="text"
-              placeholder={searchSource === 'huggingface' ? 'Search Hugging Face models (e.g. flux, wan, sdxl)...' : 'Search checkpoints, LoRAs, ControlNets...'}
+              placeholder={searchSource === 'huggingface' ? 'Search Hugging Face models (e.g. flux, wan, sdxl)...' : 'Search by name, tags, or Model ID / URL (e.g. 123456)...'}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className={`w-full bg-slate-900/90 border rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all shadow-inner ${
@@ -1016,14 +1134,20 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
                     />
 
-                    {/* Top-Left: Type & NSFW Badges */}
-                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
+                    {/* Top-Left: Type, NSFW, & Installed Badges */}
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10 flex-wrap">
                       <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-950/85 border border-purple-500/40 text-purple-300 backdrop-blur-md shadow-md">
-                        {model.type}
+                        {resolveEffectiveModelType(model.type, model.name, model.modelVersions)}
                       </span>
                       {isNsfw && (
                         <span className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-red-950/90 border border-red-500/40 text-red-400 backdrop-blur-md shadow-md">
                           NSFW
+                        </span>
+                      )}
+                      {installStatus.isInstalled && (
+                        <span className="px-2 py-0.5 rounded-lg text-[9px] font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 shadow-md backdrop-blur-md">
+                          <CheckCircle2 size={10} className="text-emerald-400" />
+                          <span>Installed</span>
                         </span>
                       )}
                     </div>
@@ -1036,22 +1160,40 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       </div>
                     )}
 
-                    {/* Bottom-Right: Local Installation Indicator */}
-                    {installStatus.isInstalled && (
-                      <div className="absolute bottom-2.5 right-2.5 z-10">
-                        {installStatus.hasUpdate ? (
-                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-500/90 text-slate-950 border border-amber-400 flex items-center gap-1 shadow-lg animate-pulse backdrop-blur-md">
-                            <Sparkles size={11} />
-                            <span>Update Available</span>
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 shadow-md backdrop-blur-md">
-                            <CheckCircle2 size={11} />
-                            <span>Installed</span>
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {/* Bottom-Right: Quick Action Flags (Quick Update in Amber & Quick Download in Green) */}
+                    <div className="absolute bottom-2.5 right-2.5 z-20 flex items-center gap-1.5">
+                      {installStatus.hasUpdate && installStatus.updateVersion && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickUpdate(model, installStatus.updateVersion!, installStatus.targetInstalledModel);
+                          }}
+                          title={`Quick Update to ${installStatus.updateVersion.name}`}
+                          aria-label={`Quick Update ${model.name} to ${installStatus.updateVersion.name}`}
+                          className="px-2.5 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-lg shadow-amber-950/70 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-black text-[11px] group/up glow-amber animate-pulse"
+                        >
+                          <Sparkles size={13} className="group-hover/up:rotate-12 transition-transform text-slate-950 shrink-0" />
+                          <span>Quick Update</span>
+                        </button>
+                      )}
+
+                      {firstVersion && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickDownload(model, firstVersion);
+                          }}
+                          title={`Quick Download (${firstVersion.name})`}
+                          aria-label={`Quick Download ${model.name}`}
+                          className="px-2.5 py-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-400/60 shadow-lg shadow-emerald-950/60 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-bold text-[11px] group/dl glow-emerald"
+                        >
+                          <Download size={13} className="group-hover/dl:animate-bounce text-white shrink-0" />
+                          <span>{installStatus.hasUpdate ? 'Download' : 'Quick Download'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Body Content */}
@@ -1168,7 +1310,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               <div>
                 <h2 className="text-xl font-bold text-slate-100">{activeModel.name}</h2>
                 <p className="text-xs text-slate-400 flex items-center gap-3 mt-1 font-medium">
-                  <span>Type: <strong className="text-purple-400">{activeModel.type}</strong></span>
+                  <span>Type: <strong className="text-purple-400">{resolveEffectiveModelType(activeModel.type, activeModel.name, activeModel.modelVersions)}</strong></span>
                   {activeModel.creator && <span>Creator: <strong className="text-slate-300">{activeModel.creator.username}</strong></span>}
                 </p>
               </div>
@@ -1226,27 +1368,44 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                   className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3 text-sm text-slate-100 focus:border-purple-500 focus:outline-none font-medium cursor-pointer"
                 >
                   {(() => {
-                    // Newest upload date among installed versions for this model, used so an
-                    // "Update" tag only appears on versions genuinely newer than what is installed.
                     const activeInstalled = installedMap.get(activeModel.id);
-                    let newestInstalledDate = 0;
-                    if (activeInstalled && activeInstalled.size > 0) {
-                      for (const v of activeModel.modelVersions) {
-                        if (activeInstalled.has(v.id)) {
-                          const d = new Date(v.publishedAt || v.createdAt || 0).getTime();
-                          if (Number.isFinite(d) && d > newestInstalledDate) newestInstalledDate = d;
-                        }
-                      }
-                    }
+                    const installedLocalList = localModels.filter((m) => m.civitaiModelId === activeModel.id);
+
+                    // Build flavor profiles for installed versions of this model
+                    const installedProfiles = installedLocalList.map((loc) => {
+                      const verObj = activeModel.modelVersions?.find((v) => v.id === loc.civitaiVersionId);
+                      const date = verObj
+                        ? new Date(verObj.publishedAt || verObj.createdAt || 0).getTime()
+                        : (loc.modifiedAt || 0);
+                      const flavor = extractModelFlavor(
+                        verObj?.baseModel || loc.civitaiBaseModel,
+                        verObj?.name || loc.fileName,
+                        loc.fileName
+                      );
+                      return { loc, verObj, date, flavor };
+                    });
+
                     return activeModel.modelVersions.map((v) => {
                       const isInstalled = activeInstalled?.has(v.id);
                       const isIgnored = ignoredSet.has(`${activeModel.id}_${v.id}`);
                       const vDate = new Date(v.publishedAt || v.createdAt || 0).getTime();
-                      const isNewer = Number.isFinite(vDate) && vDate > newestInstalledDate;
+                      const vFlavor = extractModelFlavor(v.baseModel, v.name);
+
+                      // A version is an update only if it matches the flavor (baseArch & subtype) of an installed version AND is newer than that installed version
+                      let isUpdate = false;
+                      if (!isInstalled && !isIgnored && installedProfiles.length > 0) {
+                        for (const inst of installedProfiles) {
+                          if (isFlavorMatch(vFlavor, inst.flavor) && Number.isFinite(vDate) && vDate > inst.date) {
+                            isUpdate = true;
+                            break;
+                          }
+                        }
+                      }
+
                       let tag = '';
                       if (isInstalled) tag = ' ✓ [Installed]';
                       else if (isIgnored) tag = ' ⊘ [Ignored Update]';
-                      else if ((activeInstalled?.size || 0) > 0 && isNewer) tag = ' ✦ [Update]';
+                      else if (isUpdate) tag = ' ✦ [Update]';
 
                       return (
                         <option key={v.id} value={v.id} className="bg-slate-900">

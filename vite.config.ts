@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -23,6 +25,7 @@ import { orphanFinder } from './src/services/orphanFinder';
 import { modelConverter } from './src/services/modelConverter';
 import { hardwareScanner } from './src/services/hardwareScanner';
 import { swarmBridge } from './src/services/swarmBridge';
+import { licenseService } from './src/services/licenseService';
 import { encryptKey, decryptKey } from './src/utils/secureStorage';
 
 let currentConfig: any = {
@@ -58,7 +61,7 @@ async function loadConfig() {
       if (typeof f === 'string') {
         try {
           f = JSON.parse(f);
-        } catch {}
+        } catch { }
       }
       currentConfig.comfyui_folders = Array.isArray(f) ? f : [];
     }
@@ -91,6 +94,10 @@ function apiServerPlugin(): Plugin {
 
         res.setHeader('Content-Type', 'application/json');
 
+        const port = server.config.server.port || parseInt(process.env.VITE_PORT || process.env.PORT || '5173', 10);
+        const parsedUrl = new URL(req.url, `http://localhost:${port}`);
+        const pathname = parsedUrl.pathname;
+
         const getBody = (): Promise<any> =>
           new Promise((resolve) => {
             let data = '';
@@ -105,10 +112,18 @@ function apiServerPlugin(): Plugin {
           });
 
         try {
-          if (req.url === '/api/config' && req.method === 'GET') {
+          if ((pathname === '/api/health' || pathname === '/api/status') && req.method === 'GET') {
+            res.end(JSON.stringify({
+              status: 'online',
+              uptime: process.uptime(),
+              pid: process.pid,
+              name: 'RenegadeCMM',
+              host: '127.0.0.1',
+            }));
+          } else if (pathname === '/api/config' && req.method === 'GET') {
             await loadConfig();
             res.end(JSON.stringify(currentConfig));
-          } else if (req.url === '/api/save-config' && req.method === 'POST') {
+          } else if (pathname === '/api/save-config' && req.method === 'POST') {
             const body = await getBody();
             currentConfig = { ...currentConfig, ...body };
 
@@ -140,11 +155,11 @@ function apiServerPlugin(): Plugin {
             }
 
             res.end(JSON.stringify(currentConfig));
-          } else if (req.url === '/api/scan-library' && req.method === 'POST') {
+          } else if (pathname === '/api/scan-library' && req.method === 'POST') {
             const body = await getBody();
             const models = await libraryScanner.scanDirectory(body.rootPath);
             res.end(JSON.stringify(models));
-          } else if (req.url === '/api/local-models' && req.method === 'GET') {
+          } else if (pathname === '/api/local-models' && req.method === 'GET') {
             const rows = await dbManager.all('SELECT * FROM local_models ORDER BY file_name ASC;');
             const models = rows.map((r: any) => ({
               id: r.id,
@@ -159,31 +174,31 @@ function apiServerPlugin(): Plugin {
               isDuplicate: !!r.is_duplicate,
             }));
             res.end(JSON.stringify(models));
-          } else if (req.url === '/api/search-models' && req.method === 'POST') {
+          } else if (pathname === '/api/search-models' && req.method === 'POST') {
             const body = await getBody();
             const result = await civitaiClient.fetchModels(body);
             res.end(JSON.stringify(result));
-          } else if (req.url === '/api/enums' && req.method === 'GET') {
+          } else if (pathname === '/api/enums' && req.method === 'GET') {
             const enums = await civitaiClient.fetchEnums();
             res.end(JSON.stringify(enums));
-          } else if (req.url === '/api/add-download' && req.method === 'POST') {
+          } else if (pathname === '/api/add-download' && req.method === 'POST') {
             // Vite dev preview: downloads are owned by Electron main (port 5174).
             // Proxying avoids double-persistence resurrection from two processes sharing the same DB.
             res.statusCode = 503;
-            res.end(JSON.stringify({ error: 'Use Electron IPC / http://127.0.0.1:5174 for downloads in dev' }));
-          } else if (req.url === '/api/downloads' && req.method === 'GET') {
+            const apiPort = parseInt(process.env.API_PORT || process.env.BRIDGE_PORT || process.env.CMM_PORT || '5174', 10);
+            res.end(JSON.stringify({ error: `Use Electron IPC / http://127.0.0.1:${apiPort} for downloads in dev` }));
+          } else if (pathname === '/api/downloads' && req.method === 'GET') {
             // Return empty in Vite dev — real queue lives in Electron main
             res.end(JSON.stringify([]));
-          } else if (req.url === '/api/pause-download' && req.method === 'POST') {
+          } else if (pathname === '/api/pause-download' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true }));
-          } else if (req.url === '/api/resume-download' && req.method === 'POST') {
+          } else if (pathname === '/api/resume-download' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true }));
-          } else if (req.url === '/api/cancel-download' && req.method === 'POST') {
+          } else if (pathname === '/api/cancel-download' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true }));
-          } else if (req.url === '/api/delete-download' && req.method === 'POST') {
+          } else if (pathname === '/api/delete-download' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true }));
-          } else if (req.url?.startsWith('/api/local-image') && req.method === 'GET') {
-            const parsedUrl = new URL(req.url, 'http://localhost:5173');
+          } else if (pathname === '/api/local-image' && req.method === 'GET') {
             const rawPath = parsedUrl.searchParams.get('path');
             if (!rawPath) {
               res.statusCode = 400;
@@ -213,7 +228,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ error: e?.message || 'Failed to read local image' }));
             }
-          } else if (req.url?.startsWith('/api/optimizer/scan') && (req.method === 'GET' || req.method === 'POST')) {
+          } else if (pathname === '/api/optimizer/scan' && (req.method === 'GET' || req.method === 'POST')) {
             try {
               const result = await storageOptimizer.scanDuplicates();
               res.end(JSON.stringify({ success: true, data: result }));
@@ -221,7 +236,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Optimizer scan failed' }));
             }
-          } else if (req.url === '/api/optimizer/hardlink' && req.method === 'POST') {
+          } else if (pathname === '/api/optimizer/hardlink' && req.method === 'POST') {
             try {
               const body = await getBody();
               const { masterPath, duplicatePath } = body || {};
@@ -236,7 +251,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Hardlink execution failed' }));
             }
-          } else if (req.url === '/api/optimizer/package-model' && req.method === 'POST') {
+          } else if (pathname === '/api/optimizer/package-model' && req.method === 'POST') {
             try {
               const body = await getBody();
               const { filePath } = body || {};
@@ -251,7 +266,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Companion packaging failed' }));
             }
-          } else if (req.url === '/api/optimizer/package-all' && req.method === 'POST') {
+          } else if (pathname === '/api/optimizer/package-all' && req.method === 'POST') {
             try {
               const result = await storageOptimizer.packageAllMissingCompanions();
               res.end(JSON.stringify({ success: true, data: result }));
@@ -259,7 +274,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Bulk companion packaging failed' }));
             }
-          } else if (req.url === '/api/optimizer/precision-inspect' && req.method === 'POST') {
+          } else if (pathname === '/api/optimizer/precision-inspect' && req.method === 'POST') {
             try {
               const body = await getBody();
               const { filePath } = body || {};
@@ -274,7 +289,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Precision inspection failed' }));
             }
-          } else if (req.url === '/api/optimizer/orphan-scan' && (req.method === 'GET' || req.method === 'POST')) {
+          } else if (pathname === '/api/optimizer/orphan-scan' && (req.method === 'GET' || req.method === 'POST')) {
             try {
               const body = req.method === 'POST' ? await getBody() : {};
               const customPaths = body?.workflowDirectories || body?.folderPaths || body?.path || currentConfig.comfyui_folders;
@@ -284,18 +299,17 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Orphan model scan failed' }));
             }
-          } else if ((req.url === '/api/converter/python-status' || req.url === '/api/converter/status') && req.method === 'GET') {
+          } else if ((pathname === '/api/converter/python-status' || pathname === '/api/converter/status') && req.method === 'GET') {
             try {
-              const result = await modelConverter.getPythonEnvironment(
-                currentConfig.custom_python_path,
-                currentConfig.comfyui_install_dir
-              );
+              const customPython = parsedUrl.searchParams.get('pythonPath') || currentConfig.custom_python_path;
+              const installDir = parsedUrl.searchParams.get('comfyuiInstallDir') || currentConfig.comfyui_install_dir;
+              const result = await modelConverter.getPythonEnvironment(customPython, installDir);
               res.end(JSON.stringify({ success: true, data: result }));
             } catch (e: any) {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to check python environment' }));
             }
-          } else if (req.url === '/api/converter/convert' && req.method === 'POST') {
+          } else if (pathname === '/api/converter/convert' && req.method === 'POST') {
             try {
               const body = await getBody();
               const { sourcePath, deleteOriginal, targetPath } = body || {};
@@ -316,7 +330,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Conversion execution failed' }));
             }
-          } else if ((req.url === '/api/system/hardware' || req.url === '/api/hardware/profile') && req.method === 'GET') {
+          } else if ((pathname === '/api/system/hardware' || pathname === '/api/hardware/profile') && req.method === 'GET') {
             try {
               const profile = await hardwareScanner.getHardwareProfile();
               res.end(JSON.stringify({ success: true, data: profile }));
@@ -324,7 +338,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to scan system hardware' }));
             }
-          } else if ((req.url === '/api/converter/assess-safety' || req.url === '/api/hardware/assess-safety') && req.method === 'POST') {
+          } else if ((pathname === '/api/converter/assess-safety' || pathname === '/api/hardware/assess-safety') && req.method === 'POST') {
             try {
               const body = await getBody();
               const modelSizeBytes = typeof body?.modelSizeBytes === 'number' ? body.modelSizeBytes : 0;
@@ -334,7 +348,7 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to assess conversion memory safety' }));
             }
-          } else if ((req.url === '/api/swarm/status' || req.url === '/api/swarm-status') && (req.method === 'GET' || req.method === 'POST')) {
+          } else if ((pathname === '/api/swarm/status' || pathname === '/api/swarm-status') && (req.method === 'GET' || req.method === 'POST')) {
             try {
               const body = req.method === 'POST' ? await getBody() : {};
               const target = body?.serverUrl || body?.url || currentConfig.swarm_server_url;
@@ -344,7 +358,61 @@ function apiServerPlugin(): Plugin {
               res.statusCode = 500;
               res.end(JSON.stringify({ online: false, error: e?.message || 'Swarm check failed' }));
             }
-          } else if ('/api/clear-finished-downloads' === req.url && req.method === 'POST') {
+          } else if (pathname === '/api/license/status' && req.method === 'GET') {
+            try {
+              const status = await licenseService.validateLicense();
+              res.end(JSON.stringify(status));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ isValid: false, status: 'unregistered', error: e?.message }));
+            }
+          } else if (pathname === '/api/license/user-key' && req.method === 'GET') {
+            try {
+              const pubKey = await licenseService.getUserPublicKey();
+              res.end(JSON.stringify({ userPublicKey: pubKey }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: e?.message }));
+            }
+          } else if (pathname === '/api/license/activate' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const token = body?.licenseToken || body?.token || '';
+              const result = await licenseService.activateLicense(token);
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ isValid: false, status: 'malformed', error: e?.message }));
+            }
+          } else if (pathname === '/api/license/deactivate' && req.method === 'POST') {
+            try {
+              const result = await licenseService.deactivateLicense();
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message }));
+            }
+          } else if (pathname === '/api/license/verify' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const token = body?.licenseToken || body?.token || '';
+              const result = await licenseService.verifyLicense(token);
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ isValid: false, status: 'malformed', error: e?.message }));
+            }
+          } else if (pathname === '/api/license/sign-challenge' && req.method === 'POST') {
+            try {
+              const body = await getBody();
+              const challenge = body?.challenge || '';
+              const signature = await licenseService.signChallenge(challenge);
+              res.end(JSON.stringify({ signature }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: e?.message }));
+            }
+          } else if (pathname === '/api/clear-finished-downloads' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true, cleared: 0 }));
           } else {
             res.statusCode = 404;
@@ -368,17 +436,25 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: parseInt(process.env.VITE_PORT || process.env.PORT || '5173', 10),
   },
   build: {
     emptyOutDir: false,
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-xyflow': ['@xyflow/react'],
-          'vendor-icons': ['lucide-react'],
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'vendor-react';
+            }
+            if (id.includes('@xyflow')) {
+              return 'vendor-xyflow';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+          }
         },
       },
     },

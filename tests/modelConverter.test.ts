@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
@@ -56,5 +58,52 @@ describe('ModelConverterService (Pickle to SafeTensors)', () => {
   it('handles invalid python path candidate without crashing', async () => {
     const env = await modelConverter.getPythonEnvironment('/invalid/fake/python/path/python.exe', undefined, true);
     expect(env).toBeDefined();
+  }, 15000);
+
+  it('scans clean pickle files and marks them safe for conversion', async () => {
+    const cleanPt = path.join(tempDir, 'clean_model.pt');
+    // Protocol 0 pickle dictionary: {'weight': 1}
+    fs.writeFileSync(cleanPt, Buffer.from("(dp0\nS'weight'\np1\nI1\ns."));
+
+    const scan = await modelConverter.scanPickleModel(cleanPt);
+    expect(scan.isSafe).toBe(true);
+    expect(scan.isYolo).toBe(false);
+    expect(scan.recommendation).toBe('safe_convert');
+    expect(scan.dangerousGlobals).toHaveLength(0);
+  }, 15000);
+
+  it('detects and bans malicious pickle files containing execution sinks (e.g. os.system)', async () => {
+    const malPt = path.join(tempDir, 'malicious_exploit.pt');
+    // Pickle opcode referencing os.system
+    fs.writeFileSync(malPt, Buffer.from("cos\nsystem\nq\x00(X\x08\x00\x00\x00calc.exeq\x01tq\x02Rq\x03."));
+
+    const scan = await modelConverter.scanPickleModel(malPt);
+    expect(scan.isSafe).toBe(false);
+    expect(scan.recommendation).toBe('quarantine_dangerous');
+    expect(scan.dangerousGlobals.some((g) => g.includes('system'))).toBe(true);
+
+    // Verify convertPickleToSafetensors drops the banhammer
+    const conv = await modelConverter.convertPickleToSafetensors(malPt);
+    expect(conv.success).toBe(false);
+    expect(conv.error).toContain('SECURITY BAN');
+  }, 15000);
+
+  it('detects YOLO/Ultralytics layer class hierarchies and preserves .pt format', async () => {
+    const yoloPt = path.join(tempDir, 'yolov8n.pt');
+    // Pickle opcode referencing ultralytics.nn.tasks.DetectionModel
+    fs.writeFileSync(yoloPt, Buffer.from("cultralytics.nn.tasks\nDetectionModel\nq\x00)Rq\x01."));
+
+    const scan = await modelConverter.scanPickleModel(yoloPt);
+    expect(scan.isSafe).toBe(true);
+    expect(scan.isYolo).toBe(true);
+    expect(scan.recommendation).toBe('preserve_yolo_pt');
+    expect(scan.yoloLayers.some((l) => l.toLowerCase().includes('detectionmodel'))).toBe(true);
+
+    // Verify convertPickleToSafetensors skips conversion to preserve YOLO functionality
+    const conv = await modelConverter.convertPickleToSafetensors(yoloPt);
+    expect(conv.success).toBe(false);
+    expect(conv.skipped).toBe(true);
+    expect(conv.isYolo).toBe(true);
+    expect(conv.error).toContain('YOLO');
   }, 15000);
 });

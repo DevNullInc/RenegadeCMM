@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
 import path from 'path';
@@ -96,7 +98,87 @@ const CORE_NODE_FALLBACK = new Set<string>([
   'Reroute',
   'PrimitiveNode',
   'Note',
+  'NoteNode',
+  'MarkdownNote',
+  'Markdown Note',
+  'Markdown',
+  'MarkdownText',
+  'DisplayAny',
+  'ShowText',
+  'ImagePadForOutpaint',
+  'InpaintModelConditioning',
+  'DifferentialDiffusion',
+  'RescaleCFG',
+  'FreeU',
+  'FreeU_V2',
+  'HyperTile',
+  'PatchModelAddDownscale',
+  'SaveAnimatedWEBP',
+  'SaveAnimatedPNG',
+  'ImageCompositeMasked',
+  'ImageInvert',
+  'ImageColorToMask',
+  'CropImage',
+  'RepeatImage',
+  'FeatherMask',
+  'GrowMask',
+  'InvertMask',
+  'SolidMask',
+  'MaskComposite',
+  'CropMask',
+  'CLIPVisionEncode',
+  'CLIPVisionLoader',
+  'StyleModelApply',
+  'StyleModelLoader',
+  'GLIGENLoader',
+  'GLIGENTextBoxApply',
+  'WebcamCapture',
+  'SplitImageWithAlpha',
+  'JoinImageWithAlpha',
+  'Preview3D',
+  'Preview3DAnimation',
+  'ModelMergeBlocks',
+  'ModelMergeSimple',
+  'ModelMergeSD1',
+  'ModelMergeSDXL',
+  'ModelMergeSD3_2B',
+  'ModelMergeFlux1',
+  'FluxGuidance',
+  'ModelSamplingFlux',
+  'ModelSamplingSD3',
+  'ModelSamplingAura',
+  'ModelSamplingContinuousEDM',
+  'ModelSamplingDiscrete',
+  'SetUnionControlNetType',
+  'ControlNetApplySD3',
+  'ControlNetInpaintingAliMamaApply',
+  'SDTurboScheduler',
+  'LaplaceScheduler',
+  'SplitSigmas',
+  'FlipSigmas',
+  'ImageBatch',
+  'RebatchImages',
+  'RepeatLatentBatch',
+  'LatentBatch',
+  'RebatchLatents',
+  'LatentFromBatch',
+  'ImageFromBatch',
+  'LatentAdd',
+  'LatentSubtract',
+  'LatentMultiply',
+  'LatentInterpolate',
+  'AudioLoader',
+  'SaveAudio',
+  'PreviewAudio',
 ]);
+
+/**
+ * Normalizes a node class name or label into a punctuation-free, lowercase key for fuzzy matching.
+ */
+export function normalizeNodeKey(name: string): string {
+  if (!name || typeof name !== 'string') return '';
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 const VALID_PYTHON_BASENAMES = new Set([
   'python',
@@ -142,6 +224,11 @@ export class NodeResolverService {
   private rateLimitCooldownLoggedAt = 0;
   private readonly GITHUB_RATE_LIMIT_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes after a 403
   private coreNodeTypesCache: { key: string; nodeTypes: Set<string> } | null = null;
+  private liveNodesCache: {
+    timestamp: number;
+    serverUrl: string;
+    nodeMap: Map<string, { name: string; displayName?: string; category?: string }>;
+  } | null = null;
 
   /**
    * Auto-locates the exact Python binary associated with the local ComfyUI installation.
@@ -243,6 +330,67 @@ export class NodeResolverService {
   private extractClassMappingsFromFolder(folderPath: string): string[] {
     const classNames = new Set<string>();
 
+    const collectFiles = (dir: string, depth = 0): string[] => {
+      if (depth > 2 || !fs.existsSync(dir)) return [];
+      const collected: string[] = [];
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.name.startsWith('.') || entry.name === '__pycache__' || entry.name === 'node_modules') continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            collected.push(...collectFiles(full, depth + 1));
+          } else if (entry.isFile() && (entry.name.endsWith('.py') || entry.name.endsWith('.js') || entry.name.endsWith('.ts'))) {
+            collected.push(full);
+          }
+        }
+      } catch {}
+      return collected;
+    };
+
+    try {
+      const allFiles = collectFiles(folderPath);
+
+      for (const filePath of allFiles) {
+        try {
+          const content = fs.readFileSync(filePath, 'utf-8');
+
+          if (filePath.endsWith('.py')) {
+            // 1. NODE_CLASS_MAPPINGS keys
+            const classBlocks = this.extractAssignmentBraces(content, 'NODE_CLASS_MAPPINGS');
+            for (const block of classBlocks) {
+              const keyMatches = block.matchAll(/["']([^"']+)["']\s*:/g);
+              for (const m of keyMatches) {
+                if (m[1]) classNames.add(m[1].trim());
+              }
+            }
+
+            // 2. NODE_DISPLAY_NAME_MAPPINGS keys and values
+            const displayBlocks = this.extractAssignmentBraces(content, 'NODE_DISPLAY_NAME_MAPPINGS');
+            for (const block of displayBlocks) {
+              const pairMatches = block.matchAll(/["']([^"']+)["']\s*:\s*["']([^"']+)["']/g);
+              for (const m of pairMatches) {
+                if (m[1]) classNames.add(m[1].trim());
+                if (m[2]) classNames.add(m[2].trim());
+              }
+            }
+          } else {
+            // JS/TS Frontend Node Extension Registrations
+            const jsMatches = content.matchAll(/(?:registerNodeType|registerCustomType|registerNode)\s*\(\s*["']([^"']+)["']/g);
+            for (const m of jsMatches) {
+              if (m[1]) classNames.add(m[1].trim());
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+
+    return Array.from(classNames);
+  }
+
+  /* private _oldUnusedHelper(): string[] {
+    const classNames = new Set<string>();
+
     try {
       const files = fs.readdirSync(folderPath);
       const pyFiles = files.filter((f) => f.endsWith('.py'));
@@ -262,7 +410,7 @@ export class NodeResolverService {
     } catch {}
 
     return Array.from(classNames);
-  }
+  } */
 
   /**
    * Locates `name = { ... }` blocks in Python source and returns each block's inner
@@ -332,9 +480,13 @@ export class NodeResolverService {
       for (const cls of classes) {
         if (typeof cls !== 'string' || !cls.trim()) continue;
         const key = cls.trim().toLowerCase();
+        const normKey = normalizeNodeKey(cls);
         // First occurrence wins; later (duplicate) class registrations are ignored.
         if (!reverse.has(key)) {
           reverse.set(key, { gitUrl, title_aux: meta.title_aux, author: meta.author });
+        }
+        if (normKey && !reverse.has(normKey)) {
+          reverse.set(normKey, { gitUrl, title_aux: meta.title_aux, author: meta.author });
         }
       }
     }
@@ -609,6 +761,78 @@ export class NodeResolverService {
   }
 
   /**
+   * Probes the live running ComfyUI server (/object_info) with a fast 1.5s timeout.
+   * Caches results in memory for 15s to avoid pounding ComfyUI during workflow loads.
+   */
+  async fetchLiveComfyNodeTypes(
+    serverUrl = 'http://127.0.0.1:8188'
+  ): Promise<Map<string, { name: string; displayName?: string; category?: string }> | null> {
+    const cleanUrl = (serverUrl || 'http://127.0.0.1:8188').replace(/\/+$/, '');
+    const now = Date.now();
+    if (
+      this.liveNodesCache &&
+      this.liveNodesCache.serverUrl === cleanUrl &&
+      now - this.liveNodesCache.timestamp < 15000
+    ) {
+      return this.liveNodesCache.nodeMap;
+    }
+
+    return new Promise((resolve) => {
+      try {
+        const u = new URL(`${cleanUrl}/object_info`);
+        const client = u.protocol === 'https:' ? https : http;
+        const req = client.get(
+          u.toString(),
+          { timeout: 1500, headers: { Accept: 'application/json' } },
+          (res) => {
+            if (res.statusCode !== 200) {
+              res.resume();
+              return resolve(
+                this.liveNodesCache?.serverUrl === cleanUrl ? this.liveNodesCache.nodeMap : null
+              );
+            }
+            let data = '';
+            res.on('data', (chunk) => {
+              data += chunk;
+            });
+            res.on('end', () => {
+              try {
+                const parsed = JSON.parse(data);
+                const nodeMap = new Map<
+                  string,
+                  { name: string; displayName?: string; category?: string }
+                >();
+                if (parsed && typeof parsed === 'object') {
+                  for (const [key, val] of Object.entries<any>(parsed)) {
+                    if (val && typeof val === 'object') {
+                      nodeMap.set(key, {
+                        name: key,
+                        displayName: val.display_name,
+                        category: val.category,
+                      });
+                    }
+                  }
+                }
+                this.liveNodesCache = { timestamp: Date.now(), serverUrl: cleanUrl, nodeMap };
+                resolve(nodeMap);
+              } catch {
+                resolve(null);
+              }
+            });
+          }
+        );
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => {
+          req.destroy();
+          resolve(null);
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  /**
    * Node Resolution:
    * Tier 1: Local package & NODE_CLASS_MAPPINGS inspection
    * Tier 2: ComfyUI-Manager curated database lookup
@@ -621,9 +845,10 @@ export class NodeResolverService {
     nodeType: string,
     customNodesDir?: string,
     installDir?: string,
-    opts?: { searchGitHub?: boolean; forceRefresh?: boolean }
+    opts?: { searchGitHub?: boolean; forceRefresh?: boolean; comfyuiServerUrl?: string }
   ): Promise<NodeResolutionResult> {
     const cleanType = nodeType.trim();
+    const normCleanType = normalizeNodeKey(cleanType);
     const result: NodeResolutionResult = {
       nodeType: cleanType,
       isInstalled: false,
@@ -631,6 +856,58 @@ export class NodeResolverService {
     };
 
     if (!cleanType) return result;
+
+    // Tier 0: Live running ComfyUI probe (/object_info)
+    // When ComfyUI is running, /object_info contains all active core and extension node classes.
+    try {
+      const liveNodes = await this.fetchLiveComfyNodeTypes(opts?.comfyuiServerUrl);
+      if (liveNodes && liveNodes.size > 0) {
+        let matchedLive: { name: string; displayName?: string; category?: string } | undefined;
+        if (liveNodes.has(cleanType)) {
+          matchedLive = liveNodes.get(cleanType);
+        } else {
+          for (const [k, v] of liveNodes.entries()) {
+            if (
+              normalizeNodeKey(k) === normCleanType ||
+              (v.displayName && normalizeNodeKey(v.displayName) === normCleanType) ||
+              (v.displayName && v.displayName.toLowerCase() === cleanType.toLowerCase())
+            ) {
+              matchedLive = v;
+              break;
+            }
+          }
+        }
+
+        if (matchedLive) {
+          result.isInstalled = true;
+          let matchedFolder: string | undefined;
+          if (customNodesDir && fs.existsSync(customNodesDir)) {
+            const localPackages = await this.inspectLocalCustomNodes(customNodesDir);
+            for (const pkg of localPackages) {
+              const normFolder = pkg.folderName.toLowerCase().replace(/^(comfyui-|comfy_)/i, '');
+              const normPkgKey = normalizeNodeKey(pkg.folderName);
+              if (
+                pkg.nodeClasses.some(
+                  (c) =>
+                    c.toLowerCase() === matchedLive!.name.toLowerCase() ||
+                    normalizeNodeKey(c) === normalizeNodeKey(matchedLive!.name)
+                ) ||
+                normFolder === normalizeNodeKey(matchedLive.name) ||
+                normPkgKey === normalizeNodeKey(matchedLive.name)
+              ) {
+                matchedFolder = pkg.folderName;
+                result.installedPath = pkg.fullPath;
+                break;
+              }
+            }
+          }
+          result.installedFolder =
+            matchedFolder ||
+            (matchedLive.category ? `ComfyUI (${matchedLive.category})` : 'ComfyUI Core (Built-in)');
+          return result;
+        }
+      }
+    } catch {}
 
     // ComfyUI built-in core nodes — parsed from <install_dir>/nodes.py + comfy_extras/*.py,
     // with a static fallback for installs whose sources can't be read. Always installed, so
@@ -640,6 +917,13 @@ export class NodeResolverService {
       result.isInstalled = true;
       result.installedFolder = 'ComfyUI Core (Built-in)';
       return result;
+    }
+    for (const coreNode of coreNodeTypes) {
+      if (normalizeNodeKey(coreNode) === normCleanType) {
+        result.isInstalled = true;
+        result.installedFolder = 'ComfyUI Core (Built-in)';
+        return result;
+      }
     }
 
     // Authoritative manual override: the user declared which installed folder supplies
@@ -669,10 +953,16 @@ export class NodeResolverService {
         // Direct folder name match
         const normFolder = pkg.folderName.toLowerCase().replace(/^(comfyui-|comfy_)/i, '');
         const normType = cleanType.toLowerCase().replace(/^(comfyui-|comfy_)/i, '');
+        const normPkgKey = normalizeNodeKey(pkg.folderName);
 
         if (
           normFolder === normType ||
-          pkg.nodeClasses.some((c) => c.toLowerCase() === cleanType.toLowerCase())
+          normPkgKey === normCleanType ||
+          pkg.nodeClasses.some(
+            (c) =>
+              c.toLowerCase() === cleanType.toLowerCase() ||
+              normalizeNodeKey(c) === normCleanType
+          )
         ) {
           result.isInstalled = true;
           result.installedFolder = pkg.folderName;
@@ -686,7 +976,7 @@ export class NodeResolverService {
     // Tier 2: ComfyUI-Manager Registry Database Check
     const { reverseMap } = await this.getManagerRegistry();
     // The registry is keyed by repo URL; reverseMap indexes it by node class (lowercased).
-    const entry = reverseMap.get(cleanType.toLowerCase());
+    const entry = reverseMap.get(cleanType.toLowerCase()) || reverseMap.get(normCleanType);
     if (entry) {
       const gitUrl = entry.gitUrl;
       const title = entry.title_aux || path.basename(gitUrl);
@@ -938,7 +1228,7 @@ export class NodeResolverService {
 
     const trimmedUrl = (gitUrl || '').trim();
     // Validate gitUrl strictly against allowed Git/HTTPS URL formats
-    const isHttpsGit = /^https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)$/i.test(trimmedUrl);
+    const isHttpsGit = /^https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&=/]*)$/i.test(trimmedUrl);
     const isSshGit = /^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9._/-]+(\.git)?$/i.test(trimmedUrl);
 
     if (!isHttpsGit && !isSshGit) {

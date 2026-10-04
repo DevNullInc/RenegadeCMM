@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 
 import fs from 'fs';
@@ -289,30 +291,30 @@ export class StorageOptimizerService {
       const dupExt = path.extname(duplicatePath);
       const dupBase = duplicatePath.slice(0, -dupExt.length);
 
-      // Sibling .sha256
+      // Sibling .sha256 (atomic write with flag: wx to avoid race condition)
       if (masterCompanions.companionHash) {
         const dupShaFile = `${dupBase}.sha256`;
-        if (!fs.existsSync(dupShaFile)) {
-          fs.writeFileSync(dupShaFile, masterCompanions.companionHash.trim(), 'utf8');
-        }
+        try {
+          fs.writeFileSync(dupShaFile, masterCompanions.companionHash.trim(), { encoding: 'utf8', flag: 'wx' });
+        } catch {}
       }
 
-      // Sibling .info metadata (preserve multi-part suffix like .civitai.info)
-      if (masterCompanions.companionInfoPath && fs.existsSync(masterCompanions.companionInfoPath)) {
+      // Sibling .info metadata (atomic copy with COPYFILE_EXCL)
+      if (masterCompanions.companionInfoPath) {
         const suffix = masterCompanions.companionInfoPath.slice(masterBase.length);
         const dupInfoFile = `${dupBase}${suffix}`;
-        if (!fs.existsSync(dupInfoFile)) {
-          fs.copyFileSync(masterCompanions.companionInfoPath, dupInfoFile);
-        }
+        try {
+          fs.copyFileSync(masterCompanions.companionInfoPath, dupInfoFile, fs.constants.COPYFILE_EXCL);
+        } catch {}
       }
 
-      // Sibling preview image (preserve multi-part suffix like .preview.png)
-      if (masterCompanions.localImagePath && fs.existsSync(masterCompanions.localImagePath)) {
+      // Sibling preview image (atomic copy with COPYFILE_EXCL)
+      if (masterCompanions.localImagePath) {
         const suffix = masterCompanions.localImagePath.slice(masterBase.length);
         const dupImgFile = `${dupBase}${suffix}`;
-        if (!fs.existsSync(dupImgFile)) {
-          fs.copyFileSync(masterCompanions.localImagePath, dupImgFile);
-        }
+        try {
+          fs.copyFileSync(masterCompanions.localImagePath, dupImgFile, fs.constants.COPYFILE_EXCL);
+        } catch {}
       }
     } catch (err) {
       logger.warn(`Failed companion sync for hardlinked file ${duplicatePath}:`, err);
@@ -491,6 +493,91 @@ export class StorageOptimizerService {
       imageCreatedCount: imgCount,
       errors,
     };
+  }
+
+  /**
+   * Updates or creates companion metadata file (.civitai.info / .info) with user-defined trigger words.
+   */
+  public async updateModelTriggerWords(
+    filePath: string,
+    triggerWords: string[]
+  ): Promise<{ success: boolean; filePath: string; companionInfoPath: string; triggerWords: string[]; error?: string }> {
+    try {
+      const resolvedPath = path.resolve(filePath);
+      if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`Model file not found on disk: ${resolvedPath}`);
+      }
+
+      // Deduplicate words while preserving case and order
+      const seen = new Set<string>();
+      const cleanWords: string[] = [];
+      for (const w of triggerWords) {
+        if (typeof w === 'string') {
+          const trimmed = w.trim();
+          const lower = trimmed.toLowerCase();
+          if (trimmed.length > 0 && !seen.has(lower)) {
+            seen.add(lower);
+            cleanWords.push(trimmed);
+          }
+        }
+      }
+
+      const ext = path.extname(resolvedPath);
+      const baseWithoutExt = resolvedPath.substring(0, resolvedPath.length - ext.length);
+
+      const possibleInfoFiles = [
+        `${baseWithoutExt}.civitai.info`,
+        `${baseWithoutExt}.huggingface.info`,
+        `${baseWithoutExt}.info`,
+      ];
+
+      let targetInfoFile = possibleInfoFiles.find((f) => fs.existsSync(f));
+      let infoData: any = {};
+
+      if (targetInfoFile) {
+        try {
+          const raw = fs.readFileSync(targetInfoFile, 'utf8');
+          infoData = JSON.parse(raw) || {};
+        } catch (e) {
+          logger.warn(`Could not parse existing companion file ${targetInfoFile}, rewriting:`, e);
+          infoData = {};
+        }
+      } else {
+        targetInfoFile = `${baseWithoutExt}.civitai.info`;
+        infoData = {
+          name: path.basename(resolvedPath),
+          modelId: 0,
+          trainedWords: cleanWords,
+          packagedBy: 'RenegadeCMM',
+          createdAt: new Date().toISOString(),
+        };
+      }
+
+      infoData.trainedWords = cleanWords;
+      infoData.updatedAt = new Date().toISOString();
+      if (infoData.model && typeof infoData.model === 'object') {
+        infoData.model.trainedWords = cleanWords;
+      }
+
+      fs.writeFileSync(targetInfoFile, JSON.stringify(infoData, null, 2), 'utf8');
+      logger.info(`Updated trigger words in companion file: ${targetInfoFile} (${cleanWords.length} tags)`);
+
+      return {
+        success: true,
+        filePath: resolvedPath,
+        companionInfoPath: targetInfoFile,
+        triggerWords: cleanWords,
+      };
+    } catch (err: any) {
+      logger.error(`Failed updating trigger words for ${filePath}:`, err);
+      return {
+        success: false,
+        filePath,
+        companionInfoPath: '',
+        triggerWords,
+        error: err.message || 'Failed to update companion trigger words',
+      };
+    }
   }
 }
 

@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 
 export interface CivitaiAPI {
@@ -31,6 +33,8 @@ export interface CivitaiAPI {
   pullMissingModel: (modelData: any, targetRoot?: string) => Promise<any>;
   scaffoldModelFolders: (targetDir?: string) => Promise<any>;
   clearLibrary: () => Promise<any>;
+  saveModelMetadata: (params: any) => Promise<{ success: boolean; error?: string }>;
+  fetchModelMetadataByUrl: (urlOrId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
   onScanProgress: (callback: (progress: any) => void) => void;
 
   // Download Queue
@@ -63,6 +67,7 @@ export interface CivitaiAPI {
   openFolder: (filePath: string) => Promise<any>;
   browseFolder: (defaultPath?: string) => Promise<any>;
   listDirectory: (dirPath?: string) => Promise<any>;
+  checkFolderAccess: (folderPath: string) => Promise<{ exists: boolean; writable: boolean; error?: string }>;
 
   // Workflows & Webhooks
   scanWorkflows: (folderPaths?: string | string[]) => Promise<any>;
@@ -109,12 +114,25 @@ export interface CivitaiAPI {
   executeHardlinkOptimizer: (masterPath: string, duplicatePath: string) => Promise<any>;
   packageCompanionFiles: (filePath: string) => Promise<any>;
   packageAllCompanionFiles: () => Promise<any>;
+  saveModelTriggerWords: (filePath: string, triggerWords: string[]) => Promise<{
+    success: boolean;
+    filePath: string;
+    companionInfoPath: string;
+    triggerWords: string[];
+    error?: string;
+  }>;
   inspectModelPrecision: (filePath: string) => Promise<any>;
   scanOrphanModels: (workflowDirs?: string | string[]) => Promise<any>;
+
+  // Library Sorter / Auto-Organize
+  analyzeLibrarySorting: (options?: { models?: any[]; modelIds?: string[] }) => Promise<any>;
+  executeLibrarySorting: (planItems: Array<{ modelId: string; sourcePath: string; targetPath: string }>) => Promise<any>;
+  onLibrarySortProgress?: (callback: (progress: { current: number; total: number; file: string }) => void) => (() => void) | void;
 
   // Model Converter (Pickle to SafeTensors) & Hardware Safety
   getConverterEnvironment: (customPythonPath?: string) => Promise<any>;
   convertModelToSafetensors: (filePath: string, options?: any) => Promise<any>;
+  scanPickleModel: (filePath: string) => Promise<any>;
   getHardwareProfile: (forceRefresh?: boolean) => Promise<any>;
   assessConversionSafety: (modelSizeBytes: number) => Promise<any>;
 
@@ -124,7 +142,17 @@ export interface CivitaiAPI {
   checkAppUpdate: () => Promise<any>;
   onAppLog: (callback: (log: { level: string; message: string }) => void) => (() => void) | void;
 
+  // License Management & Cryptographic Verification
+  getLicenseStatus: () => Promise<any>;
+  getUserPublicKey: () => Promise<string>;
+  activateLicense: (licenseKey: string) => Promise<any>;
+  deactivateLicense: () => Promise<any>;
+  verifyLicense: (licenseKey: string) => Promise<any>;
+  signLicenseChallenge: (challenge: string) => Promise<string>;
+
   // App Control
+  getApiPort: () => Promise<number>;
+  setApiPort?: (port: number) => Promise<void>;
   restartApp: () => Promise<any>;
   shutdownApp: () => Promise<any>;
   onProtocolAction: (callback: (actionPayload: any) => void) => void;
@@ -135,5 +163,7 @@ export interface CivitaiAPI {
 declare global {
   interface Window {
     civitaiAPI: CivitaiAPI;
+    __CMM_API_PORT__?: number;
+    __CMM_API_BASE__?: string;
   }
 }

@@ -94,3 +94,47 @@ webview, iframe {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(168, 85, 247, 0.6);
 }
+
+/* Animations & Keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Stable Keepalive Container (avoids extreme coordinate overflow on GPU and prevents 0x0 webview resize lockup during window maximize) */
+.keepalive-hidden {
+  position: fixed !important;
+  top: 0 !important;
+  left: -200vw !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -9999 !important;
+}
+

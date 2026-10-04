@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -28,6 +30,9 @@ import {
   RefreshCw,
   Sparkles,
   GitBranch,
+  KeyRound,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import {
   subscribeLogs,
@@ -37,11 +42,18 @@ import {
 } from '../utils/consoleCapture';
 import { APP_VERSION, BUILD_CONFIG } from '../version';
 import { AppUpdateCheckResult } from '../types/app';
+import { LicenseValidationResult } from '../types/license';
 
 export function AboutTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filterLevel, setFilterLevel] = useState<'all' | 'error' | 'warn'>('all');
   const [copied, setCopied] = useState(false);
+  const [copiedPubKey, setCopiedPubKey] = useState(false);
+  const [licenseStatus, setLicenseStatus] = useState<LicenseValidationResult | null>(null);
+  const [userPublicKey, setUserPublicKey] = useState<string>('');
+  const [licenseInputKey, setLicenseInputKey] = useState<string>('');
+  const [isActivatingLicense, setIsActivatingLicense] = useState(false);
+  const [licenseFeedback, setLicenseFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [sysInfo, setSysInfo] = useState<any>({ version: APP_VERSION });
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'up-to-date' | 'error'>('idle');
   const [updateResult, setUpdateResult] = useState<AppUpdateCheckResult | null>(null);
@@ -80,10 +92,91 @@ export function AboutTab() {
       });
     }
 
+    const loadLicenseData = async () => {
+      try {
+        if (window.civitaiAPI) {
+          if (typeof window.civitaiAPI.getLicenseStatus === 'function') {
+            const status = await window.civitaiAPI.getLicenseStatus();
+            setLicenseStatus(status);
+          }
+          if (typeof window.civitaiAPI.getUserPublicKey === 'function') {
+            const pubKey = await window.civitaiAPI.getUserPublicKey();
+            setUserPublicKey(pubKey);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load license details:', err);
+      }
+    };
+
+    loadLicenseData();
     handleCheckUpdates();
 
     return () => unsubscribe();
   }, []);
+
+  const refreshLicenseStatus = async () => {
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.getLicenseStatus === 'function') {
+        const status = await window.civitaiAPI.getLicenseStatus();
+        setLicenseStatus(status);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh license status:', err);
+    }
+  };
+
+  const handleActivateLicense = async () => {
+    if (!licenseInputKey.trim()) {
+      setLicenseFeedback({ type: 'error', text: 'Please enter a valid license token.' });
+      return;
+    }
+    setIsActivatingLicense(true);
+    setLicenseFeedback(null);
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.activateLicense === 'function') {
+        const result = await window.civitaiAPI.activateLicense(licenseInputKey.trim());
+        if (result && result.isValid) {
+          setLicenseStatus(result);
+          setLicenseInputKey('');
+          setLicenseFeedback({
+            type: 'success',
+            text: `Successfully activated license for ${result.license?.licensee || 'User'} (${result.license?.type})!`,
+          });
+        } else {
+          setLicenseFeedback({
+            type: 'error',
+            text: result?.error || 'License verification failed. Ensure the token is valid and paired to your public signature key.',
+          });
+        }
+      } else {
+        setLicenseFeedback({ type: 'error', text: 'License activation API is not available.' });
+      }
+    } catch (err: any) {
+      setLicenseFeedback({ type: 'error', text: err?.message || 'Failed to activate license.' });
+    } finally {
+      setIsActivatingLicense(false);
+    }
+  };
+
+  const handleDeactivateLicense = async () => {
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.deactivateLicense === 'function') {
+        await window.civitaiAPI.deactivateLicense();
+        await refreshLicenseStatus();
+        setLicenseFeedback({ type: 'success', text: 'License key deactivated. Returned to evaluation mode.' });
+      }
+    } catch (err: any) {
+      setLicenseFeedback({ type: 'error', text: err?.message || 'Failed to deactivate license.' });
+    }
+  };
+
+  const handleCopyPubKey = () => {
+    if (!userPublicKey) return;
+    navigator.clipboard.writeText(userPublicKey);
+    setCopiedPubKey(true);
+    setTimeout(() => setCopiedPubKey(false), 2000);
+  };
 
   const openLink = (url: string) => {
     if (window.civitaiAPI && typeof window.civitaiAPI.openExternal === 'function') {
@@ -265,27 +358,15 @@ export function AboutTab() {
               </div>
             </div>
             <div className="pt-2 border-t border-slate-800/80 space-y-2">
-              <span className="text-[11px] font-bold text-slate-400 block">Buy me a coffee or something please?</span>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => openLink('https://cash.app/$StygianRenegade/1.00')}
-                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
-                >
-                  <span>☕ $1.00</span>
-                </button>
-                <button
-                  onClick={() => openLink('https://cash.app/$StygianRenegade/5.00')}
-                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
-                >
-                  <span>🥪 $5.00</span>
-                </button>
-                <button
-                  onClick={() => openLink('https://cash.app/$StygianRenegade/10.00')}
-                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1"
-                >
-                  <span>🍕 $10.00</span>
-                </button>
-              </div>
+              <span className="text-[11px] font-bold text-slate-400 block">Support Ongoing Development</span>
+              <button
+                onClick={() => openLink('https://github.com/sponsors/DevNullInc')}
+                className="w-full px-3 py-2 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/30 hover:border-pink-500/50 text-pink-300 hover:text-pink-200 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm hover:shadow-pink-500/10"
+              >
+                <Heart size={14} className="text-pink-400 fill-pink-400/30" />
+                <span>Sponsor on GitHub</span>
+                <ExternalLink size={12} className="text-pink-400/70 ml-0.5" />
+              </button>
             </div>
           </div>
 
@@ -298,29 +379,42 @@ export function AboutTab() {
         {/* License Info Card */}
         <div className="glass-panel p-6 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-4">
           <div className="space-y-3">
-            <div className="flex items-center gap-2.5 text-indigo-400 font-bold text-sm">
-              <Scale size={18} />
-              <span>Open Source License</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-indigo-400 font-bold text-sm">
+                <Scale size={18} />
+                <span>License & Legal</span>
+              </div>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                  licenseStatus?.isValid
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                }`}
+              >
+                {licenseStatus?.isValid
+                  ? `Registered (${licenseStatus.license?.type || 'Active'})`
+                  : 'Unregistered'}
+              </span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Renegade Core Model Manager is Free and Open Source Software distributed under the terms of the GNU GPL v3.0 or later (GPL-3.0-or-later).
+              Renegade Core Model Manager is licensed under the Business Source License 1.1 (BSL-1.1). Distributed on a single-user evaluation basis with fully functional features.
             </p>
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">License:</span>
-                <span className="font-bold text-emerald-400">GPL-3.0-or-later</span>
+                <span className="text-slate-400">License Model:</span>
+                <span className="font-bold text-emerald-400">BSL-1.1</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Copyleft:</span>
-                <span className="text-slate-300">Disclose Source, Same License</span>
+                <span className="text-slate-400">Evaluation:</span>
+                <span className="text-slate-300">Free, Fully Functional</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Permissions:</span>
-                <span className="text-slate-300">Commercial, Modify, Distribute</span>
+                <span className="text-slate-400">Commercial:</span>
+                <span className="text-slate-300">Required for &gt; 5 Persons</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Warranty:</span>
-                <span className="text-amber-400/90 font-medium">None (AS-IS)</span>
+                <span className="text-slate-400">Conversion:</span>
+                <span className="text-purple-300 font-medium">GPL-3.0 after 4 years</span>
               </div>
             </div>
           </div>
@@ -328,11 +422,11 @@ export function AboutTab() {
           <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
             <div className="flex items-center justify-between">
               <button
-                onClick={() => openLink('https://www.gnu.org/licenses/gpl-3.0.html')}
+                onClick={() => openLink('https://github.com/DevNullInc/RenegadeCMM/blob/main/LICENSE')}
                 className="text-indigo-400 hover:text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Scale size={14} />
-                <span>Read GNU GPL-3.0</span>
+                <span>Read License</span>
                 <ExternalLink size={11} className="text-indigo-400/60" />
               </button>
               <button
@@ -341,15 +435,6 @@ export function AboutTab() {
               >
                 <span>LEGAL.md</span>
                 <ExternalLink size={11} className="text-slate-500" />
-              </button>
-            </div>
-            <div className="text-[11px] text-slate-500 flex items-center gap-1">
-              <span>Code signing by</span>
-              <button
-                onClick={() => openLink('https://signpath.org')}
-                className="text-slate-400 hover:text-indigo-300 transition-colors underline cursor-pointer"
-              >
-                SignPath Foundation
               </button>
             </div>
           </div>
@@ -389,6 +474,175 @@ export function AboutTab() {
           <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
             <span>Hardware Hashing:</span>
             <span className="text-emerald-400 font-semibold">64MB AVX/SHA-NI</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Software Registration & Cryptographic License Area */}
+      <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800/80 shadow-2xl space-y-6 relative overflow-hidden">
+        <div className="absolute -right-20 -top-20 w-72 h-72 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -left-20 -bottom-20 w-72 h-72 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-2xl bg-purple-500/15 text-purple-400 border border-purple-500/30">
+              <KeyRound size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-lg font-bold text-slate-100">
+                  Software Registration &amp; License Activation
+                </h2>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                    licenseStatus?.isValid
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                      : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                  }`}
+                >
+                  {licenseStatus?.isValid ? 'Status: Registered' : 'Status: Unregistered'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Cryptographically bound to your local installation's Ed25519 public signature key.
+              </p>
+            </div>
+          </div>
+
+          {licenseStatus?.isValid && (
+            <button
+              onClick={handleDeactivateLicense}
+              className="px-3.5 py-2 rounded-xl bg-slate-900/90 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/60 text-xs font-semibold transition-all cursor-pointer"
+            >
+              Deactivate License
+            </button>
+          )}
+        </div>
+
+        {/* Feedback Alert */}
+        {licenseFeedback && (
+          <div
+            className={`p-4 rounded-2xl text-xs font-medium flex items-center gap-2.5 border ${
+              licenseFeedback.type === 'success'
+                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/60'
+                : 'bg-rose-950/40 text-rose-300 border-rose-800/60'
+            }`}
+          >
+            {licenseFeedback.type === 'success' ? (
+              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle size={16} className="text-rose-400 shrink-0" />
+            )}
+            <span>{licenseFeedback.text}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10">
+          {/* User Public Key Card */}
+          <div className="bg-slate-950/60 border border-slate-800/90 rounded-2xl p-5 space-y-3.5 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-200">Your Machine Public Key</span>
+                <span className="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                  Ed25519
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Provide this public key when registering or requesting a license token. It uniquely and securely pairs the license to your installation without transmitting private keys.
+              </p>
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-purple-300 break-all select-all flex items-center justify-between gap-2">
+                <span className="truncate">{userPublicKey || 'Generating machine keypair...'}</span>
+                <button
+                  onClick={handleCopyPubKey}
+                  disabled={!userPublicKey}
+                  title="Copy Public Key to Clipboard"
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer shrink-0"
+                >
+                  {copiedPubKey ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+              <span>Single-User / Sponsor Program:</span>
+              <button
+                onClick={() => openLink('https://github.com/sponsors/DevNullInc')}
+                className="text-pink-400 hover:text-pink-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <span>Sponsors ($10+) Receive License</span>
+                <ExternalLink size={10} />
+              </button>
+            </div>
+          </div>
+
+          {/* Registration Input / Active Info Card */}
+          <div className="bg-slate-950/60 border border-slate-800/90 rounded-2xl p-5 space-y-3.5 flex flex-col justify-between">
+            {licenseStatus?.isValid && licenseStatus.license ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                  <CheckCircle2 size={16} />
+                  <span>Active Cryptographic License</span>
+                </div>
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Licensee:</span>
+                    <span className="font-bold text-slate-100">{licenseStatus.license.licensee}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">License Type:</span>
+                    <span className="font-semibold text-purple-300 uppercase">{licenseStatus.license.type}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Authorized Seats:</span>
+                    <span className="text-slate-200">{licenseStatus.license.seats} concurrent user(s)</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Issued On:</span>
+                    <span className="text-slate-300">{licenseStatus.license.issuedAt?.split('T')[0] || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Expiration:</span>
+                    <span className="text-emerald-400 font-medium">
+                      {licenseStatus.license.expiresAt ? licenseStatus.license.expiresAt.split('T')[0] : 'Never (Perpetual)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <span className="text-xs font-bold text-slate-200 block">Enter License Token</span>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Paste the <code className="text-purple-300 bg-purple-500/10 px-1 py-0.5 rounded font-mono">CMM1...</code> license string provided upon registration:
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={licenseInputKey}
+                    onChange={(e) => setLicenseInputKey(e.target.value)}
+                    placeholder="CMM1.eyJsaWNlbnNlZSI6..."
+                    className="flex-1 bg-slate-900 border border-slate-800 focus:border-purple-500 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-hidden transition-colors"
+                  />
+                  <button
+                    onClick={handleActivateLicense}
+                    disabled={isActivatingLicense || !licenseInputKey.trim()}
+                    className="px-4 py-2 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow-lg shadow-purple-600/30 glow-purple"
+                  >
+                    {isActivatingLicense ? 'Verifying...' : 'Activate'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+              <span>Need an enterprise license?</span>
+              <button
+                onClick={() => openLink('mailto:licensing@renegadeinc.net')}
+                className="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <span>licensing@renegadeinc.net</span>
+                <ExternalLink size={10} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

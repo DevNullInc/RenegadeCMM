@@ -51,9 +51,8 @@
     "cmm:stop:mac": "./cmm-mac.sh stop",
     "cmm:restart:mac": "./cmm-mac.sh restart",
     "cmm:status:mac": "./cmm-mac.sh status",
-    "cmm:package:mac": "./cmm-mac.sh package",
     "postinstall": "electron-builder install-app-deps",
-    "clean:assets": "node scripts/clean-assets.js"
+    "license:update": "node scripts/update-license-headers.js"
   },
   "keywords": [
     "civitai",
@@ -76,11 +75,11 @@
     "url": "https://github.com/DevNullInc/RenegadeCMM/issues"
   },
   "homepage": "https://github.com/DevNullInc/RenegadeCMM#readme",
-  "license": "GPL-3.0-or-later",
+  "license": "BUSL-1.1",
   "dependencies": {
     "@xyflow/react": "^12.11.6",
     "adm-zip": "^0.6.1",
-    "axios": "^1.7.9",
+    "axios": "^1.20.0",
     "chokidar": "^4.0.3",
     "electron-log": "^5.3.0",
     "electron-updater": "^6.8.9",
@@ -108,7 +107,17 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "@tootallnate/once": "^2.0.1"
+    "@tootallnate/once": "^2.0.1",
+    "fast-uri": "^3.1.8",
+    "brace-expansion": "^2.1.7",
+    "undici": "^7.29.1",
+    "http-cache-semantics": "^4.3.0"
+  },
+  "resolutions": {
+    "fast-uri": "^3.1.8",
+    "brace-expansion": "^2.1.7",
+    "undici": "^7.29.1",
+    "http-cache-semantics": "^4.3.0"
   },
   "build": {
     "appId": "com.devnullinc.renegadecmm",
@@ -181,7 +190,10 @@
         }
       ],
       "category": "Graphics",
-      "artifactName": "${productName}-Linux-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-${arch}.AppImage"
     },
     "mac": {
       "category": "public.app-category.graphics-design",

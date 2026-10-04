@@ -1,8 +1,12 @@
-<#
-  Renegade Core Model Manager
-  Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
-  Licensed under GNU General Public License v3.0 (GPL-3.0)
-#>
+# Renegade Core Model Manager (RenegadeCMM)
+# Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
+#
+# Licensed under the Business Source License 1.1 (BUSL-1.1).
+# Single-user evaluation model with fully functional features.
+# Commercial enterprise license required for organizations with > 5 persons.
+# Inquiries: licensing@renegadeinc.net
+# Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+# See LICENSE for full terms and conditions.
 <#
 .SYNOPSIS
   Renegade Core Model Manager - launcher script.
@@ -26,7 +30,7 @@
 
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'restart', 'status', 'update', 'package', 'publish', 'dist', 'scan', 'download', 'check-updates', 'export', 'hf', 'workflows', 'clean-assets', 'install', 'setup', 'init', 'help')]
+  [ValidateSet('start', 'start-remote', 'stop', 'restart', 'restart-remote', 'status', 'update', 'package', 'publish', 'dist', 'scan', 'download', 'check-updates', 'export', 'hf', 'workflows', 'clean-assets', 'install', 'setup', 'init', 'help')]
   [string]$Action = 'start',
 
   [int]$Port = 5173,
@@ -34,6 +38,8 @@ param(
 
   [switch]$Headless,
   [switch]$NoWindow,
+  [switch]$Remote,
+  [switch]$DisableGpu,
   [switch]$CleanAssets,
 
   [Parameter(ValueFromRemainingArguments = $true)]
@@ -145,7 +151,7 @@ function Test-IsSafeToKill([System.Diagnostics.Process]$Proc, [hashtable]$CmdLin
   } catch { }
 
   # Must be node or electron strictly belonging to this project workspace
-  if ($name -eq 'electron' -or $name -eq 'node' -or $name -like '*civitai*') {
+  if ($name -eq 'electron' -or $name -eq 'node' -or $name -eq 'npm' -or $name -like '*civitai*' -or $name -like '*renegade*') {
     try {
       $procPath = $Proc.MainModule.FileName
       $cmd = $CmdLines[$Proc.Id]
@@ -158,7 +164,7 @@ function Test-IsSafeToKill([System.Diagnostics.Process]$Proc, [hashtable]$CmdLin
           if ($cmdLower -like "*$prot*") { return $false }
         }
         $rootLower = $ProjectRoot.ToLower()
-        if ($cmdLower -like "*$rootLower*" -or ($procPath -and $procPath.ToLower() -like "*$rootLower*")) {
+        if ($cmdLower -like "*$rootLower*" -or ($procPath -and $procPath.ToLower() -like "*$rootLower*") -or $cmdLower -like "*renegadecmm*") {
           return $true
         }
       } elseif ($procPath -and $procPath.ToLower() -like "*$($ProjectRoot.ToLower())*") {
@@ -214,8 +220,18 @@ function Get-RunningProcs {
   $electronProcs = Get-Process -Name 'electron' -ErrorAction SilentlyContinue
   foreach ($ep in $electronProcs) {
     try {
-      if ($ep.Path -like "*$ProjectRoot*") {
+      if ($ep.Id -gt 4) {
         if ($seenPids.Add($ep.Id)) { $candidates.Add([pscustomobject]@{ Pid = $ep.Id; Proc = $ep }) }
+      }
+    } catch { }
+  }
+
+  # 4. Check any Node or NPM processes associated strictly with this workspace
+  $nodeProcs = Get-Process -Name 'node', 'npm' -ErrorAction SilentlyContinue
+  foreach ($np in $nodeProcs) {
+    try {
+      if ($np.Id -gt 4 -and $np.Id -ne $PID -and $seenPids.Add($np.Id)) {
+        $candidates.Add([pscustomobject]@{ Pid = $np.Id; Proc = $np })
       }
     } catch { }
   }
@@ -248,7 +264,10 @@ function Stop-App {
   foreach ($p in $procs) {
     try {
       if (Test-IsSafeToKill $p $cmdCache) {
-        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        $null = & taskkill.exe /F /T /PID $p.Id 2>&1
+        if (-not $p.HasExited) {
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        }
         Write-Status 'ok' "Killed PID $($p.Id) ($($p.ProcessName))" 'DarkGray'
       }
     }
@@ -473,7 +492,17 @@ function Ensure-Environment {
     Write-Status 'ok' '[2/2] Project dependencies (node_modules) verified.' 'Green'
   }
 
-  if ($IncludePython) {
+  $doInstallPython = $IncludePython
+  if (-not $doInstallPython -and -not (Test-Path $InstalledMarker) -and [Environment]::UserInteractive -and -not $Headless -and -not $NoWindow) {
+    Write-Host ''
+    Write-Host '  [?] Install optional Python dependencies for model conversion (PyTorch, SafeTensors)?' -ForegroundColor Cyan -NoNewline
+    $response = Read-Host ' [y/N]'
+    if ($response -and $response.Trim().ToLower() -in @('y', 'yes')) {
+      $doInstallPython = $true
+    }
+  }
+
+  if ($doInstallPython) {
     Write-Status '..' '[3/3] Checking Python runtime and .venv environment...' 'DarkGray'
     Ensure-PythonEnvironment -ForceInstall:$ForceInstall
   } else {
@@ -595,6 +624,10 @@ function Update-App {
 }
 
 function Start-App {
+  param([switch]$DisableHardwareAcceleration)
+
+  $isRemoteMode = $DisableHardwareAcceleration -or $Remote -or $DisableGpu -or ($Action -eq 'start-remote') -or ($Action -eq 'restart-remote')
+
   Ensure-NodeInstalled
   # Check for Git development updates
   Check-GitUpdates
@@ -611,7 +644,7 @@ function Start-App {
     }
 
     # If port is occupied but no visible window exists (orphaned ghost process), stop and auto-restart cleanly
-    Write-Status '!' "Port $Port/5174 is in use by an orphaned process without an active window. Auto-cleaning orphaned process and starting fresh..." 'Yellow'
+    Write-Status '!' "Port $Port/$ApiPort is in use by an orphaned process without an active window. Auto-cleaning orphaned process and starting fresh..." 'Yellow'
     Stop-App | Out-Null
     Start-Sleep -Seconds 1
   }
@@ -621,14 +654,34 @@ function Start-App {
   Push-Location $ProjectRoot
 
   try {
-    $mainOut = npx.cmd tsc --project tsconfig.main.json --listEmittedFiles 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $tscScript = Join-Path $ProjectRoot 'node_modules\typescript\bin\tsc'
+    $localTscCmd = Join-Path $ProjectRoot 'node_modules\.bin\tsc.cmd'
+    
+    $tscSuccess = $false
+    $mainOut = @()
+    
+    # Temporarily set ErrorActionPreference to Continue so stderr output (e.g. npm notices) does not trigger PowerShell terminating exceptions
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      if (Test-Path $tscScript) {
+        $mainOut = & node $tscScript --project tsconfig.main.json --listEmittedFiles 2>&1
+      } elseif (Test-Path $localTscCmd) {
+        $mainOut = & $localTscCmd --project tsconfig.main.json --listEmittedFiles 2>&1
+      } else {
+        $mainOut = & npx.cmd --no-install tsc --project tsconfig.main.json --listEmittedFiles 2>&1
+      }
+      $tscSuccess = ($LASTEXITCODE -eq 0)
+    } finally {
+      $ErrorActionPreference = $prevEap
+    }
+
+    if (-not $tscSuccess) {
       Write-Status '!!' 'Main process TypeScript compilation FAILED!' 'Red'
       Write-Host ''
       Write-Host '  TypeScript errors:' -ForegroundColor Yellow
       Write-Host '  ' -NoNewline
       Write-Host ($mainOut -join "`n") -ForegroundColor Red
-      Pop-Location
       return
     }
     Write-Status 'ok' 'Main process ready.' 'Green'
@@ -637,7 +690,6 @@ function Start-App {
     $expectedMainFile = Join-Path $ProjectRoot 'dist\main\index.js'
     if (-not (Test-Path $expectedMainFile)) {
       Write-Status '!!' "Main entry point NOT FOUND: $expectedMainFile" 'Red'
-      Pop-Location
       return
     }
     Write-Status 'ok' "Main process entry point verified: dist\main\index.js" 'Green'
@@ -647,7 +699,6 @@ function Start-App {
     Write-Host ''
     Write-Host '  Stack trace:' -ForegroundColor DarkGray
     Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
-    Pop-Location
     return
   }
   finally {
@@ -659,8 +710,14 @@ function Start-App {
   $env:PORT = "$Port"
   $env:API_PORT = "$ApiPort"
   $env:VITE_DEV_SERVER_URL = "http://localhost:$Port"
-  $viteArgs = @('vite', '--port', "$Port", '--host', '127.0.0.1')
-  $viteProc = Start-Process -FilePath 'npx.cmd' `
+  $localViteCmd = Join-Path $ProjectRoot "node_modules\.bin\vite.cmd"
+  $viteExe = if (Test-Path $localViteCmd) { $localViteCmd } else { 'npx.cmd' }
+  $viteArgs = if (Test-Path $localViteCmd) {
+    @('--port', "$Port", '--host', '127.0.0.1')
+  } else {
+    @('vite', '--port', "$Port", '--host', '127.0.0.1')
+  }
+  $viteProc = Start-Process -FilePath $viteExe `
     -ArgumentList $viteArgs `
     -WorkingDirectory $ProjectRoot `
     -PassThru -WindowStyle Hidden
@@ -676,10 +733,21 @@ function Start-App {
   # 3) Start Electron App (or run headless)
   $localElectron = Join-Path $ProjectRoot "node_modules\electron\dist\electron.exe"
   $electronExe = if (Test-Path $localElectron) { $localElectron } else { 'npx.cmd' }
+  
+  $baseArgs = if ($isRemoteMode) { @('--disable-gpu', '--disable-software-rasterizer') } else { @() }
+
   $electronArgs = if (Test-Path $localElectron) {
-    if ($Headless -or $NoWindow) { @('.', '--headless') } else { @('.') }
+    if ($Headless -or $NoWindow) { @('.', '--headless') + $baseArgs } else { @('.') + $baseArgs }
   } else {
-    if ($Headless -or $NoWindow) { @('electron', '.', '--headless') } else { @('electron', '.') }
+    if ($Headless -or $NoWindow) { @('electron', '.', '--headless') + $baseArgs } else { @('electron', '.') + $baseArgs }
+  }
+
+  if ($isRemoteMode) {
+    $env:DISABLE_GPU = "true"
+    $env:CMM_REMOTE_MODE = "true"
+  } else {
+    $env:DISABLE_GPU = "false"
+    $env:CMM_REMOTE_MODE = "false"
   }
 
   if ($Headless -or $NoWindow) {
@@ -689,6 +757,15 @@ function Start-App {
       -ArgumentList $electronArgs `
       -WorkingDirectory $ProjectRoot `
       -PassThru -WindowStyle Hidden
+  } elseif ($isRemoteMode) {
+    Write-Status '>>' 'Launching Electron app in Remote Mode (Software Rendering / GPU Disabled)...' 'Yellow'
+    $env:HEADLESS = "false"
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $electronExe
+    $startInfo.Arguments = ($electronArgs -join ' ')
+    $startInfo.WorkingDirectory = $ProjectRoot
+    $startInfo.UseShellExecute = $true
+    $electronProc = [System.Diagnostics.Process]::Start($startInfo)
   } else {
     Write-Status '>>' 'Launching Electron app window...' 'Magenta'
     $env:HEADLESS = "false"
@@ -715,16 +792,30 @@ function Start-App {
   Write-Host "    HTTP API Bridge  : http://localhost:$ApiPort" -ForegroundColor DarkGray
   if ($Headless -or $NoWindow) {
     Write-Host "    Mode             : Headless / Web-only" -ForegroundColor DarkGray
+  } elseif ($isRemoteMode) {
+    Write-Host "    Mode             : Remote Desktop / Software Rendering (GPU Disabled)" -ForegroundColor Yellow
+    Write-Host "    Electron App     : PID $($electronProc.Id)" -ForegroundColor DarkGray
   } else {
     Write-Host "    Electron App     : PID $($electronProc.Id)" -ForegroundColor DarkGray
   }
   Write-Host "    PID file         : $PidFile" -ForegroundColor DarkGray
   Write-Host ''
-  Write-Host '    Use  .\cmm.ps1 stop     to shut down' -ForegroundColor DarkGray
-  Write-Host '    Use  .\cmm.ps1 restart  to restart' -ForegroundColor DarkGray
+  Write-Host '    Use  .\cmm.ps1 stop            to shut down' -ForegroundColor DarkGray
+  Write-Host '    Use  .\cmm.ps1 restart         to restart' -ForegroundColor DarkGray
+  Write-Host '    Use  .\cmm.ps1 restart-remote  to restart with GPU disabled' -ForegroundColor DarkGray
   Write-Host ''
+}
 
-  Pop-Location
+function Start-Remote {
+  Start-App -DisableHardwareAcceleration
+}
+
+function Restart-Remote {
+  Write-Status '>>' 'Restarting application in Remote Mode (Software Rendering / GPU Disabled)...' 'Cyan'
+  Stop-App | Out-Null
+  Clean-Assets
+  Start-Sleep -Milliseconds 500
+  Start-App -DisableHardwareAcceleration
 }
 
 function Show-Status {
@@ -808,8 +899,10 @@ function Show-Help {
   Write-Host 'App Management Commands:' -ForegroundColor Yellow
   Write-Host '  install / setup          Verify runtime, install npm & Python .venv dependencies, build project'
   Write-Host '  start                    Start the desktop app and Vite web server (default)'
+  Write-Host '  start-remote             Start in Remote Mode (disables GPU/hardware acceleration for RDP/VNC)'
   Write-Host '  stop                     Stop all running CMM processes'
   Write-Host '  restart                  Restart the application'
+  Write-Host '  restart-remote           Restart in Remote Mode (disables GPU/hardware acceleration for RDP/VNC)'
   Write-Host '  clean-assets             Prune orphaned hashed bundles from dist\assets'
   Write-Host '  update                   Pull latest development commits and rebuild'
   Write-Host '  status                   Show running process status & endpoints'
@@ -828,6 +921,7 @@ function Show-Help {
   Write-Host '  -Port <int>              Custom web port (default: 5173)'
   Write-Host '  -ApiPort <int>           Custom HTTP API Bridge port (default: 5174)'
   Write-Host '  -Headless, -NoWindow     Run in background without Electron GUI window'
+  Write-Host '  -Remote, -DisableGpu     Disable GPU hardware acceleration to eliminate RDP/remote desktop flicker'
   Write-Host ''
 }
 
@@ -849,6 +943,9 @@ switch ($Action) {
   'start' {
     Start-App
   }
+  'start-remote' {
+    Start-App -DisableHardwareAcceleration
+  }
   'stop' {
     Stop-App | Out-Null
     # Janitor: prune orphaned hashed assets only after processes are fully stopped.
@@ -863,6 +960,13 @@ switch ($Action) {
     Clean-Assets
     Start-Sleep -Milliseconds 500
     Start-App
+  }
+  'restart-remote' {
+    Write-Status '>>' 'Restarting application in Remote Mode (Software Rendering / GPU Disabled)...' 'Cyan'
+    Stop-App | Out-Null
+    Clean-Assets
+    Start-Sleep -Milliseconds 500
+    Start-App -DisableHardwareAcceleration
   }
   'status' {
     Show-Status

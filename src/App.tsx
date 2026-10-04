@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -35,9 +37,12 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ScanStatusBar } from './components/ScanStatusBar';
 import { DownloadFolderPromptModal } from './components/DownloadFolderPromptModal';
 import { DevelopmentUpdateBanner } from './components/DevelopmentUpdateBanner';
+import { EvaluationNagModal } from './components/EvaluationNagModal';
 import { ScanProvider, useScan } from './context/ScanContext';
 import { CivitAIModel, CivitAIModelVersion } from './types/civitai';
 import { LocalModel, SwarmStatus } from './types/app';
+import { LicenseValidationResult } from './types/license';
+import { getApiBase } from './utils/webBridge';
 
 type Tab = 'browse' | 'library' | 'workflows' | 'downloads' | 'settings' | 'about';
 
@@ -73,6 +78,10 @@ function MainApp() {
     folders: string[];
   } | null>(null);
 
+  // Cryptographic Evaluation / Nag Modal State
+  const [showEvaluationNag, setShowEvaluationNag] = useState<boolean>(false);
+  const [licenseStatus, setLicenseStatus] = useState<LicenseValidationResult | null>(null);
+
   const mainRef = useRef<HTMLDivElement>(null);
   const swarmRemainingChecksRef = useRef<number>(5);
   const swarmStatusRef = useRef<SwarmStatus | null>(null);
@@ -85,6 +94,73 @@ function MainApp() {
   useEffect(() => {
     localStorage.setItem('civitai_active_tab', activeTab);
   }, [activeTab]);
+
+  // Check License Status and Weekly Evaluation Notice
+  useEffect(() => {
+    let isMounted = true;
+    let timerId: any = null;
+
+    const checkLicenseAndNag = async () => {
+      try {
+        if (window.civitaiAPI && typeof window.civitaiAPI.getLicenseStatus === 'function') {
+          const status = await window.civitaiAPI.getLicenseStatus();
+          if (!isMounted) return;
+          setLicenseStatus(status);
+
+          // If unregistered, check if 7 days have passed since the last evaluation reminder
+          if (!status?.isValid) {
+            const lastNag = localStorage.getItem('cmm_last_evaluation_nag');
+            const now = Date.now();
+            const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+            if (!lastNag || now - parseInt(lastNag, 10) >= SEVEN_DAYS_MS) {
+              // Delay gently by 3.5s so user can view the app before being prompted
+              timerId = setTimeout(() => {
+                if (isMounted) {
+                  setShowEvaluationNag(true);
+                }
+              }, 3500);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('License status check error in App:', err);
+      }
+    };
+
+    checkLicenseAndNag();
+    return () => {
+      isMounted = false;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, []);
+
+  const handleCloseEvaluationNag = useCallback(() => {
+    localStorage.setItem('cmm_last_evaluation_nag', Date.now().toString());
+    setShowEvaluationNag(false);
+  }, []);
+
+  const handleOpenAboutForRegistration = useCallback(() => {
+    localStorage.setItem('cmm_last_evaluation_nag', Date.now().toString());
+    setShowEvaluationNag(false);
+    setActiveTab('about');
+  }, []);
+
+  const handleComfyStatusChange = useCallback((status: { online: boolean }) => {
+    setIsComfyOnline((prev) => (prev !== status.online ? status.online : prev));
+  }, []);
+
+  const handleComfyFullscreenChange = useCallback((isFullscreen: boolean) => {
+    setIsComfyFullscreen((prev) => (prev !== isFullscreen ? isFullscreen : prev));
+  }, []);
+
+  const handleSearchFromWorkflows = useCallback((query: string) => {
+    setBrowseInitialQuery(query);
+    setActiveTab('browse');
+  }, []);
+
+  const handleNavigateToDownloads = useCallback(() => {
+    setActiveTab('downloads');
+  }, []);
 
   const probeSwarm = useCallback(async (serverUrl?: string, resetBudget = false) => {
     if (resetBudget) {
@@ -111,20 +187,36 @@ function MainApp() {
       if (window.civitaiAPI?.checkSwarmStatus) {
         swarm = await window.civitaiAPI.checkSwarmStatus(serverUrl);
       } else {
-        const swarmRes = await fetch('http://127.0.0.1:5174/api/swarm/status', {
+        const swarmRes = await fetch(`${getApiBase()}/swarm/status`, {
           method: 'GET',
           signal: AbortSignal.timeout(2000),
         });
         swarm = swarmRes.ok ? await swarmRes.json() : { online: false, serverUrl: 'http://127.0.0.1:5180' };
       }
 
-      setSwarmStatus(swarm);
+      setSwarmStatus((prev) => {
+        if (
+          prev?.online === swarm.online &&
+          prev?.serverUrl === swarm.serverUrl &&
+          prev?.peers === swarm.peers &&
+          prev?.seeding === swarm.seeding
+        ) {
+          return prev;
+        }
+        return swarm;
+      });
       if (swarm.online) {
         // Reset check budget to 5 once confirmed online
         swarmRemainingChecksRef.current = 5;
       }
     } catch {
-      setSwarmStatus({ online: false, serverUrl: serverUrl || 'http://127.0.0.1:5180' });
+      setSwarmStatus((prev) => {
+        const fallbackUrl = serverUrl || 'http://127.0.0.1:5180';
+        if (prev?.online === false && prev?.serverUrl === fallbackUrl) {
+          return prev;
+        }
+        return { online: false, serverUrl: fallbackUrl };
+      });
     } finally {
       isCheckingSwarmRef.current = false;
       setIsCheckingSwarm(false);
@@ -142,23 +234,23 @@ function MainApp() {
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500)),
           ]) as any;
           if (isMounted) {
-            setIsBackendOnline(true);
+            setIsBackendOnline((prev) => (prev !== true ? true : prev));
             const hasFolders = Boolean(
               (cfg?.comfyui_folders && cfg.comfyui_folders.length > 0 && cfg.comfyui_folders[0]) ||
                 cfg?.comfyui_root
             );
-            setHasFoldersConfigured(hasFolders);
+            setHasFoldersConfigured((prev) => (prev !== hasFolders ? hasFolders : prev));
           }
           if (isMounted) {
             await probeSwarm(cfg?.swarm_server_url);
           }
         } else {
-          const res = await fetch('http://127.0.0.1:5174/api/health', {
+          const res = await fetch(`${getApiBase()}/health`, {
             method: 'GET',
             signal: AbortSignal.timeout(2500),
           });
           if (isMounted) {
-            setIsBackendOnline(res.ok);
+            setIsBackendOnline((prev) => (prev !== res.ok ? res.ok : prev));
           }
           if (isMounted) {
             await probeSwarm();
@@ -166,8 +258,8 @@ function MainApp() {
         }
       } catch {
         if (isMounted) {
-          setIsBackendOnline(false);
-          setSwarmStatus({ online: false, serverUrl: 'http://127.0.0.1:5180' });
+          setIsBackendOnline((prev) => (prev !== false ? false : prev));
+          setSwarmStatus((prev) => (prev?.online === false ? prev : { online: false, serverUrl: 'http://127.0.0.1:5180' }));
         }
       }
     };
@@ -192,10 +284,7 @@ function MainApp() {
     };
   }, [probeSwarm]);
 
-  // F5 / Ctrl+R refresh support. The app runs without the default Chromium/Electron
-  // menu (and its reload accelerator), so a hard refresh of the currently displayed tab
-  // is not available out of the box. Intercept the keys and reload the page so the app
-  // re-mounts the active tab and re-fetches its data (fixes stale UI after a network drop).
+  // F5 / Ctrl+R refresh support
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const code = e.key || '';
@@ -274,6 +363,19 @@ function MainApp() {
     const primaryFile = version.files?.find((f) => f.primary) ?? version.files?.[0];
     const fileName = primaryFile?.name || `${model.name}_${version.name}.safetensors`;
 
+    const previewUrl =
+      version.images?.[0]?.url ||
+      version.images?.find((img: any) => img?.url)?.url ||
+      (model as any).image ||
+      undefined;
+
+    const trainedWords =
+      Array.isArray(version.trainedWords) && version.trainedWords.length > 0
+        ? version.trainedWords
+        : (Array.isArray((model as any).trainedWords) && (model as any).trainedWords.length > 0
+            ? (model as any).trainedWords
+            : undefined);
+
     const taskParams = {
       modelVersionId: version.id,
       modelId: model.id,
@@ -286,6 +388,20 @@ function MainApp() {
       downloadUrl: primaryFile?.downloadUrl || version.downloadUrl || `https://civitai.com/api/download/models/${version.id}`,
       sizeKB: primaryFile?.sizeKB || 0,
       sha256: primaryFile?.hashes?.SHA256,
+      previewUrl,
+      trainedWords,
+      versionMetadata: {
+        ...version,
+        creator: model.creator,
+        model: {
+          name: model.name,
+          type: model.type,
+          nsfw: model.nsfw,
+          creator: model.creator,
+          tags: model.tags,
+          trainedWords: version.trainedWords,
+        },
+      },
       deleteOldVersionFile: options?.deleteOldVersionFile,
       deleteOldModelId: options?.deleteOldModelId,
     };
@@ -345,8 +461,6 @@ function MainApp() {
   };
 
   const handleCheckUpdate = (localModel: LocalModel) => {
-    // Prefer an exact CivitAI model id (from the library record) so Browse opens the
-    // model's page directly. Fall back to a name query when the model was never matched.
     if (localModel?.civitaiModelId) {
       setBrowseInitialModelId(localModel.civitaiModelId);
       setBrowseInitialQuery('');
@@ -668,17 +782,14 @@ function MainApp() {
                   ? isComfyFullscreen
                     ? 'h-full flex-1 flex flex-col min-h-0'
                     : 'block'
-                  : 'opacity-0 pointer-events-none absolute -left-[99999px] top-0 w-full h-0 overflow-hidden'
+                  : 'keepalive-hidden'
               }
             >
               <WorkflowsTab
-                onSearchModel={(query) => {
-                  setBrowseInitialQuery(query);
-                  setActiveTab('browse');
-                }}
-                onNavigateToDownloads={() => setActiveTab('downloads')}
-                onComfyStatusChange={(status) => setIsComfyOnline(status.online)}
-                onComfyFullscreenChange={(isFullscreen) => setIsComfyFullscreen(isFullscreen)}
+                onSearchModel={handleSearchFromWorkflows}
+                onNavigateToDownloads={handleNavigateToDownloads}
+                onComfyStatusChange={handleComfyStatusChange}
+                onComfyFullscreenChange={handleComfyFullscreenChange}
               />
             </div>
             <div style={{ display: activeTab === 'downloads' ? 'block' : 'none' }}>
@@ -704,6 +815,14 @@ function MainApp() {
           />
         )}
 
+        {/* Weekly Evaluation Notice Modal */}
+        <EvaluationNagModal
+          isOpen={showEvaluationNag}
+          onClose={handleCloseEvaluationNag}
+          onOpenAboutTab={handleOpenAboutForRegistration}
+          licenseStatus={licenseStatus}
+        />
+
         {/* Floating Return to Top Button */}
         {showScrollTop && !(activeTab === 'workflows' && isComfyFullscreen) && (
           <button
@@ -726,7 +845,7 @@ function MainApp() {
           <span className="text-slate-600">•</span>
           <span className="text-purple-400 font-medium">RenegadeCMM</span>
           <span className="text-slate-600">•</span>
-          <span className="px-1.5 py-0.2 rounded bg-slate-800/80 text-[10px] text-slate-400 border border-slate-700/50 font-mono">GPL-3.0</span>
+          <span className="px-1.5 py-0.2 rounded bg-slate-800/80 text-[10px] text-slate-400 border border-slate-700/50 font-mono">BSL-1.1</span>
         </div>
 
         <div className="flex items-center gap-1.5 text-slate-400 text-[11px] hidden sm:flex">

@@ -1,0 +1,22 @@
+# CodeQL Configuration for RenegadeCMM
+# Business Source License 1.1 (BUSL-1.1)
+
+name: "RenegadeCMM CodeQL Security Suite"
+
+# Use the comprehensive security-and-quality query pack
+queries:
+  - uses: security-and-quality
+
+# Ignore build artifacts, vendored dependencies, tests, and temporary scratch directories
+paths-ignore:
+  - 'dist/**'
+  - 'dist-release/**'
+  - 'release/**'
+  - 'build/**'
+  - 'scratch/**'
+  - 'cache/**'
+  - 'coverage/**'
+  - 'node_modules/**'
+  - 'public/**'
+  - '**/*.min.js'
+  - '**/*.bundle.js'

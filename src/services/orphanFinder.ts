@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
 import path from 'path';
@@ -37,7 +39,7 @@ export class OrphanFinder {
 
     // Map filename -> list of workflow references
     // We normalize to lowercase basenames and stripped prefixes
-    const workflowRefMap = new Map<string, Array<{ filePath: string; fileName: string; fileType: 'json' | 'png' }>>();
+    const workflowRefMap = new Map<string, Array<{ filePath: string; fileName: string; fileType: 'json' | 'png' | 'zip' }>>();
 
     for (const wf of scannedWorkflows) {
       const entry = {
@@ -114,9 +116,9 @@ export class OrphanFinder {
   }
 
   private addWorkflowRef(
-    map: Map<string, Array<{ filePath: string; fileName: string; fileType: 'json' | 'png' }>>,
+    map: Map<string, Array<{ filePath: string; fileName: string; fileType: 'json' | 'png' | 'zip' }>>,
     key: string,
-    ref: { filePath: string; fileName: string; fileType: 'json' | 'png' }
+    ref: { filePath: string; fileName: string; fileType: 'json' | 'png' | 'zip' }
   ) {
     const existing = map.get(key) || [];
     // Avoid duplicate workflow entries for the same model in the same workflow

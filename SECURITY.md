@@ -54,7 +54,7 @@ In-scope components include:
 Starting with release `v1.4.1`, RenegadeCMM explicitly strips the NSIS elevation helper binary (`packElevateHelper: false`, `allowElevation: false`, `perMachine: false` in Electron Builder configuration).
 
 - **Why this was changed**: Default NSIS installers bundle an unsigned elevation helper (`elevate.exe` / `elevation.exe`) designed to facilitate administrative UAC prompts. Automated malware scanning engines (including GitHub Release heuristic scanners and Microsoft Defender) frequently flag this binary as a potential security risk (`HackTool:Win32/AutoElevate`), which previously triggered automated false-positive moderation flags.
-- **Code Signing (In Progress)**: Code signing integration is actively in progress through the [SignPath Foundation](https://signpath.org) and [SignPath.io](https://signpath.io). In the interim, release packages are compiled directly from source on public GitHub Actions runners.
+- **Binary Provenance**: Release packages and binaries are compiled directly from source on public GitHub Actions runners.
 
 ---
 
@@ -210,6 +210,18 @@ Starting with release `v1.6.0`, RenegadeCMM implements native hardlink deduplica
 
 ---
 
-**Last Updated:** September 13, 2026  
-**Applicable Release:** RenegadeCMM v1.6.0 and subsequent releases
+### 10. Automated Static Application Security Testing (CodeQL)
+
+RenegadeCMM integrates GitHub CodeQL static analysis to enforce automated security checks across JavaScript/TypeScript and Python codebases:
+
+- **CI/CD Security Sweeps (`.github/workflows/codeql.yml`)**:
+  - Triggered on all pull requests and pushes to `main`, plus a weekly recurring security sweep schedule (`19 7 * * 3`).
+  - Employs GitHub CodeQL Action with the comprehensive `security-and-quality` query suite.
+  - Covers multi-language analysis matrices: `javascript-typescript`, `python`, and `actions`.
+  - Excludes compiled build artifacts (`dist/**`, `release/**`, `build/**`) and test directories (`tests/**`, `scratch/**`) via [`.github/codeql/codeql-config.yml`](.github/codeql/codeql-config.yml).
+
+---
+
+**Last Updated:** September 29, 2026  
+**Applicable Release:** RenegadeCMM v1.6.1 and subsequent releases
 

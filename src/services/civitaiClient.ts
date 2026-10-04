@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import axios, { AxiosInstance } from 'axios';
 import {
@@ -25,7 +27,7 @@ export class CivitAIClient {
   private axiosInstance: AxiosInstance;
 
   constructor(apiKey?: string, baseUrl = 'https://civitai.com/api/v1') {
-    this.apiKey = apiKey;
+    this.apiKey = apiKey?.trim() || undefined;
     this.baseUrl = baseUrl;
     // Gentle default rate limiting: 3 req/sec unauthenticated (250ms spacing), 5 req/sec with key (150ms spacing)
     this.rateLimiter = new RateLimiter(apiKey ? 5 : 3, apiKey ? 150 : 250);
@@ -39,8 +41,12 @@ export class CivitAIClient {
   }
 
   setApiKey(key?: string) {
-    this.apiKey = key;
-    this.rateLimiter.setRateLimit(key ? 5 : 3, key ? 150 : 250);
+    this.apiKey = key?.trim() || undefined;
+    this.rateLimiter.setRateLimit(this.apiKey ? 5 : 3, this.apiKey ? 150 : 250);
+  }
+
+  getApiKey(): string | undefined {
+    return this.apiKey;
   }
 
   setBaseUrl(url: string) {
@@ -153,9 +159,11 @@ export class CivitAIClient {
   }
 
   async lookupByHash(hash: string): Promise<CivitAIModelVersion | null> {
+    const cleanHash = encodeURIComponent(String(hash || '').trim().replace(/[^a-fA-F0-9]/g, ''));
+    if (!cleanHash) return null;
     return this.rateLimiter.executeWithRetry(async () => {
       try {
-        const res = await this.axiosInstance.get(`/model-versions/by-hash/${hash}`, {
+        const res = await this.axiosInstance.get(`/model-versions/by-hash/${cleanHash}`, {
           headers: this.getHeaders(),
         });
         return res.data;

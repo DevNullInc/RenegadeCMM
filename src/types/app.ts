@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import type { ModelType } from './civitai';
 export type { ModelType } from './civitai';
@@ -65,6 +67,7 @@ export const COMFYUI_STANDARD_MODEL_SUBFOLDERS: string[] = [
   'pulid',
   'reactor',
   'gguf',
+  'LLM',
   'wildcards',
   'ultralytics',
   'yolo',
@@ -81,8 +84,9 @@ export const DEFAULT_FILENAME_PATTERNS: FilenamePatternRule[] = [
   { pattern: 'sam\\d', folder: 'sam3', case_sensitive: false },
   { pattern: 'yolo', folder: 'yolo', case_sensitive: false },
   { pattern: 'ultralytics', folder: 'ultralytics', case_sensitive: false },
+  { pattern: '(?:^|[^a-zA-Z0-9])(llm|qwen|quan|llama|mistral|gemma|deepseek|phi)(?:\\d|[^a-zA-Z0-9]|$)', folder: 'LLM', case_sensitive: false },
   { pattern: '\\.gguf$', folder: 'gguf', case_sensitive: false },
-  { pattern: 'llm|qwen|llama', folder: 'LLM', case_sensitive: false },
+  { pattern: 'anima|krea|flux.*krea|wan.*video|wan2\\.?1|wan_\\d|cogvideo|hunyuan|mochi|ltxv|lumina|chroma|auraflow|pixart', folder: 'diffusion_models', case_sensitive: false },
   { pattern: 'unet', folder: 'unet', case_sensitive: false },
   { pattern: 'diffusion', folder: 'diffusion_models', case_sensitive: false },
   { pattern: 'esrgan|swinir|real-esrgan', folder: 'upscale_models', case_sensitive: false },
@@ -148,8 +152,33 @@ export interface PythonEnvironmentStatus {
   source: 'comfyui_embedded' | 'comfyui_venv' | 'cmm_venv' | 'system' | 'custom' | 'none';
   hasTorch: boolean;
   hasSafetensors: boolean;
+  hasNumpy?: boolean;
+  hasTransformers?: boolean;
+  hasAccelerate?: boolean;
   readyForConversion: boolean;
+  packages?: {
+    torch?: string | null;
+    safetensors?: string | null;
+    numpy?: string | null;
+    transformers?: string | null;
+    accelerate?: string | null;
+  };
   error?: string;
+}
+
+export interface PickleScanResult {
+  filePath: string;
+  isSafe: boolean;
+  isYolo: boolean;
+  architecture?: string;
+  hasPythonCode: boolean;
+  requiresPythonRuntime: boolean;
+  dangerousGlobals: string[];
+  safeGlobals: string[];
+  yoloLayers: string[];
+  totalOpcodes: number;
+  recommendation: 'safe_convert' | 'preserve_yolo_pt' | 'quarantine_dangerous' | 'not_pickle';
+  details?: string;
 }
 
 export interface ModelConversionResult {
@@ -159,8 +188,14 @@ export interface ModelConversionResult {
   originalSize?: number;
   convertedSize?: number;
   newSha256?: string;
+  tensorCount?: number;
+  modelType?: string;
+  architecture?: string;
   timeTakenMs?: number;
   deletedOriginal?: boolean;
+  isYolo?: boolean;
+  skipped?: boolean;
+  scanResult?: PickleScanResult;
   error?: string;
 }
 
@@ -345,7 +380,7 @@ export type WorkflowFormat = 'full_canvas' | 'api_prompt';
 export interface WorkflowInfo {
   filePath: string;
   fileName: string;
-  fileType: 'json' | 'png';
+  fileType: 'json' | 'png' | 'zip';
   modelCount: number;
   models: WorkflowModelReference[];
   nodeTypes?: string[];
@@ -387,13 +422,41 @@ export interface DownloadTask {
   note?: string;
   previewUrl?: string;
   versionMetadata?: any;
+  trainedWords?: string[];
   swarmIngested?: boolean;
   swarmIngestError?: string;
 }
 
+export interface ShardInfo {
+  fileName: string;
+  filePath: string;
+  fileSize: number;
+  partIndex: number;
+  totalParts: number;
+}
+
+export interface SaveModelMetadataParams {
+  modelId: string;
+  filePath: string;
+  civitaiName?: string;
+  civitaiCreator?: string;
+  civitaiBaseModel?: string;
+  modelType?: ModelType;
+  customLink?: string;
+  source?: 'civitai' | 'huggingface' | 'custom';
+  hfRepoId?: string;
+  civitaiModelId?: number;
+  civitaiVersionId?: number;
+  previewUrl?: string;
+  nsfw?: boolean;
+  trainedWords?: string[];
+  description?: string;
+  tags?: string[];
+}
+
 export interface LocalModel {
   id: string;
-  source?: 'civitai' | 'huggingface';
+  source?: 'civitai' | 'huggingface' | 'custom';
   hfRepoId?: string;
   hfCommitSha?: string;
   quantization?: string;
@@ -404,10 +467,13 @@ export interface LocalModel {
   sha256?: string;
   civitaiModelId?: number;
   civitaiVersionId?: number;
+  civitaiVersionName?: string;
   civitaiName?: string;
   civitaiType?: ModelType;
   civitaiBaseModel?: string;
+  baseModel?: string;
   civitaiCreator?: string;
+  customLink?: string;
   previewUrl?: string;
   localPreviewPath?: string;
   companionInfoPath?: string;
@@ -422,6 +488,16 @@ export interface LocalModel {
   updateCheckedAt?: number;
   isDuplicate?: boolean;
   isMissing?: boolean;
+  pickleScanStatus?: string;
+  pickleScannedSha256?: string;
+  pickleScannedAt?: number;
+  trainedWords?: string[];
+  description?: string;
+  tags?: string[];
+  isMultiPart?: boolean;
+  totalParts?: number;
+  availableParts?: number;
+  shards?: ShardInfo[];
 }
 
 export interface ScanProgress {
@@ -579,7 +655,7 @@ export interface ModelUsageInfo {
   referencedWorkflows: Array<{
     filePath: string;
     fileName: string;
-    fileType: 'json' | 'png';
+    fileType: 'json' | 'png' | 'zip';
   }>;
   isOrphan: boolean;
 }
@@ -593,5 +669,36 @@ export interface OrphanScanResult {
   orphanBytesFormatted: string;
   orphans: ModelUsageInfo[];
   activelyUsed: ModelUsageInfo[];
+}
+
+export interface MisplacedModel {
+  id: string;
+  fileName: string;
+  currentPath: string;
+  currentFolder: string;
+  targetFolder: string;
+  targetPath: string;
+  modelType: string;
+  resolvedType: string;
+  baseModel?: string;
+  reason: string;
+  companionFiles: string[];
+  fileSize?: number;
+  previewUrl?: string;
+}
+
+export interface LibrarySortPlan {
+  totalModels: number;
+  misplacedCount: number;
+  correctCount: number;
+  items: MisplacedModel[];
+}
+
+export interface ExecuteLibrarySortResult {
+  success: boolean;
+  movedCount: number;
+  failedCount: number;
+  errors: Array<{ modelId: string; file: string; error: string }>;
+  movedFiles: Array<{ modelId: string; from: string; to: string }>;
 }
 

@@ -2,14 +2,17 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
+import AdmZip from 'adm-zip';
 import { WorkflowInfo, WorkflowModelReference, CanvasGraph, WorkflowFormat } from '../types/app';
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
@@ -30,7 +33,7 @@ export type WorkflowImportErrorCode =
 export interface WorkflowParseResult {
   filePath: string;
   fileName: string;
-  fileType: 'json' | 'png';
+  fileType: 'json' | 'png' | 'zip';
   fileSize: number;
   workflow: any;
   nodes: string[];
@@ -100,6 +103,61 @@ export class WorkflowScanner {
           }
         } else if (ext === '.png') {
           parsedData = this.extractPngWorkflow(filePath);
+        } else if (ext === '.zip') {
+          try {
+            const zip = new AdmZip(filePath);
+            const entries = zip.getEntries();
+            const validEntries = entries.filter(
+              (e) =>
+                !e.isDirectory &&
+                !e.entryName.includes('..') &&
+                !e.entryName.startsWith('/') &&
+                !e.entryName.startsWith('\\')
+            );
+            for (const entry of validEntries) {
+              const entryName = entry.entryName;
+              const entryExt = path.extname(entryName).toLowerCase();
+              let entryParsed: any = null;
+              if (entryExt === '.json') {
+                try {
+                  const text = entry.getData().toString('utf-8');
+                  entryParsed = JSON.parse(text);
+                } catch {}
+              } else if (entryExt === '.png') {
+                const buf = entry.getData();
+                entryParsed = this.extractPngWorkflowFromBuffer(buf);
+              }
+              if (!entryParsed) continue;
+
+              const modelRefs = this.extractModelReferences(entryParsed, localModelMap);
+              const nodeTypes = this.extractNodeTypes(entryParsed);
+              const canvasGraph = this.buildCanvasGraph(entryParsed);
+              const workflowFormat = this.detectWorkflowFormat(entryParsed);
+              if (modelRefs.length > 0 || nodeTypes.length > 0 || canvasGraph) {
+                const baseZipName = path.basename(filePath);
+                const baseEntryName = path.basename(entryName);
+                const displayFileName =
+                  validEntries.length === 1 || baseEntryName.toLowerCase().includes('workflow')
+                    ? `${baseZipName} (${baseEntryName})`
+                    : `${baseZipName}/${baseEntryName}`;
+
+                results.push({
+                  filePath,
+                  fileName: displayFileName,
+                  fileType: 'zip',
+                  modelCount: modelRefs.length,
+                  models: modelRefs,
+                  nodeTypes,
+                  rawGraph: entryParsed,
+                  canvasGraph,
+                  workflowFormat,
+                });
+              }
+            }
+          } catch (zipErr: any) {
+            logger.warn(`Failed to inspect workflow zip archive ${filePath}:`, zipErr.message);
+          }
+          continue;
         }
 
         if (!parsedData) continue;
@@ -586,7 +644,7 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
           this.collectWorkflowFiles(fullPath, list, depth + 1);
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
-          if (ext === '.json' || ext === '.png') {
+          if (ext === '.json' || ext === '.png' || ext === '.zip') {
             list.push(fullPath);
           }
         }
@@ -795,13 +853,28 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
       break;
     }
 
-    if (!isPngMagic && !isJsonMagic) {
+    // Zip signature: 50 4B 03 04 or 50 4B 05 06 (empty)
+    const isZipMagic =
+      headerBuffer.length >= 4 &&
+      headerBuffer[0] === 0x50 &&
+      headerBuffer[1] === 0x4b &&
+      ((headerBuffer[2] === 0x03 && headerBuffer[3] === 0x04) ||
+        (headerBuffer[2] === 0x05 && headerBuffer[3] === 0x06));
+
+    if (!isPngMagic && !isJsonMagic && !isZipMagic) {
       const err = new Error(
-        'Invalid file format: Magic number check failed. Dropped file is neither a valid PNG image nor a valid JSON document.'
+        'Invalid file format: Magic number check failed. Dropped file is neither a valid PNG image, JSON document, nor ZIP archive.'
       );
       (err as any).code = 'INVALID_MAGIC_BYTES';
       throw err;
     }
+
+
+
+
+
+
+
 
     const fileName = path.basename(filePath);
     let parsedWorkflowInfo: WorkflowInfo;
@@ -815,6 +888,44 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
         throw err;
       }
       parsedWorkflowInfo = await this.parseWorkflow(extracted, fileName);
+    } else if (isZipMagic) {
+      try {
+        const zip = new AdmZip(filePath);
+        const entries = zip.getEntries();
+        let extractedWorkflow: any = null;
+        for (const entry of entries) {
+          if (entry.isDirectory) continue;
+          const entryName = entry.entryName;
+          if (entryName.includes('..') || entryName.startsWith('/') || entryName.startsWith('\\')) continue;
+          const entryExt = path.extname(entryName).toLowerCase();
+          if (entryExt === '.json') {
+            try {
+              const parsed = JSON.parse(entry.getData().toString('utf-8'));
+              if (parsed && (parsed.nodes || parsed.workflow || parsed.prompt || parsed.extra_pnginfo || typeof parsed === 'object')) {
+                extractedWorkflow = parsed;
+                break;
+              }
+            } catch {}
+          } else if (entryExt === '.png') {
+            const pngParsed = this.extractPngWorkflowFromBuffer(entry.getData());
+            if (pngParsed) {
+              extractedWorkflow = pngParsed;
+              break;
+            }
+          }
+        }
+        if (!extractedWorkflow) {
+          const err = new Error(`No ComfyUI workflow JSON or PNG found inside ZIP archive "${fileName}".`);
+          (err as any).code = 'CORRUPT_METADATA';
+          throw err;
+        }
+        parsedWorkflowInfo = await this.parseWorkflow(extractedWorkflow, fileName);
+      } catch (e: any) {
+        if (e.code) throw e;
+        const err = new Error(`Failed to read ZIP archive "${fileName}": ${e.message}`);
+        (err as any).code = 'CORRUPT_METADATA';
+        throw err;
+      }
     } else {
       const rawText = fs.readFileSync(filePath, 'utf-8');
       if (rawText.length > 10 * 1024 * 1024) {
@@ -836,7 +947,7 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
     return {
       filePath,
       fileName,
-      fileType: isPngMagic ? 'png' : 'json',
+      fileType: isPngMagic ? 'png' : isZipMagic ? 'zip' : 'json',
       fileSize: stat.size,
       workflow: parsedWorkflowInfo.rawGraph,
       nodes: parsedWorkflowInfo.nodeTypes || [],

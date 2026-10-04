@@ -7,32 +7,38 @@
 
 ---
 
-## 1. Copyright & GNU General Public License v3.0
+## 1. Copyright & Business Source License 1.1 (BUSL-1.1)
 
 Renegade Core Model Manager is Copyright (C) 2025–2026 TheStygianRenegade / /dev/null Inc.
 
-This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version (GPL-3.0-or-later)**.
+This software is licensed under the **Business Source License 1.1 (BUSL-1.1)**, with an automatic conversion to the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** four (4) years from the date of release.
 
-The full license text is provided in the root [LICENSE](LICENSE) file and at <https://www.gnu.org/licenses/gpl-3.0.html>.
+The full license text is provided in the root [LICENSE](LICENSE) file.
 
-### Source Code Availability (GPL-3.0 Section 6)
+### Summary of Licensing Terms & Additional Use Grant
 
-In compliance with Section 6 of the GNU General Public License v3.0 (Conveying Non-Source Forms), complete Corresponding Source Code for all distributed binaries (Windows NSIS installers, Windows portable executables, Linux AppImages, Linux archives, and macOS DMGs) is freely and publicly accessible at:
+1. **Single-User Evaluation & Individual Use:** The software is provided on a single-user evaluation model with all features and capabilities fully functional without artificial lockouts or timeouts. Individual users are invited to purchase a single-user license or support ongoing development. Polite reminder notices may be displayed periodically, but will never disable features, lock data, or impair application functionality.
+2. **Commercial & Multi-User Requirements (> 5 Persons):** Any business, studio, company, enterprise, or location with more than five (5) individuals (employees, contractors, or active users) must obtain a commercial enterprise license prior to production deployment. Inquiries: <licensing@renegadeinc.net>.
+3. **GitHub Sponsors Grant ($10+ USD):** Supporters who contribute $10 or more (one-time or monthly) via GitHub Sponsors receive a complimentary single-user license key. To claim, email your GitHub username and public signature key to <licensing@renegadeinc.net>.
+4. **Managed Service Protection:** You may not host or offer the software as a paid cloud, managed SaaS, or multi-tenant API service in competition with the Licensor.
+5. **Sunset to GPL-3.0-or-later:** On the fourth (4th) anniversary of any released version, the licensing for that specific release permanently and irrevocably converts to the **GNU General Public License v3.0 or later**.
+
+### Source Code Availability
+
+The source code for Renegade Core Model Manager is openly and publicly available for inspection, auditing, and building at:
 
 - **Primary Repository:** <https://github.com/DevNullInc/RenegadeCMM>
-- **Legacy Repository / Mirror:** <https://github.com/DevNullInc/Civitai-manager-ComfyUI>
-
-Anyone receiving distributed binaries of this software has the right to access, inspect, modify, and recompile the Corresponding Source Code under the terms of GPL-3.0.
+- **Mirror / Downstream:** <https://github.com/DevNullInc/Civitai-manager-ComfyUI>
 
 ### Contributing & License Terms
 
-By submitting contributions, pull requests, or patches to this project, you agree that your contributions are licensed under the terms of the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**, without additional restrictions or proprietary encumbrances.
+By submitting contributions, pull requests, or patches to this project, you agree that your contributions will be licensed under the terms of the project's **Business Source License 1.1 (BUSL-1.1)** and will transition to **GPL-3.0-or-later** pursuant to the Change Date terms, without additional encumbrances.
 
 ---
 
-## 2. Statutory Disclaimer of Warranty (GPL-3.0 Section 15)
+## 2. Disclaimer of Warranty
 
-In accordance with Section 15 of the GNU General Public License v3.0:
+In accordance with the Business Source License 1.1 terms and statutory standards:
 
 > **THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU. SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.**
 
@@ -48,13 +54,13 @@ Without limiting the statutory disclaimer above:
 
 ---
 
-## 3. Statutory Limitation of Liability (GPL-3.0 Section 16 & Section 17)
+## 3. Limitation of Liability
 
-In accordance with Section 16 of the GNU General Public License v3.0:
+In accordance with the Business Source License 1.1 terms and statutory standards:
 
 > **IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.**
 
-Section 17 of the GNU General Public License v3.0 applies to the interpretation of Sections 15 and 16. If the disclaimer of warranty and limitation of liability provided above cannot be given local legal effect according to their terms, reviewing courts shall apply local law that most closely approximates an absolute waiver of all civil liability in connection with the Program.
+If the disclaimer of warranty and limitation of liability provided above cannot be given local legal effect according to their terms, reviewing courts shall apply local law that most closely approximates an absolute waiver of all civil liability in connection with the Program.
 
 ### Specific Scope of Liability Exclusion
 
@@ -64,6 +70,8 @@ To the maximum extent permitted by applicable law, /dev/null Inc, TheStygianRene
 - Unintentional loss, corruption, or overwriting of models, workflows, generated images, or custom configurations.
 - Any actions taken by third-party custom node installation scripts (`requirements.txt`, `install.py`) executed within your local ComfyUI environment.
 - Out-of-memory terminations or hardware resource pressure during PyTorch model conversions.
+- Automated client-side revocation, local identity key invalidation, or the recording of hardware-bound revocation tombstones (`.cmm_tombstone.vault`) triggered by integrity canaries, binary tampering, function hooking, or malicious network behavior.
+- Any resulting inability to access, decrypt, or synchronize assets, compute jobs, or distributed shards across dependent satellite services (including RenegadeSwarm, SwarmForge, or RenegadeVault) once local identity material is burned.
 
 ---
 
@@ -80,20 +88,22 @@ RenegadeCMM is an automation and management tool. **It does not host, curate, st
 
 ## 5. Cryptography & Export Control Compliance
 
-RenegadeCMM implements cryptographic algorithms strictly for local at-rest confidentiality and data integrity:
+RenegadeCMM implements cryptographic algorithms strictly for local at-rest confidentiality, authentication, identity authorization, and data integrity:
 
-- **Algorithm & Scheme:** Authenticated AES-256-GCM encryption with key derivation via `scrypt` (`N=32768, r=8, p=1`) utilizing dynamic machine-and-user entropy (`cmm-entropy:<username>:<homedir>:<hostname>:<platform>`).
-- **Purpose:** Protecting user-supplied CivitAI API keys and Hugging Face personal access tokens stored in the local SQLite database (`app_config` table) against casual offline theft.
+- **Symmetric Encryption & Key Derivation:** Authenticated AES-256-GCM encryption with key derivation via `scrypt` (`N=32768, r=8, p=1`) utilizing dynamic machine-and-user entropy (`cmm-entropy:<username>:<homedir>:<hostname>:<platform>`) for protecting user-supplied API credentials and securing hardware-bound revocation tombstones.
+- **Asymmetric Digital Signatures & Identity Keys:** Standard Ed25519 (Edwards-curve Digital Signature Algorithm) key generation, signing, and public key verification utilized for local client identity provisioning, cryptographic proof-of-ownership challenges, and decentralized token validation.
+- **State Integrity & Hashing:** SHA-256 state hashing and hardware-bound entropy collection for tamper tripwires, local integrity validation, and non-repudiation tracking.
+- **Purpose:** Securing user credentials at rest against offline extraction, enforcing client licensing and ownership contracts without telemetry, detecting binary or memory-hook tampering, and preventing forged inter-process communications.
 - **U.S. Export Administration Regulations (EAR):** This software is publicly available open-source software under 15 C.F.R. § 734.7. Complete source code is published openly and free of charge. It qualifies for export under U.S. EAR publicly available encryption software exceptions (15 C.F.R. § 742.15(b)).
 - **International Users:** Users outside the United States are solely responsible for ensuring compliance with all local laws and regulations governing the import, export, and use of cryptographic software in their respective jurisdictions.
 
 ---
 
-## 6. Third-Party Open Source Licenses & GPL-3.0 Compatibility
+## 6. Third-Party Open Source Licenses & Compatibility
 
-RenegadeCMM incorporates, bundles, or links with several open-source libraries. In accordance with Section 5(c) and Section 7 of the GNU General Public License v3.0, all bundled third-party libraries use permissive open-source licenses that are formally recognized by the Free Software Foundation (FSF) as fully compatible with GPL-3.0:
+RenegadeCMM incorporates, bundles, or links with several open-source libraries. All bundled third-party libraries use permissive open-source licenses that are compatible with the Business Source License 1.1 and downstream Change License terms:
 
-| Component | Upstream License | FSF GPL-3.0 Compatibility | Role in RenegadeCMM |
+| Component | Upstream License | Compatibility | Role in RenegadeCMM |
 | :--- | :--- | :--- | :--- |
 | **Electron** | MIT (Chromium: BSD/MIT/LGPL) | Compatible | Cross-platform desktop runtime framework |
 | **@xyflow/react (React Flow)** | MIT | Compatible | Offline interactive visual node canvas & workflow inspection |
@@ -121,27 +131,18 @@ Full license texts for all bundled open-source dependencies are preserved in the
 
 ---
 
-## 7. Code Signing & Digital Certificates
-
-Code signing integration for official release binaries of RenegadeCMM is in progress through the **[SignPath Foundation](https://signpath.org)** and **[SignPath.io](https://signpath.io)**:
-
-- Once fully integrated, code signing certificates will verify binary integrity and attest that release packages have not been tampered with or modified since compilation in the official CI/CD pipeline.
-- Digital signatures provide binary provenance and do not constitute an endorsement, warranty, or assumption of liability by the SignPath Foundation.
-
----
-
-## 8. Governing Law & Severability
+## 7. Governing Law & Severability
 
 These legal notices and disclaimers shall be governed by and construed in accordance with the laws of the United States and the State of Oregon, without regard to conflicts of law principles.
 
 - **Severability:** If any provision of these legal notices is determined by a court of competent jurisdiction to be invalid, illegal, or unenforceable, that provision shall be limited or eliminated to the minimum extent necessary, and the remaining provisions shall remain in full force and effect.
-- **GPL-3.0 Supremacy:** In the event of any conflict between the text of this `LEGAL.md` file and the GNU General Public License v3.0, the terms of the GNU General Public License v3.0 shall control and prevail.
+- **License Supremacy:** In the event of any conflict between the text of this `LEGAL.md` file and the root [LICENSE](LICENSE) file (Business Source License 1.1), the terms of the `LICENSE` file shall control and prevail.
 
 ---
 
-## 9. Revisions & Updates
+## 8. Revisions & Updates
 
 We may update these notices periodically as the project and its legal context evolve. Updates will be reflected in this file with a revised "Last Updated" timestamp. Continued use of the software after such revisions signifies your acknowledgment of the updated terms.
 
-**Last Updated:** September 13, 2026  
-**Applicable Release:** RenegadeCMM v1.5.0, v1.6.0, and subsequent releases
+**Last Updated:** September 30, 2026  
+**Applicable Release:** RenegadeCMM v1.7.0 and subsequent releases

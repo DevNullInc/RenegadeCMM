@@ -29,7 +29,7 @@ jobs:
             platform: windows
             artifact_name: release-windows
             dist_cmd: npm run dist:win
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
             artifact_name: release-linux
             dist_cmd: npm run dist:linux

@@ -8,7 +8,74 @@ For active, unreleased feature branches and ongoing sprint items, refer to [DEV-
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.6.1] - 2026-09-20
+## [1.6.1] - 2026-10-04
+
+### Licensing Transition: Business Source License 1.1 (BUSL-1.1)
+- **Licensing Model & Enterprise Governance**:
+  - Transitioned codebase to the **Business Source License 1.1 (BUSL-1.1)** with full single-user evaluation rights and commercial enterprise license requirements for organizations exceeding 5 persons. Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+  - Standardized legal documentation across [`LICENSE`](LICENSE), [`LEGAL.md`](LEGAL.md), [`SECURITY.md`](SECURITY.md), [`README.md`](README.md), and all source file headers.
+  - Embedded cryptographic Ed25519 identity keypair generation, license signature verification (`licenseService.ts`), and offline registration tools.
+- **Anti-Tamper Cryptographic Canary & Poison Revocation Tombstone (`licenseService.ts`, `src/main/index.ts`)**:
+  - Canary self-test matrix executing positive and negative Ed25519 verification passes on startup to detect hooked verification logic.
+  - Hardware-bound `TOXIC:<hash>` fingerprint writing an AES-256-GCM encrypted poison tombstone (`RevocationTombstone`) to disk and SQLite upon tampering.
+
+### Intelligent Library Auto-Sorter & Multi-Architecture Folder Routing
+- **Automatic Misplaced Model Relocation (`librarySorter.ts` & `LibraryTab.tsx`)**:
+  - Analyzes installed ComfyUI models and classifies files according to their true architecture and model type:
+    - Moves **ControlNet adapters** out of `checkpoints/` and into `controlnet/`.
+    - Moves **Diffusion models** (Anima, Wan 2.1, Flux.1, CogVideoX, Hunyuan, Mochi, Chroma) into `diffusion_models/` (or `unet/`).
+    - Moves **LLM / Text encoders** (Qwen, Quan, LLaMA, Mistral, Gemma) into `LLM/` or `text_encoders/`.
+    - Moves **LoRAs / LoCons / DoRAs** into `loras/`.
+    - Moves **VAEs & Upscalers** into `vae/` and `upscale_models/`.
+  - **Atomic Companion File Relocation**: Simultaneously discovers and moves all companion triplets (`.preview.*`, `.info`, `.sha256`, `.yaml`, `.json`) alongside the primary weights.
+  - **Collision Safety**: Inspects destination paths; deduplicates identical files without data loss and applies timestamp suffixes on filename collisions.
+  - **Interactive Library UI**: Added "Auto-Sort Library" button, dynamic Misplaced Models warning banner, and interactive multi-model sorting modal with progress bar.
+
+### Browse Tab Quick Update & Architecture-Aware Version Matching
+- **Direct Numerical Model ID Search (`BrowseTab.tsx` & `civitaiClient.ts`)**:
+  - Auto-detects pure numeric queries (e.g. `123456`) and directly queries `/models/{id}` before falling back to text search.
+- **Quick Download & Quick Update Buttons (`BrowseTab.tsx`)**:
+  - Added dedicated quick action buttons on preview cards for one-click downloading and upgrading.
+- **Architecture-Constrained Update Matching (`modelUtils.ts`)**:
+  - Prevents incompatible update prompts across different base models (e.g. preventing an Illustrious or SDXL update from prompting an update on an Anima model).
+
+### Workflow Drag-and-Drop Import Pipeline & IPC Security Hardening
+- **End-to-End Workflow Drag-and-Drop Import (`workflowScanner.ts`, `WorkflowsTab.tsx`, `WorkflowImportModal.tsx`, `main/index.ts`)**:
+  - Privileged main-process verification of dropped workflow files (< 50MB file, < 10MB JSON string, magic byte validation rejecting executable formats, UTF-8 verification).
+  - PNG metadata chunk extraction with fallback precedence (`iTXt` unicode > `tEXt` latin-1 > `zTXt` compressed).
+  - Atomic workflow archiving with regex target name validation (`^[a-zA-Z0-9_\- ]+$`), directory confinement verification, and temp-file atomic rename.
+  - Window-level drag-and-drop event interception with `dragDepthRef` and full-screen drop overlay (`z-[9999]`), capturing drops over embedded guest `<webview>` instances.
+  - Guest canvas graph hook injection (`__CMM_GUEST_GRAPH_LOADED__`) synchronizing node resolutions and missing node badges in real time.
+  - Interactive `WorkflowImportModal` with detected node types preview and collision overwrite prompt.
+- **Zod IPC Schema Validation Migration**:
+  - Replaced ad-hoc parameter checks across all 20+ privileged Electron main-process IPC handlers with strict runtime Zod schema validation.
+
+### UI & Viewport Improvements
+- **ComfyUI Maximized Viewport Isolation & Minimize Controls (`WorkflowsTab.tsx`, `App.tsx`)**:
+  - Restructured ComfyUI maximized view so the webview/iframe sits strictly between the top header and bottom footer without viewport clipping or scrollbars.
+  - Added Minimize button (`<Minimize2 />`) and `Escape` hotkey exit.
+  - Expanded live workspace container height (`min-h-[720px] h-[82vh]`).
+- **Application Startup Loading Throbber (`index.html`)**:
+  - Embedded SVG and CSS loading animation in `<div id="root">` with spinning rings, radial glow, vector emblem, and progress bar to eliminate blank cold-start windows.
+
+### SafeTensor Conversion & Bytecode Security
+- **Pickle Safety Inspection Guard (`scan_pickle_safety.py`, `modelConverter.ts`)**:
+  - Integrated a dedicated Python pickle bytecode analyzer scanning `.bin`, `.pt`, and `.ckpt` files for dangerous opcodes (`GLOBAL`, `REDUCE`, `BUILD`, `INST`, `OBJ`, `NEWOBJ`) prior to SafeTensors conversion.
+
+### Dynamic Port Discovery & Protocol Bridges
+- **Dynamic Port Negotiation & Locking Engine (`webBridge.ts`, `main/index.ts`, `vite.config.ts`, `cmm.ps1`, `cmm.sh`)**:
+  - Eliminated all hardcoded port `5174` and `5173` references across frontend, fallback loaders, and background services.
+  - Implemented dynamic API port resolution hierarchy with auto-locking to `local_api_port`.
+
+### Supply Chain Security & CodeQL Zero-Vulnerability Sweep
+- **Zero-Vulnerability Dependency Hardening**:
+  - Bumped `fast-uri` to `3.1.8`, `axios` to `1.20.0`, `undici` to `7.30.0`, `brace-expansion` to `2.1.7`, and `http-cache-semantics` to `4.3.0` across npm overrides and resolutions. `npm audit` report now yields **0 vulnerabilities**.
+- **CodeQL Static Analysis Remediations**:
+  - Resolved all 63 CodeQL alerts on GitHub: eliminated TOCTOU filesystem race conditions via atomic flags (`wx`, `COPYFILE_EXCL`), sanitized child process command lines in model conversion, broke outbound network taint chains with strict regex sanitizers, pinned GitHub Action tags to immutable commit SHAs, and eliminated shadowed imports.
+
+### Remote Desktop & GPU Safe Mode
+- **Remote Desktop Graphics Mode (`cmm.ps1`, `cmm.bat`, `src/main/index.ts`)**:
+  - Added `Start-Remote` and `Restart-Remote` commands to PowerShell launcher scripts to disable GPU hardware acceleration and DWM compositing, preventing window flickering and modal redraw glitches over RDP/VNC sessions.
 
 ### RenegadeSwarm Daemon Bearer Authentication Handshake, Sister Wakeup & Security Protocol
 
@@ -70,7 +137,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### 🎨 React Flow Visual Workflow Representation
 
 - **Interactive Node DAG Visualization (`ComfyWorkflowVisualizer.tsx`)**:
-  - Visual diagram layout for ComfyUI workflows and model dependencies utilizing React Flow with GPL-3.0 compatibility.
+  - Visual diagram layout for ComfyUI workflows and model dependencies utilizing React Flow.
 
 ## [1.5.0]
 

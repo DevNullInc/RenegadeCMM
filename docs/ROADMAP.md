@@ -15,7 +15,8 @@ graph LR
     v15 --> v16["✅ v1.6.0<br/>Hardlink Storage Optimizer & SafeTensors Engine"]
     v16 --> v161["✅ v1.6.1<br/>Swarm Daemon Auth & Security Handshake"]
     v161 --> v162["✅ v1.6.2<br/>Drag-Drop Import, Zod IPC & UX Polish"]
-    v162 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
+    v162 --> v163["✅ v1.6.3<br/>Library Auto-Sorter, CodeQL Hardening & BSL 1.1"]
+    v163 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
     v17 --> v20["🎯 v2.0.0<br/>Unified Multi-Gen & Package Launch Hub"]
 ```
 
@@ -168,6 +169,47 @@ graph LR
   - 139 total tests passing across the full suite.
 
 ---
+
+### Phase 3.3: v1.6.3 — Library Auto-Sorter, CodeQL Zero-Vulnerability Sweep & BSL 1.1 Licensing
+
+> **Goal**: Intelligent multi-architecture directory routing and automatic library sorting for modern DiT diffusion models, LLMs, and ComfyUI weights, comprehensive CodeQL static analysis remediation, zero-vulnerability supply chain hardening, and transition to the Business Source License 1.1 (BUSL-1.1).
+
+- [x] **Business Source License 1.1 (BUSL-1.1) Transition**:
+  - Full codebase transition to BSL 1.1 with single-user evaluation and commercial organizational tier (> 5 persons). Automatically converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+  - Standardized legal notices in [`LICENSE`](../LICENSE), [`LEGAL.md`](../LEGAL.md), [`SECURITY.md`](../SECURITY.md), [`README.md`](../README.md), and source code headers.
+  - Built-in Ed25519 identity keypair generation, license signature verification (`licenseService.ts`), and offline registration validation.
+- [x] **Intelligent Library Auto-Sorter (`librarySorter.ts` & `LibraryTab.tsx`)**:
+  - Automated inspection of scanned ComfyUI libraries to identify misplaced models (ControlNets misfiled in `checkpoints/`, standalone Anima/Wan/Flux DiT diffusion models, Qwen/Quan LLMs, LoRAs, VAEs, and Upscalers).
+  - Moves companion file triplets (`.preview.*`, `.info`, `.sha256`, `.json`, `.yaml`) atomically alongside model weights.
+  - Safe collision handling with size-matching deduplication and timestamp suffixes.
+  - Interactive sorting modal with selection controls and real-time relocation progress indicators.
+- [x] **Intelligent Multi-Architecture Folder Routing (`folderRouter.ts` & `app.ts`)**:
+  - **Modern DiT & Diffusion Models**: Anima, Krea (Flux.1 Krea), Wan Video (Wan 2.1), CogVideoX, Hunyuan Video, Mochi, LTXV, AuraFlow, Lumina, Chroma, and PixArt automatically route to `models/diffusion_models/` (or `models/unet/`).
+  - **Language & Multimodal LLMs**: Quan, Qwen, Qwen 2.5, Llama, Mistral, Gemma, DeepSeek, and Phi weights route to `models/LLM/` (or `models/gguf/` if quantized).
+  - **Specialized Adapter Preservation**: LoRAs, LoCons, DoRAs, ControlNets, VAEs, and Textual Inversions targeting Anima, Qwen, or Krea safely preserve their dedicated destination folders (`loras/`, `controlnet/`, `vae/`, `embeddings/`) without being diverted into base model directories.
+  - **Standard Directory Scaffolding**: Added `LLM` to `COMFYUI_STANDARD_MODEL_SUBFOLDERS` for directory scaffolding across target roots.
+- [x] **Browse Tab Quick Actions & Architecture Disambiguation (`BrowseTab.tsx` & `modelUtils.ts`)**:
+  - Direct numerical model ID search queries (`/models/{id}`) for numeric inputs.
+  - Quick Download and Quick Update buttons with strict base model architecture matching (preventing Anima vs Illustrious/SDXL version clashes).
+- [x] **CodeQL & Supply Chain Zero-Vulnerability Sweep**:
+  - Remediated all 63 CodeQL alerts on GitHub: eliminated TOCTOU filesystem race conditions via atomic flags (`wx`, `COPYFILE_EXCL`), sanitized child process execution in model conversion, broke outbound network taint chains with strict regex sanitizers, and pinned GitHub Actions to immutable commit SHAs.
+  - Upgraded dependencies via overrides/resolutions: `fast-uri` (`3.1.8`), `axios` (`1.20.0`), `undici` (`7.30.0`), `brace-expansion` (`2.1.7`), `http-cache-semantics` (`4.3.0`).
+  - 100% test coverage: **186 unit/integration tests passing across 28 suites**.
+- [x] **Remote Desktop Graphics Mode (`cmm.ps1`, `cmm.bat`, `src/main/index.ts`)**:
+  - Added `Start-Remote` and `Restart-Remote` commands disabling GPU hardware acceleration to eliminate modal window flickering and compositor artifacts during remote desktop (RDP/VNC) sessions.
+- [ ] **Pickle-to-SafeTensors Converter Architecture Overhaul (`scripts/convert_to_safetensors.py` & `modelConverter.ts`)**:
+  - **Problem Analysis**: The current Python conversion routine (`convert_to_safetensors.py`) applies state-dict unpacking heuristics designed primarily for monolithic Stable Diffusion checkpoints and LoRAs (searching specifically for `state_dict`, `model`, or `module` wrapper keys). When processing non-checkpoint pickle containers (such as standalone DiT transformer weights, text encoders, VAEs, custom pickled model packages, or standalone modules), the script misidentifies the internal tensor hierarchy or erroneously assumes the model is a LoRA/checkpoint, resulting in missing weight keys or conversion failures.
+  - **Planned Architecture Fix**:
+    - **Generic Dynamic Archive Introspection**: Refactor PyTorch deserialization to traverse arbitrary nested object graphs, collections, and custom Python class instances without hardcoded assumptions about checkpoint/LoRA dictionary keys.
+    - **Modular Conversion Profiles**: Implement dedicated extraction profiles for:
+      1. *Monolithic Checkpoints* (SD 1.5, SDXL, Pony).
+      2. *LoRAs / LoCons / DoRAs* (preserving `lora_unet_*`, `lora_te_*` naming conventions).
+      3. *Standalone DiT / UNet Weights* (Flux, Wan, Hunyuan, Anima, CogVideo).
+      4. *Text Encoders & CLIP / T5 Modules*.
+      5. *VAEs & Autoencoders*.
+      6. *Raw PyTorch State-Dicts & Arbitrary Tensors*.
+    - **Tensor Metadata & Header Preservation**: Retain tensor dtype fidelity (FP16, BF16, FP32) and write appropriate SafeTensors header metadata tags (`__metadata__`) without corrupting non-LoRA layer weights.
+    - **Safe Memory Streaming**: Implement chunked streaming conversion for large models (> 10GB) to prevent host memory exhaustion during CPU state-dict deserialization.
 
 ## Planned Future Releases
 

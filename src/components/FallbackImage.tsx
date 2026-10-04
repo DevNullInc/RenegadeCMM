@@ -2,13 +2,16 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect } from 'react';
 import { Layers } from 'lucide-react';
+import { getApiBase } from '../utils/webBridge';
 
 export interface FallbackImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   candidateUrls?: (string | null | undefined)[];
@@ -20,13 +23,15 @@ export interface FallbackImageProps extends React.ImgHTMLAttributes<HTMLImageEle
 
 function getCacheProxyUrl(url: string, type: 'library' | 'browse'): string {
   if (!url || typeof url !== 'string') return url;
+  const apiBase = getApiBase();
+  const hostBase = apiBase.replace(/\/api$/, '');
   if (url.startsWith('/api/local-image') || url.includes('/api/local-image')) {
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `http://localhost:5174${url}`;
+    return `${hostBase}${url}`;
   }
   if (url.includes('/api/cached-image')) return url;
   if (!url.startsWith('http')) return url;
-  return `http://localhost:5174/api/cached-image?url=${encodeURIComponent(url)}&type=${type}`;
+  return `${apiBase}/cached-image?url=${encodeURIComponent(url)}&type=${type}`;
 }
 
 export const FallbackImage: React.FC<FallbackImageProps> = ({
@@ -40,13 +45,15 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
   cacheType = 'library',
   ...props
 }) => {
+  const candidateUrlsKey = (candidateUrls || []).filter(Boolean).join('|');
+
   // Build a distinct list of valid candidate URLs with local bridge caching
   const urls: string[] = React.useMemo(() => {
     const rawList: string[] = [];
     if (src && typeof src === 'string' && src.trim()) {
       rawList.push(src.trim());
     }
-    candidateUrls.forEach((item) => {
+    (candidateUrls || []).forEach((item) => {
       if (item && typeof item === 'string') {
         const trimmed = item.trim();
         if (trimmed && !rawList.includes(trimmed)) {
@@ -59,10 +66,13 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
       return rawList;
     }
 
+    const apiBase = getApiBase();
+    const hostBase = apiBase.replace(/\/api$/, '');
+
     const finalList: string[] = [];
     rawList.forEach((raw) => {
       if (raw.startsWith('/api/local-image') || raw.includes('/api/local-image')) {
-        const fullLocal = raw.startsWith('http') ? raw : `http://localhost:5174${raw}`;
+        const fullLocal = raw.startsWith('http') ? raw : `${hostBase}${raw}`;
         if (!finalList.includes(fullLocal)) {
           finalList.push(fullLocal);
         }
@@ -85,15 +95,16 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
     });
 
     return finalList;
-  }, [src, candidateUrls, cacheType]);
+  }, [src, candidateUrlsKey, cacheType]);
 
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [hasFailedAll, setHasFailedAll] = useState<boolean>(urls.length === 0);
 
+  const urlsKey = urls.join('|');
   useEffect(() => {
     setCurrentIndex(0);
     setHasFailedAll(urls.length === 0);
-  }, [urls.join('|')]);
+  }, [urlsKey]);
 
   const handleError = () => {
     if (currentIndex + 1 < urls.length) {

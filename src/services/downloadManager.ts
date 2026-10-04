@@ -2,21 +2,24 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import axios, { AxiosResponse } from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { DownloadTask, ConflictStrategy } from '../types/app';
 import { computeFileSHA256 } from '../utils/hash';
-import { sanitizeFileName } from '../utils/pathUtils';
+import { sanitizeFileName, testFolderWritable } from '../utils/pathUtils';
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
 import { webhookService } from './webhookService';
 import { civitaiClient } from './civitaiClient';
+import { huggingfaceClient } from './huggingfaceClient';
 import { imageCacheService } from './imageCacheService';
 import { swarmBridge } from './swarmBridge';
 
@@ -93,8 +96,6 @@ export function isHuggingFaceUrl(url?: string): boolean {
     return false;
   }
 }
-
-
 
 export class DownloadManager {
   private tasks: Map<string, DownloadTask> = new Map();
@@ -315,7 +316,7 @@ export class DownloadManager {
       this.activeDownloads.delete(id);
     }
     const task = this.tasks.get(id);
-    if (task && task.status === 'downloading') {
+    if (task && (task.status === 'downloading' || task.status === 'pending')) {
       task.status = 'paused';
       task.speedBps = 0;
       logger.info(`Paused download task: ${task.fileName}`);
@@ -422,17 +423,19 @@ export class DownloadManager {
   }
 
   private async processQueue() {
-    const activeCount = Array.from(this.tasks.values()).filter(
-      (t) => t.status === 'downloading' || t.status === 'verifying'
-    ).length;
+    while (true) {
+      const activeCount = Array.from(this.tasks.values()).filter(
+        (t) => t.status === 'downloading' || t.status === 'verifying'
+      ).length;
 
-    if (activeCount >= this.maxConcurrent) return;
+      if (activeCount >= this.maxConcurrent) break;
 
-    const nextTask = Array.from(this.tasks.values()).find(
-      (t) => t.status === 'pending'
-    );
+      const nextTask = Array.from(this.tasks.values()).find(
+        (t) => t.status === 'pending'
+      );
 
-    if (nextTask) {
+      if (!nextTask) break;
+
       this.startDownload(nextTask.id);
     }
   }
@@ -472,32 +475,6 @@ export class DownloadManager {
 
     task.status = 'downloading';
     this.persistTask(id).catch(() => {});
-    let targetPath = task.computedPath;
-
-    // Handle conflict resolution
-    const resolvedPath = this.resolveConflict(targetPath, this.defaultConflictStrategy);
-    if (!resolvedPath) {
-      task.status = 'completed';
-      task.progress = 100;
-      task.completedAt = task.completedAt || new Date().toISOString();
-      this.persistTask(id).catch(() => {});
-      this.registerCompletedFile(task).catch(() => {});
-      this.processQueue();
-      return;
-    }
-    task.computedPath = resolvedPath;
-
-    const partFile = `${resolvedPath}.part`;
-    const targetDir = path.dirname(resolvedPath);
-
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
-    }
-
-    let existingBytes = 0;
-    if (fs.existsSync(partFile)) {
-      existingBytes = fs.statSync(partFile).size;
-    }
 
     const cancelTokenSource = axios.CancelToken.source();
     let writeStream: fs.WriteStream | null = null;
@@ -512,10 +489,52 @@ export class DownloadManager {
       },
     });
 
-    let lastTime = Date.now();
-    let lastBytes = existingBytes;
-
     try {
+      let targetPath = task.computedPath;
+      if (!targetPath || !targetPath.trim()) {
+        throw new Error(
+          'Destination path is empty or could not be determined. Please verify your configured ComfyUI folders in Settings.'
+        );
+      }
+
+      // Pre-flight sanity check on destination directory before network stream
+      const targetDir = path.dirname(targetPath);
+      const accessCheck = testFolderWritable(targetDir);
+      if (!accessCheck.writable) {
+        throw new Error(
+          `Cannot write to destination folder (${targetDir}): ${accessCheck.error || 'Destination drive or directory is locked or read-only'}`
+        );
+      }
+
+      // Handle conflict resolution
+      const resolvedPath = this.resolveConflict(targetPath, this.defaultConflictStrategy);
+      if (!resolvedPath) {
+        task.status = 'completed';
+        task.progress = 100;
+        task.completedAt = task.completedAt || new Date().toISOString();
+        await this.saveCompanionFiles(task, targetPath);
+        this.persistTask(id).catch(() => {});
+        this.registerCompletedFile(task).catch(() => {});
+        this.activeDownloads.delete(id);
+        this.processQueue();
+        return;
+      }
+      task.computedPath = resolvedPath;
+
+      const partFile = `${resolvedPath}.part`;
+
+      let existingBytes = 0;
+      if (fs.existsSync(partFile)) {
+        try {
+          existingBytes = fs.statSync(partFile).size;
+        } catch {
+          existingBytes = 0;
+        }
+      }
+
+      let lastTime = Date.now();
+      let lastBytes = existingBytes;
+
       const makeRequest = async (useRange: boolean): Promise<AxiosResponse> => {
         const headers: Record<string, string> = {
           'User-Agent': 'RenegadeCMM/1.6.1',
@@ -523,17 +542,34 @@ export class DownloadManager {
         if (useRange && existingBytes > 0) {
           headers['Range'] = `bytes=${existingBytes}-`;
         }
+
+        const effectiveCivitaiKey = this.civitaiApiKey || civitaiClient.getApiKey();
+        const effectiveHfToken = this.huggingfaceToken || huggingfaceClient.getToken();
+
         let requestUrl = task.downloadUrl;
-        if (this.civitaiApiKey && isCivitaiUrl(requestUrl)) {
-          requestUrl = attachCivitaiToken(requestUrl, this.civitaiApiKey);
+        if (effectiveCivitaiKey && isCivitaiUrl(requestUrl)) {
+          requestUrl = attachCivitaiToken(requestUrl, effectiveCivitaiKey);
+          try {
+            const parsedReq = new URL(requestUrl);
+            const reqHost = parsedReq.hostname.toLowerCase();
+            // Primary Civitai endpoints accept Authorization Bearer headers for gated/NSFW/early-access models
+            if (
+              reqHost === 'civitai.com' ||
+              reqHost === 'www.civitai.com' ||
+              reqHost === 'civitai.red' ||
+              reqHost === 'www.civitai.red'
+            ) {
+              headers['Authorization'] = `Bearer ${effectiveCivitaiKey}`;
+            }
+          } catch {}
         }
-        if (this.huggingfaceToken && isHuggingFaceUrl(requestUrl)) {
+        if (effectiveHfToken && isHuggingFaceUrl(requestUrl)) {
           try {
             const parsedReq = new URL(requestUrl);
             const reqHost = parsedReq.hostname.toLowerCase();
             // Only inject Bearer auth to the primary Hugging Face host, never directly to external/CDN endpoints
             if (reqHost === 'huggingface.co' || reqHost === 'www.huggingface.co') {
-              headers['Authorization'] = `Bearer ${this.huggingfaceToken}`;
+              headers['Authorization'] = `Bearer ${effectiveHfToken}`;
             }
           } catch {}
         }
@@ -543,12 +579,27 @@ export class DownloadManager {
           cancelToken: cancelTokenSource.token,
           maxRedirects: 5,
           beforeRedirect: (options: any) => {
-            // When redirected from huggingface.co to S3/CloudFront LFS storage (e.g. cdn-lfs.huggingface.co
-            // or AWS presigned URL), remove Authorization header to prevent AWS S3 HTTP 400 Bad Request
+            // When redirected from huggingface.co or civitai.com to S3/CloudFront/CDN storage
+            // (e.g. cdn-lfs.huggingface.co, civitai-prod-settled.s3.amazonaws.com, orchestration-model-cache, or AWS presigned URLs),
+            // remove Authorization header to prevent AWS S3 HTTP 400 Bad Request
             // ("Only one auth mechanism allowed; query params and Authorization header cannot both be present")
             // and prevent Bearer token leakage to third-party CDNs.
             const targetHost = (options.hostname || '').toLowerCase();
-            if (targetHost !== 'huggingface.co' && targetHost !== 'www.huggingface.co') {
+            const isStrictApex =
+              targetHost === 'huggingface.co' ||
+              targetHost === 'www.huggingface.co' ||
+              targetHost === 'civitai.com' ||
+              targetHost === 'www.civitai.com' ||
+              targetHost === 'civitai.red' ||
+              targetHost === 'www.civitai.red';
+
+            const targetPath = (options.path || '').toLowerCase();
+            const hasPresignedAuthParams =
+              targetPath.includes('x-amz-') ||
+              targetPath.includes('signature=') ||
+              targetPath.includes('response-content-disposition=');
+
+            if (!isStrictApex || hasPresignedAuthParams) {
               if (options.headers) {
                 for (const h of Object.keys(options.headers)) {
                   if (h.toLowerCase() === 'authorization') {
@@ -608,6 +659,8 @@ export class DownloadManager {
       );
       if (totalLength > 0) {
         task.totalBytes = existingBytes + totalLength;
+      } else if (!task.totalBytes || task.totalBytes <= 0) {
+        task.totalBytes = Math.round((task.sizeKB || 0) * 1024);
       }
 
       writeStream = fs.createWriteStream(partFile, {
@@ -630,6 +683,9 @@ export class DownloadManager {
             99,
             Math.round((task.downloadedBytes / task.totalBytes) * 100)
           );
+        } else if (task.downloadedBytes > 0) {
+          // If totalBytes was unknown, indicate non-zero downloading activity
+          task.progress = Math.max(1, task.progress);
         }
       });
 
@@ -709,14 +765,29 @@ export class DownloadManager {
       try {
         const ingestRes = await swarmBridge.notifySwarmModelIngest(resolvedPath, task);
         if (!ingestRes.success) {
-          logger.warn(`RenegadeSwarm ingest notification failed for ${task.fileName}:`, ingestRes.error);
+          const errStr = String(ingestRes.error || '');
+          const isOffline =
+            errStr.includes('ECONNREFUSED') ||
+            errStr.includes('daemon unavailable') ||
+            errStr.includes('not responding') ||
+            errStr.includes('offline');
+          if (isOffline) {
+            logger.debug(`RenegadeSwarm daemon offline (port 5180). Swarm ingest skipped for ${task.fileName}.`);
+          } else {
+            logger.warn(`RenegadeSwarm ingest notification failed for ${task.fileName}:`, ingestRes.error);
+          }
           task.swarmIngestError = ingestRes.error;
         } else {
           task.swarmIngested = true;
           logger.info(`RenegadeSwarm successfully ingested model: ${task.fileName}`);
         }
       } catch (swarmErr: any) {
-        logger.warn(`RenegadeSwarm ingest exception for ${task.fileName}:`, swarmErr.message);
+        const msg = String(swarmErr?.message || '');
+        if (msg.includes('ECONNREFUSED')) {
+          logger.debug(`RenegadeSwarm daemon offline: ${msg}`);
+        } else {
+          logger.warn(`RenegadeSwarm ingest exception for ${task.fileName}:`, msg);
+        }
       }
     } catch (err: any) {
       this.activeDownloads.delete(id);
@@ -863,8 +934,8 @@ export class DownloadManager {
       await dbManager.run(
         `INSERT INTO local_models
           (id, file_path, file_name, file_size, modified_at, sha256, civitai_model_id,
-           civitai_version_id, civitai_name, scanned_at, model_type, nsfw)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 0)
+           civitai_version_id, civitai_name, scanned_at, preview_url, model_type, nsfw)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, 0)
          ON CONFLICT(id) DO UPDATE SET
            file_path = excluded.file_path,
            file_name = excluded.file_name,
@@ -875,6 +946,7 @@ export class DownloadManager {
            civitai_version_id = COALESCE(excluded.civitai_version_id, local_models.civitai_version_id),
            civitai_name = COALESCE(excluded.civitai_name, local_models.civitai_name),
            scanned_at = CURRENT_TIMESTAMP,
+           preview_url = COALESCE(excluded.preview_url, local_models.preview_url),
            model_type = COALESCE(excluded.model_type, local_models.model_type),
            nsfw = local_models.nsfw`,
         [
@@ -887,6 +959,7 @@ export class DownloadManager {
           task.modelId || null,
           task.modelVersionId || null,
           task.modelName || null,
+          task.previewUrl || null,
           task.modelType || null,
         ]
       );
@@ -911,6 +984,9 @@ export class DownloadManager {
         logger.error(`Cannot force-finish task ${task.fileName}: neither .part nor final file exists.`);
         return false;
       }
+
+      // Save companion files on forced completion
+      await this.saveCompanionFiles(task, task.computedPath);
 
       task.status = 'completed';
       task.progress = 100;

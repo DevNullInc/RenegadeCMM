@@ -200,4 +200,4 @@ feat: add interactive visual node map to Workflows tab
 
 ## License
 
-By contributing to **Renegade Core Model Manager**, you agree that your contributions will be licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** without additional restrictions. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for full statutory terms and source availability disclosures.
+By contributing to **Renegade Core Model Manager**, you agree that your contributions will be licensed under the **Business Source License 1.1 (BUSL-1.1)** and will transition to the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** on each version's Change Date (4 years from release). See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for full licensing terms and disclosures.

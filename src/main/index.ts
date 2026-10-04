@@ -2,10 +2,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell, session, Tray, nativeImage } from 'electron';
 import { autoUpdater } from 'electron-updater';
@@ -18,7 +20,7 @@ import { dbManager } from '../db/db';
 import { civitaiClient } from '../services/civitaiClient';
 import { folderRouter } from '../services/folderRouter';
 import { downloadManager } from '../services/downloadManager';
-import { libraryScanner } from '../services/libraryScanner';
+import { libraryScanner, discoverCompanionFiles } from '../services/libraryScanner';
 import { versionManager } from '../services/versionManager';
 import { backupService } from '../services/backupService';
 import { imageCacheService } from '../services/imageCacheService';
@@ -32,12 +34,15 @@ import { nodeResolverService } from '../services/nodeResolverService';
 import { storageOptimizer } from '../services/storageOptimizer';
 import { precisionInspector } from '../services/precisionInspector';
 import { orphanFinder } from '../services/orphanFinder';
+import { librarySorter } from '../services/librarySorter';
 import { modelConverter } from '../services/modelConverter';
 import { hardwareScanner } from '../services/hardwareScanner';
 import { swarmBridge } from '../services/swarmBridge';
 import { swarmAuthToken } from '../services/swarmAuthToken';
+import { licenseService } from '../services/licenseService';
 import { encryptKey, decryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
+import { testFolderWritable } from '../utils/pathUtils';
 import {
   isAllowedOriginOrReferer,
   isPathWithinAllowedRoots,
@@ -47,8 +52,89 @@ import {
   sanitizePathString,
   ALLOWED_IMAGE_EXTENSIONS,
 } from '../utils/securityValidator';
-import { AppConfig, AppUpdateCheckResult } from '../types/app';
+import { AppConfig, AppUpdateCheckResult, LocalModel } from '../types/app';
 import { APP_VERSION, BUILD_CONFIG } from '../version';
+
+// Hardware acceleration & Windows DWM occlusion handling:
+// Disabling CalculateNativeWinOcclusion prevents Chromium from oscillating between
+// occluded and unoccluded compositor states, which causes rapid blinking/flashing
+// between blank frames and visible UI when modals or backdrop blurs are displayed on Windows.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WidgetLayering');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+}
+
+// Remote Desktop / Safe Graphics mode:
+// Disables hardware acceleration and GPU compositing to eliminate flashing modal windows,
+// flickering DWM layers, and black rectangles during Remote Desktop (RDP/VNC/AnyDesk) sessions.
+const isRemoteMode =
+  process.env.DISABLE_GPU === 'true' ||
+  process.env.CMM_DISABLE_GPU === 'true' ||
+  process.env.CMM_REMOTE_MODE === 'true' ||
+  process.argv.includes('--disable-gpu') ||
+  process.argv.includes('--remote-mode');
+
+if (isRemoteMode) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('disable-gpu-rasterization');
+  app.commandLine.appendSwitch('disable-software-rasterizer');
+}
+
+export function mapDbRowToLocalModel(r: any): LocalModel {
+  const companion = discoverCompanionFiles(r.file_path);
+  const info = companion.companionInfo;
+  const trainedWords = Array.isArray(info?.trainedWords) && info.trainedWords.length > 0
+    ? info.trainedWords
+    : (Array.isArray(info?.model?.trainedWords) && info.model.trainedWords.length > 0 ? info.model.trainedWords : undefined);
+  const civitaiCreator = info?.model?.creator?.username || info?.creator?.username || undefined;
+  const civitaiBaseModel = r.civitai_base_model || info?.baseModel || undefined;
+  const previewUrl = companion.localImageUrl || r.preview_url || (info ? libraryScanner.extractPreviewImage(info) : undefined);
+
+  return {
+    id: r.id,
+    source: r.source || (r.hf_repo_id ? 'huggingface' : 'civitai'),
+    hfRepoId: r.hf_repo_id || undefined,
+    hfCommitSha: r.hf_commit_sha || undefined,
+    quantization: r.quantization || undefined,
+    filePath: r.file_path,
+    fileName: r.file_name,
+    fileSize: r.file_size,
+    modifiedAt: r.modified_at,
+    sha256: r.sha256 || companion.companionHash,
+    civitaiModelId: r.civitai_model_id || info?.modelId || info?.model?.id,
+    civitaiVersionId: r.civitai_version_id || info?.id,
+    civitaiName: r.civitai_name || info?.model?.name || info?.name || undefined,
+    civitaiBaseModel,
+    civitaiCreator,
+    previewUrl,
+    localPreviewPath: companion.localImagePath,
+    companionInfoPath: companion.companionInfoPath,
+    modelType: r.model_type || info?.model?.type || info?.type,
+    nsfw: !!r.nsfw || Boolean(info?.model?.nsfw || (info?.nsfwLevel && info.nsfwLevel > 1)),
+    customLink: r.custom_link || info?.customLink || undefined,
+    isMatched: !!r.civitai_version_id || !!r.hf_repo_id || !!info?.id || !!r.custom_link || !!info?.customLink,
+    isMissing: !fs.existsSync(r.file_path),
+    hasUpdate: !!r.has_update,
+    updateVersionId: r.update_version_id,
+    updateVersionName: r.update_version_name,
+    updateDownloadUrl: r.update_download_url,
+    ignoredVersionId: r.ignored_version_id,
+    isDuplicate: !!r.is_duplicate,
+    updateCheckedAt: r.update_checked_at,
+    pickleScanStatus: r.pickle_scan_status || undefined,
+    pickleScannedSha256: r.pickle_scanned_sha256 || undefined,
+    pickleScannedAt: r.pickle_scanned_at || undefined,
+    isMultiPart: !!r.is_multi_part || !!info?.isMultiPart,
+    totalParts: r.total_parts || info?.totalParts || undefined,
+    availableParts: r.available_parts || info?.availableParts || undefined,
+    shards: r.shards_json ? (() => { try { return JSON.parse(r.shards_json); } catch { return undefined; } })() : (info?.shards || undefined),
+    trainedWords,
+    description: typeof info?.description === 'string' ? info.description : (typeof info?.model?.description === 'string' ? info.model.description : undefined),
+    tags: Array.isArray(info?.tags) ? info.tags : (Array.isArray(info?.model?.tags) ? info.model.tags : undefined),
+  };
+}
 
 export function getAllowedModelRoots(cfg: AppConfig): string[] {
   const roots: string[] = [];
@@ -75,6 +161,8 @@ if (process.defaultApp) {
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let activeApiPort =
+  parseInt(process.env.API_PORT || process.env.BRIDGE_PORT || process.env.CMM_PORT || '', 10) || 5174;
 let currentConfig: AppConfig = {
   comfyui_root: '',
   comfyui_folders: [],
@@ -166,7 +254,8 @@ async function createWindow() {
     minWidth: 1124,
     minHeight: 720,
     title: 'Renegade Core Model Manager (RenegadeCMM)',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#07090e',
+    show: false,
     autoHideMenuBar: true,
     icon: getAppIcon(),
     webPreferences: {
@@ -176,6 +265,19 @@ async function createWindow() {
       webviewTag: true,
       backgroundThrottling: false,
     },
+  });
+
+  const showSafetyTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 2500);
+
+  mainWindow.once('ready-to-show', () => {
+    clearTimeout(showSafetyTimer);
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
   });
 
   try {
@@ -232,7 +334,6 @@ async function createWindow() {
 
   const indexPath = path.join(__dirname, '../index.html');
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:5173');
-  const fs = require('fs');
 
   let loaded = false;
   // Try loading from Vite server if running
@@ -1385,6 +1486,37 @@ function startHttpBridgeServer() {
       });
 
     try {
+      // 0. Enforce local revocation tripwire (locked toxic machine lockout)
+      const revocation = await licenseService.isMachineRevoked();
+      if (revocation.isRevoked) {
+        if (url === '/api/license/status' && req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              isValid: false,
+              status: 'revoked',
+              license: null,
+              userPublicKey: null,
+              ownershipVerified: false,
+              isPerpetual: false,
+              error: `Machine is permanently revoked: ${revocation.reason || 'Integrity violation'}`,
+            })
+          );
+          return;
+        }
+
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: 'Machine is permanently revoked due to a security integrity violation.',
+            revoked: true,
+            toxic: true,
+            reason: revocation.reason,
+          })
+        );
+        return;
+      }
+
       if ((url === '/api/status' || url === '/api/health' || url === '/health') && req.method === 'GET') {
         const isApiEnabled = currentConfig.local_api_enabled !== false;
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1676,7 +1808,7 @@ function startHttpBridgeServer() {
           nodeType,
           targetNodesDir,
           currentConfig.comfyui_install_dir,
-          { searchGitHub, forceRefresh }
+          { searchGitHub, forceRefresh, comfyuiServerUrl: currentConfig.comfyui_server_url }
         );
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(resolution));
@@ -1771,6 +1903,60 @@ function startHttpBridgeServer() {
         const success = await downloadManager.forceCompleteTask(body.id);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success }));
+function mapDbRowToLocalModel(r: any): LocalModel {
+  const companion = discoverCompanionFiles(r.file_path);
+  const info = companion.companionInfo;
+  const trainedWords = Array.isArray(info?.trainedWords) && info.trainedWords.length > 0
+    ? info.trainedWords
+    : (Array.isArray(info?.model?.trainedWords) && info.model.trainedWords.length > 0 ? info.model.trainedWords : undefined);
+  const civitaiCreator = info?.model?.creator?.username || info?.creator?.username || undefined;
+  const civitaiBaseModel = r.civitai_base_model || info?.baseModel || undefined;
+  const previewUrl = companion.localImageUrl || r.preview_url || (info ? libraryScanner.extractPreviewImage(info) : undefined);
+
+  return {
+    id: r.id,
+    source: r.source || (r.hf_repo_id ? 'huggingface' : 'civitai'),
+    hfRepoId: r.hf_repo_id || undefined,
+    hfCommitSha: r.hf_commit_sha || undefined,
+    quantization: r.quantization || undefined,
+    filePath: r.file_path,
+    fileName: r.file_name,
+    fileSize: r.file_size,
+    modifiedAt: r.modified_at,
+    sha256: r.sha256 || companion.companionHash,
+    civitaiModelId: r.civitai_model_id || info?.modelId || info?.model?.id,
+    civitaiVersionId: r.civitai_version_id || info?.id,
+    civitaiName: r.civitai_name || info?.model?.name || info?.name || undefined,
+    civitaiBaseModel,
+    civitaiCreator,
+    previewUrl,
+    localPreviewPath: companion.localImagePath,
+    companionInfoPath: companion.companionInfoPath,
+    modelType: r.model_type || info?.model?.type || info?.type,
+    nsfw: !!r.nsfw || Boolean(info?.model?.nsfw || (info?.nsfwLevel && info.nsfwLevel > 1)),
+    customLink: r.custom_link || info?.customLink || undefined,
+    isMatched: !!r.civitai_version_id || !!r.hf_repo_id || !!info?.id || !!r.custom_link || !!info?.customLink,
+    isMissing: !fs.existsSync(r.file_path),
+    hasUpdate: !!r.has_update,
+    updateVersionId: r.update_version_id,
+    updateVersionName: r.update_version_name,
+    updateDownloadUrl: r.update_download_url,
+    ignoredVersionId: r.ignored_version_id,
+    isDuplicate: !!r.is_duplicate,
+    updateCheckedAt: r.update_checked_at,
+    pickleScanStatus: r.pickle_scan_status || undefined,
+    pickleScannedSha256: r.pickle_scanned_sha256 || undefined,
+    pickleScannedAt: r.pickle_scanned_at || undefined,
+    isMultiPart: !!r.is_multi_part || !!info?.isMultiPart,
+    totalParts: r.total_parts || info?.totalParts || undefined,
+    availableParts: r.available_parts || info?.availableParts || undefined,
+    shards: r.shards_json ? (() => { try { return JSON.parse(r.shards_json); } catch { return undefined; } })() : (info?.shards || undefined),
+    trainedWords,
+    description: typeof info?.description === 'string' ? info.description : (typeof info?.model?.description === 'string' ? info.model.description : undefined),
+    tags: Array.isArray(info?.tags) ? info.tags : (Array.isArray(info?.model?.tags) ? info.model.tags : undefined),
+  };
+}
+
       } else if (url === '/api/local-models' && req.method === 'GET') {
         // Flags persist across scans/loads, but self-clear once the flagged update
         // version is actually installed locally.
@@ -1779,29 +1965,7 @@ function startHttpBridgeServer() {
            WHERE has_update = 1 AND update_version_id IS NOT NULL AND civitai_version_id = update_version_id;`
         );
         const rows = await dbManager.all('SELECT * FROM local_models ORDER BY file_name ASC;');
-        const models = rows.map((r: any) => ({
-          id: r.id,
-          filePath: r.file_path,
-          fileName: r.file_name,
-          fileSize: r.file_size,
-          modifiedAt: r.modified_at,
-          sha256: r.sha256,
-          civitaiModelId: r.civitai_model_id,
-          civitaiVersionId: r.civitai_version_id,
-          civitaiName: r.civitai_name || undefined,
-          previewUrl: r.preview_url,
-          modelType: r.model_type,
-          nsfw: !!r.nsfw,
-          isMatched: !!r.civitai_version_id,
-          isMissing: !fs.existsSync(r.file_path),
-          hasUpdate: !!r.has_update,
-          updateVersionId: r.update_version_id,
-          updateVersionName: r.update_version_name,
-          updateDownloadUrl: r.update_download_url,
-          ignoredVersionId: r.ignored_version_id,
-          isDuplicate: !!r.is_duplicate,
-          updateCheckedAt: r.update_checked_at,
-        }));
+        const models = rows.map(mapDbRowToLocalModel);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(models));
       } else if (url === '/api/pull-missing-model' && req.method === 'POST') {
@@ -1990,6 +2154,30 @@ function startHttpBridgeServer() {
         res.end(JSON.stringify(ignored));
       } else if (url === '/api/match-unidentified-models' && req.method === 'POST') {
         const result = await libraryScanner.matchUnidentifiedModels();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/models/trigger-words' && req.method === 'POST') {
+        const body = await getBody();
+        if (!body.filePath || !Array.isArray(body.triggerWords)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Missing filePath or triggerWords array' }));
+        } else {
+          const result = await storageOptimizer.updateModelTriggerWords(body.filePath, body.triggerWords);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        }
+      } else if (url === '/api/storage-optimizer/package-companions' && req.method === 'POST') {
+        const body = await getBody();
+        if (!body.filePath) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing filePath parameter' }));
+        } else {
+          const result = await storageOptimizer.packageCompanionFilesForModel(body.filePath);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        }
+      } else if (url === '/api/storage-optimizer/package-all-companions' && req.method === 'POST') {
+        const result = await storageOptimizer.packageAllMissingCompanions();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } else if (url === '/api/export-backup-zip' && req.method === 'GET') {
@@ -2236,6 +2424,52 @@ function startHttpBridgeServer() {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: e?.message || 'Conversion execution failed' }));
         }
+      } else if (url === '/api/converter/scan' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const filePath = body.filePath || body.sourcePath || '';
+          if (!filePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ isSafe: false, error: 'filePath is required' }));
+            return;
+          }
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(filePath, allowedRoots)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ isSafe: false, error: 'Access forbidden: Path outside permitted model directories' }));
+            return;
+          }
+          const scanResult = await modelConverter.scanPickleModel(filePath, {
+            customPythonPath: currentConfig.custom_python_path,
+            comfyuiInstallDir: currentConfig.comfyui_install_dir,
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(scanResult));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ isSafe: false, error: e?.message || 'Opcode scan execution failed' }));
+        }
+      } else if (url === '/api/models/save-metadata' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const result = await libraryScanner.saveModelMetadata(body);
+          res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to save model metadata' }));
+        }
+      } else if (url === '/api/models/fetch-metadata-by-url' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const urlOrId = body?.url || body?.query || body?.repoId || '';
+          const result = await libraryScanner.fetchModelMetadataByUrl(urlOrId);
+          res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to fetch model metadata' }));
+        }
       } else if ((url === '/api/system/hardware' || url === '/api/hardware/profile') && req.method === 'GET') {
         try {
           const profile = await hardwareScanner.getHardwareProfile();
@@ -2255,6 +2489,17 @@ function startHttpBridgeServer() {
         } catch (e: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to assess conversion memory safety' }));
+        }
+      } else if (url === '/api/check-folder-access' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const folderPath = body?.folderPath || body?.path || '';
+          const result = testFolderWritable(folderPath);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ exists: false, writable: false, error: e?.message || 'Failed to test folder access' }));
         }
       } else if ((url === '/api/workflows' || url === '/api/workflow/parse' || url === '/api/parse-workflow' || url === '/api/inspect-workflow') && req.method === 'POST') {
         const body = await getBody();
@@ -2376,6 +2621,33 @@ function startHttpBridgeServer() {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
         setTimeout(() => performFullShutdown(), 500);
+      } else if (url === '/api/license/status' && req.method === 'GET') {
+        const result = await licenseService.getActiveLicenseStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/license/user-key' && req.method === 'GET') {
+        const pubKey = await licenseService.getUserPublicKey();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ publicKey: pubKey }));
+      } else if (url === '/api/license/activate' && req.method === 'POST') {
+        const body = await getBody();
+        const result = await licenseService.activateLicense(body.licenseKey || body.key || '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/license/deactivate' && req.method === 'POST') {
+        const result = await licenseService.deactivateLicense();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/license/verify' && req.method === 'POST') {
+        const body = await getBody();
+        const result = await licenseService.verifyLicense(body.licenseKey || body.key || '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } else if (url === '/api/license/sign-challenge' && req.method === 'POST') {
+        const body = await getBody();
+        const signature = await licenseService.signChallenge(body.challenge || '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ signature }));
       } else {
         res.writeHead(404);
         res.end('Not Found');
@@ -2394,15 +2666,37 @@ function startHttpBridgeServer() {
     }
   });
 
-  server.listen(apiPort, '127.0.0.1', () => {
-    logger.info(`HTTP Native Server Bridge securely listening on http://127.0.0.1:${apiPort} (Localhost only)`);
-    // Outbound startup poke to sister app (RenegadeSwarm on port 5180)
-    swarmBridge.sendSisterWakeup(currentConfig.swarm_server_url);
+  server.listen(apiPort, '127.0.0.1', async () => {
+    const address = server.address();
+    if (address && typeof address === 'object' && 'port' in address) {
+      activeApiPort = address.port;
+      currentConfig.local_api_port = address.port;
+    }
+    logger.info(`HTTP Native Server Bridge securely listening on http://127.0.0.1:${activeApiPort} (Localhost only)`);
+
+    // Run cryptographic canary integrity verification on startup
+    try {
+      const canary = await licenseService.verifyIntegrityCanary();
+      if (!canary.passed) {
+        logger.error(`[SECURITY ALERT] Startup cryptographic canary failed: ${canary.error}. Local machine state burned.`);
+      }
+    } catch (canaryErr) {
+      logger.error('Error during startup integrity canary check:', canaryErr);
+    }
+
+    // Outbound startup poke to sister app (RenegadeSwarm on port 5180) unless revoked
+    const revCheck = await licenseService.isMachineRevoked();
+    if (!revCheck.isRevoked) {
+      swarmBridge.sendSisterWakeup(currentConfig.swarm_server_url);
+    } else {
+      logger.warn('Machine state is revoked/toxic; sister wakeup poke suppressed.');
+    }
   });
 }
 
 function registerIpcHandlers() {
   ipcMain.handle('get-config', () => getSanitizedConfig(currentConfig, true));
+  ipcMain.handle('get-api-port', () => activeApiPort);
 
   // Clear library cache from SQLite
   ipcMain.handle('clear-library', async () => {
@@ -2415,6 +2709,26 @@ function registerIpcHandlers() {
       logger.error('Failed to clear library database:', e);
       return { success: false, error: e?.message || 'Unknown error' };
     }
+  });
+
+  ipcMain.handle('set-api-key', async (_event, key: string) => {
+    const keyVal = String(key || '').trim();
+    if (keyVal === '') {
+      currentConfig.civitai_api_key = '';
+      await dbManager.run('DELETE FROM app_config WHERE key = ?;', ['civitai_api_key']);
+      civitaiClient.setApiKey('');
+      downloadManager.setApiKey('');
+    } else {
+      currentConfig.civitai_api_key = keyVal;
+      const encrypted = encryptKey(keyVal);
+      await dbManager.run(
+        'INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?);',
+        ['civitai_api_key', JSON.stringify(encrypted)]
+      );
+      civitaiClient.setApiKey(keyVal);
+      downloadManager.setApiKey(keyVal);
+    }
+    return { success: true };
   });
 
   ipcMain.handle('save-config', async (_event, newConfig: Partial<AppConfig>) => {
@@ -2897,7 +3211,7 @@ function registerIpcHandlers() {
       parsed.nodeType,
       targetNodesDir,
       currentConfig.comfyui_install_dir,
-      { searchGitHub: !!parsed.searchGitHub, forceRefresh: !!parsed.forceRefresh }
+      { searchGitHub: !!parsed.searchGitHub, forceRefresh: !!parsed.forceRefresh, comfyuiServerUrl: currentConfig.comfyui_server_url }
     );
   });
 
@@ -3018,6 +3332,12 @@ function registerIpcHandlers() {
     return await storageOptimizer.packageAllMissingCompanions();
   });
 
+  ipcMain.handle('save-model-trigger-words', async (_event: unknown, filePath: string, triggerWords: string[]) => {
+    const validPath = z.string().min(1).max(4096).parse(filePath);
+    const validWords = z.array(z.string().max(256)).parse(triggerWords);
+    return await storageOptimizer.updateModelTriggerWords(validPath, validWords);
+  });
+
   ipcMain.handle('inspect-model-precision', async (_event: unknown, filePath: string) => {
     const validPath = z.string().min(1).max(4096).parse(filePath);
     return await precisionInspector.inspectModel(validPath);
@@ -3026,6 +3346,27 @@ function registerIpcHandlers() {
   ipcMain.handle('scan-orphan-models', async (_event: unknown, workflowDirs?: string | string[]) => {
     const targetPaths = resolveWorkflowScanPaths(currentConfig, workflowDirs);
     return await orphanFinder.findOrphanModels(targetPaths);
+  });
+
+  // Library Sorter / Auto-Organize Handlers
+  ipcMain.handle('analyze-library-sorting', async (_event: unknown, options?: any) => {
+    return await librarySorter.analyzeLibrary(options);
+  });
+
+  ipcMain.handle('execute-library-sorting', async (_event: unknown, planItems: any) => {
+    const validItems = z.array(
+      z.object({
+        modelId: z.string(),
+        sourcePath: z.string(),
+        targetPath: z.string(),
+      })
+    ).parse(planItems);
+
+    return await librarySorter.executeSort(validItems, (prog) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('library-sort-progress', prog);
+      }
+    });
   });
 
   // Model Converter Handlers
@@ -3041,6 +3382,14 @@ function registerIpcHandlers() {
     return await modelConverter.convertPickleToSafetensors(parsed.sourcePath, {
       deleteOriginal: parsed.opts?.deleteOriginal !== undefined ? parsed.opts.deleteOriginal : currentConfig.delete_original_after_conversion,
       targetPath: parsed.opts?.targetPath,
+      customPythonPath: currentConfig.custom_python_path,
+      comfyuiInstallDir: currentConfig.comfyui_install_dir,
+    });
+  });
+
+  ipcMain.handle('scan-pickle-model', async (_event: unknown, sourcePath: string) => {
+    const validPath = z.string().min(1).parse(sourcePath);
+    return await modelConverter.scanPickleModel(validPath, {
       customPythonPath: currentConfig.custom_python_path,
       comfyuiInstallDir: currentConfig.comfyui_install_dir,
     });
@@ -3091,37 +3440,20 @@ function registerIpcHandlers() {
        WHERE has_update = 1 AND update_version_id IS NOT NULL AND civitai_version_id = update_version_id;`
     );
     const rows = await dbManager.all('SELECT * FROM local_models ORDER BY file_name ASC;');
-    return rows.map((r: any) => ({
-      id: r.id,
-      source: r.source || (r.hf_repo_id ? 'huggingface' : 'civitai'),
-      hfRepoId: r.hf_repo_id || undefined,
-      hfCommitSha: r.hf_commit_sha || undefined,
-      quantization: r.quantization || undefined,
-      filePath: r.file_path,
-      fileName: r.file_name,
-      fileSize: r.file_size,
-      modifiedAt: r.modified_at,
-      sha256: r.sha256,
-      civitaiModelId: r.civitai_model_id,
-      civitaiVersionId: r.civitai_version_id,
-      civitaiName: r.civitai_name || undefined,
-      previewUrl: r.preview_url,
-      modelType: r.model_type,
-      nsfw: !!r.nsfw,
-      isMatched: !!r.civitai_version_id || !!r.hf_repo_id,
-      isMissing: !fs.existsSync(r.file_path),
-      hasUpdate: !!r.has_update,
-      updateVersionId: r.update_version_id,
-      updateVersionName: r.update_version_name,
-      updateDownloadUrl: r.update_download_url,
-      ignoredVersionId: r.ignored_version_id,
-      isDuplicate: !!r.is_duplicate,
-      updateCheckedAt: r.update_checked_at,
-    }));
+    return rows.map(mapDbRowToLocalModel);
   });
 
   ipcMain.handle('pull-missing-model', async (_event: unknown, modelData: any, targetRoot?: string) => {
     return await pullMissingModel(modelData, targetRoot);
+  });
+
+  ipcMain.handle('save-model-metadata', async (_event: unknown, params: any) => {
+    return await libraryScanner.saveModelMetadata(params);
+  });
+
+  ipcMain.handle('fetch-model-metadata-by-url', async (_event: unknown, urlOrId: string) => {
+    const validUrlOrId = z.string().min(1).parse(urlOrId);
+    return await libraryScanner.fetchModelMetadataByUrl(validUrlOrId);
   });
 
   // Download Handlers
@@ -3344,6 +3676,13 @@ function registerIpcHandlers() {
     return listDirectoryEntries(validDirPath);
   });
 
+  ipcMain.handle('check-folder-access', async (_event: unknown, folderPath: string) => {
+    if (!folderPath || typeof folderPath !== 'string') {
+      return { exists: false, writable: false, error: 'No folder path provided' };
+    }
+    return testFolderWritable(folderPath);
+  });
+
   ipcMain.handle('ignore-duplicate-set', async (_event: unknown, sha256: string, count: number = 2) => {
     const parsed = IgnoreDuplicateSetSchema.parse({ sha256, count });
     return await libraryScanner.ignoreDuplicateSet(parsed.sha256, parsed.count);
@@ -3397,6 +3736,29 @@ function registerIpcHandlers() {
     return false;
   });
 
+  // License Management & Cryptographic Verification
+  ipcMain.handle('get-license-status', async () => {
+    return await licenseService.getActiveLicenseStatus();
+  });
+  ipcMain.handle('get-user-public-key', async () => {
+    return await licenseService.getUserPublicKey();
+  });
+  ipcMain.handle('activate-license', async (_event: unknown, licenseKey: string) => {
+    const validKey = z.string().max(8192).parse(licenseKey || '');
+    return await licenseService.activateLicense(validKey);
+  });
+  ipcMain.handle('deactivate-license', async () => {
+    return await licenseService.deactivateLicense();
+  });
+  ipcMain.handle('verify-license', async (_event: unknown, licenseKey: string) => {
+    const validKey = z.string().max(8192).parse(licenseKey || '');
+    return await licenseService.verifyLicense(validKey);
+  });
+  ipcMain.handle('sign-license-challenge', async (_event: unknown, challenge: string) => {
+    const validChallenge = z.string().max(4096).parse(challenge || '');
+    return await licenseService.signChallenge(validChallenge);
+  });
+
   // App control
   ipcMain.handle('restart-app', async () => {
     return await performLiveRestart();
@@ -3447,7 +3809,10 @@ async function performLiveRestart() {
   }
 }
 
+let isShuttingDown = false;
 function performFullShutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   logger.info('Performing full application shutdown and cleanup...');
 
   // 1. Read PID file (.cmm.pid) if exists
@@ -3474,10 +3839,11 @@ function performFullShutdown() {
         child_process.execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
       } catch (e) { }
     }
-    // Clean up only node/electron processes listening on 5173 or 5174, never browsers
+    // Clean up node/electron processes associated with this project or listening on 5173/5174
     try {
+      const rootEscaped = process.cwd().replace(/'/g, "''");
       child_process.execSync(
-        `powershell -NoProfile -Command "$prot = @('firefox','chrome','brave','opera','msedge','safari'); Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p -and $p.Id -ne ${process.pid} -and ($p.ProcessName -eq 'node' -or $p.ProcessName -eq 'electron') -and -not ($prot -contains $p.ProcessName.ToLower())) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }"`,
+        `powershell -NoProfile -Command "$prot = @('firefox','chrome','brave','opera','msedge','safari','zen','waterfox','tor'); $pids = @(); Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $pids += [int]$_ }; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { ($_.Name -match 'node|electron') -and ($_.CommandLine -like '*${rootEscaped}*' -or $_.CommandLine -like '*renegadecmm*') } | ForEach-Object { $pids += [int]$_.ProcessId }; $pids | Select-Object -Unique | ForEach-Object { if ($_ -gt 4 -and $_ -ne ${process.pid}) { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p -and -not ($prot -contains $p.ProcessName.ToLower())) { & taskkill.exe /F /T /PID $_ 2>&1; Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } } }"`,
         { stdio: 'ignore' }
       );
     } catch (e) { }
@@ -3645,6 +4011,12 @@ if (!gotTheLock) {
         logger.warn('Auto-updater check failed:', err);
       });
     }
+
+    app.on('window-all-closed', () => {
+      if (process.platform !== 'darwin') {
+        performFullShutdown();
+      }
+    });
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

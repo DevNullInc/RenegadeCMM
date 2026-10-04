@@ -3,10 +3,12 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
 import path from 'path';
@@ -29,7 +31,7 @@ function printBanner() {
   console.log('  |        Renegade Core Model Manager (CMM) - CLI Runner       |');
   console.log('  +-------------------------------------------------------------+');
   console.log(`  Version ${APP_VERSION} | Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc.`);
-  console.log('  License: GNU GPLv3 or later <https://www.gnu.org/licenses/gpl-3.0.html>');
+  console.log('  License: Business Source License 1.1 (BSL-1.1)');
   console.log('  This is free software: you are free to change and redistribute it.');
   console.log('  There is NO WARRANTY, to the extent permitted by law.\n');
   console.log('\x1b[0m');
@@ -158,7 +160,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   ) {
     console.log(`RenegadeCMM CLI v${APP_VERSION}`);
     console.log(`Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc.`);
-    console.log(`License: GNU General Public License v3.0 or later (GPL-3.0-or-later)`);
+    console.log(`License: Business Source License 1.1 (BSL-1.1)`);
     console.log(`This is free software: you are free to change and redistribute it.`);
     console.log(`There is NO WARRANTY, to the extent permitted by law.`);
     return 0;

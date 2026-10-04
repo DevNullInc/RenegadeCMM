@@ -2,15 +2,17 @@
  * Renegade Core Model Manager (RenegadeCMM)
  * Copyright (C) 2025-2026 TheStygianRenegade / /dev/null Inc
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Licensed under the Business Source License 1.1 (BUSL-1.1).
+ * Single-user evaluation model with fully functional features.
+ * Commercial enterprise license required for organizations with > 5 persons.
+ * Inquiries: licensing@renegadeinc.net
+ * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
+ * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
 import path from 'path';
 import chokidar, { FSWatcher } from 'chokidar';
-import { LocalModel, ScanProgress } from '../types/app';
+import { LocalModel, SaveModelMetadataParams, ScanProgress } from '../types/app';
 import { civitaiClient } from './civitaiClient';
 import { huggingfaceClient } from './huggingfaceClient';
 import { dbManager } from '../db/db';
@@ -30,6 +32,141 @@ const MODEL_EXTENSIONS = new Set([
   '.engine',
   '.tensor',
 ]);
+
+export function parseShardDetails(fileName: string): {
+  isShard: boolean;
+  prefix?: string;
+  partIndex?: number;
+  totalParts?: number;
+} {
+  const baseName = path.basename(fileName);
+
+  // 1. model-00001-of-00005.safetensors or diffusion_pytorch_model-00001-of-00002.safetensors
+  const matchOf = baseName.match(/^(.*?)[-_.]?0*(\d+)[-_]of[-_]0*(\d+)\.[a-zA-Z0-9]+$/i);
+  if (matchOf) {
+    return {
+      isShard: true,
+      prefix: matchOf[1] ? matchOf[1].replace(/[-_.]$/, '') : 'model',
+      partIndex: parseInt(matchOf[2], 10),
+      totalParts: parseInt(matchOf[3], 10),
+    };
+  }
+
+  // 2. model-00001.safetensors or pytorch_model-00001.bin or consolidated.00.pth
+  const matchNumbered = baseName.match(/^(model|diffusion_pytorch_model|pytorch_model|consolidated|text_encoder|unet|vae)[-_.]0*(\d+)\.[a-zA-Z0-9]+$/i);
+  if (matchNumbered) {
+    return {
+      isShard: true,
+      prefix: matchNumbered[1],
+      partIndex: parseInt(matchNumbered[2], 10),
+    };
+  }
+
+  // 3. name.part1.safetensors / name.chunk1.safetensors
+  const matchChunk = baseName.match(/^(.*?)[-_.]?(?:shard|part|chunk)[-_.]?0*(\d+)(?:[-_]of[-_]0*(\d+))?\.[a-zA-Z0-9]+$/i);
+  if (matchChunk) {
+    return {
+      isShard: true,
+      prefix: matchChunk[1] ? matchChunk[1].replace(/[-_.]$/, '') : 'model',
+      partIndex: parseInt(matchChunk[2], 10),
+      totalParts: matchChunk[3] ? parseInt(matchChunk[3], 10) : undefined,
+    };
+  }
+
+  return { isShard: false };
+}
+
+export function inferMetadataFromPath(filePath: string): {
+  modelType?: any;
+  civitaiCreator?: string;
+  hfRepoId?: string;
+  source?: 'civitai' | 'huggingface' | 'custom';
+  quantization?: string;
+  civitaiBaseModel?: string;
+} {
+  const normalized = filePath.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  const baseName = parts[parts.length - 1] || '';
+  const parentFolder = parts.length > 1 ? parts[parts.length - 2] : '';
+  const grandParentFolder = parts.length > 2 ? parts[parts.length - 3] : '';
+
+  let modelType: any = undefined;
+  let civitaiCreator: string | undefined = undefined;
+  let hfRepoId: string | undefined = undefined;
+  let source: 'civitai' | 'huggingface' | 'custom' | undefined = undefined;
+  let quantization: string | undefined = undefined;
+  let civitaiBaseModel: string | undefined = undefined;
+
+  // 1. Quantization extraction from filename (e.g. Q4_K_M, Q8_0, FP8, INT4, INT8, BF16, FP16)
+  const quantMatch = baseName.match(/[-_.]?(Q\d+_[A-Z0-9_]+|FP8|FP16|BF16|INT4|INT8|Q\d+_\d+)(?:\.|$)/i);
+  if (quantMatch) {
+    quantization = quantMatch[1].toUpperCase();
+  }
+
+  // 2. Model Type inference from path or extension
+  const lowerPath = normalized.toLowerCase();
+  if (lowerPath.includes('/loras/') || lowerPath.includes('/lora/')) {
+    modelType = 'LORA';
+  } else if (lowerPath.includes('/diffusion_models/') || lowerPath.includes('/unet/')) {
+    modelType = 'UNET';
+  } else if (lowerPath.includes('/llm/') || lowerPath.includes('/gguf/') || baseName.toLowerCase().endsWith('.gguf')) {
+    modelType = 'LLM';
+  } else if (lowerPath.includes('/geometry_estimation/') || lowerPath.includes('/depth/') || lowerPath.includes('/controlnet/')) {
+    modelType = 'ControlNet';
+  } else if (lowerPath.includes('/vae/') || lowerPath.includes('/vae_approx/')) {
+    modelType = 'VAE';
+  } else if (lowerPath.includes('/upscale_models/') || lowerPath.includes('/esrgan/')) {
+    modelType = 'Upscaler';
+  } else if (lowerPath.includes('/clip_vision/') || lowerPath.includes('/clip/')) {
+    modelType = 'CLIP';
+  } else if (lowerPath.includes('/text_encoders/')) {
+    modelType = 'TextEncoder';
+  } else if (lowerPath.includes('/checkpoints/') || lowerPath.includes('/models/checkpoints/')) {
+    modelType = 'Checkpoint';
+  }
+
+  // 3. Hugging Face author / repo inference
+  const genericFolders = ['models', 'data', 'llm', 'gguf', 'loras', 'diffusion_models', 'checkpoints', 'unet', 'geometry_estimation', 'vae', 'clip', 'upscale_models'];
+  if (lowerPath.includes('/models--')) {
+    const hfHubFolder = parts.find((p) => p.startsWith('models--'));
+    if (hfHubFolder) {
+      const cleanParts = hfHubFolder.replace('models--', '').split('--');
+      if (cleanParts.length >= 2) {
+        civitaiCreator = cleanParts[0];
+        hfRepoId = `${cleanParts[0]}/${cleanParts.slice(1).join('--')}`;
+        source = 'huggingface';
+      }
+    }
+  } else if (
+    grandParentFolder &&
+    !genericFolders.includes(grandParentFolder.toLowerCase()) &&
+    parentFolder &&
+    !genericFolders.includes(parentFolder.toLowerCase())
+  ) {
+    // E.g. .../GGUF/bartowski/google_gemma-4-E2B-it-GGUF/file.gguf
+    civitaiCreator = grandParentFolder;
+    hfRepoId = `${grandParentFolder}/${parentFolder}`;
+    source = 'huggingface';
+  } else if (parentFolder && !genericFolders.includes(parentFolder.toLowerCase())) {
+    // E.g. .../GGUF/HauhauCS/file.gguf
+    if (lowerPath.includes('/gguf/') || lowerPath.includes('/llm/')) {
+      civitaiCreator = parentFolder;
+      source = 'huggingface';
+    }
+  }
+
+  // 4. Base model extraction (e.g. SDXL, SD 1.5, Flux, Qwen, Gemma, LLaMA, LTX-Video)
+  const baseNameLower = baseName.toLowerCase();
+  if (baseNameLower.includes('sdxl')) civitaiBaseModel = 'SDXL 1.0';
+  else if (baseNameLower.includes('flux')) civitaiBaseModel = 'Flux.1 D';
+  else if (baseNameLower.includes('qwen')) civitaiBaseModel = 'Qwen';
+  else if (baseNameLower.includes('gemma')) civitaiBaseModel = 'Gemma';
+  else if (baseNameLower.includes('llama')) civitaiBaseModel = 'LLaMA';
+  else if (baseNameLower.includes('ltx')) civitaiBaseModel = 'LTX-Video';
+  else if (baseNameLower.includes('sd15') || baseNameLower.includes('v1-5') || baseNameLower.includes('sd1.5')) civitaiBaseModel = 'SD 1.5';
+
+  return { modelType, civitaiCreator, hfRepoId, source, quantization, civitaiBaseModel };
+}
 
 export function resolveModelFileName(filePath: string): string {
   const baseName = path.basename(filePath);
@@ -56,6 +193,32 @@ export function resolveModelFileName(filePath: string): string {
     const modelFolder = parts.slice(0, -1).reverse().find((p) => p.startsWith('models--'));
     if (modelFolder) {
       return modelFolder;
+    }
+  }
+
+  // Check if filename is a multi-part shard (e.g. model-00004-of-00007.safetensors)
+  const shardInfo = parseShardDetails(baseName);
+  if (shardInfo.isShard) {
+    const parts = normalized.split('/');
+    if (parts.length > 1) {
+      const parentDir = parts[parts.length - 2];
+      const genericFolders = [
+        'models',
+        'data',
+        'llm',
+        'gguf',
+        'loras',
+        'diffusion_models',
+        'checkpoints',
+        'unet',
+        'geometry_estimation',
+        'vae',
+        'clip',
+        'upscale_models',
+      ];
+      if (parentDir && !genericFolders.includes(parentDir.toLowerCase())) {
+        return parentDir;
+      }
     }
   }
 
@@ -100,7 +263,7 @@ export function discoverCompanionFiles(filePath: string): {
           result.localImageUrl = `/api/local-image?path=${encodeURIComponent(candidate)}`;
           break;
         }
-      } catch {}
+      } catch { }
     }
   }
 
@@ -113,7 +276,7 @@ export function discoverCompanionFiles(filePath: string): {
       if (match) {
         result.companionHash = match[0].toUpperCase();
       }
-    } catch {}
+    } catch { }
   }
 
   // 3. Companion Metadata Info (.civitai.info, .info, .huggingface.info)
@@ -132,7 +295,7 @@ export function discoverCompanionFiles(filePath: string): {
           result.companionInfoPath = infoCandidate;
           break;
         }
-      } catch {}
+      } catch { }
     }
   }
 
@@ -222,33 +385,124 @@ export class LibraryScanner {
         return [];
       }
 
+      // Pre-group Multi-Part Shards across collected files
+      const multiPartGroups = new Map<string, {
+        primaryPath: string;
+        secondaryPaths: string[];
+        folderName: string;
+        totalSize: number;
+        maxModified: number;
+        totalParts: number;
+        availableParts: number;
+        shards: any[];
+      }>();
+
+      const secondaryShardPaths = new Set<string>();
+
+      // Group by directory
+      const dirMap = new Map<string, string[]>();
+      for (const fp of allFiles) {
+        const dir = path.dirname(fp);
+        if (!dirMap.has(dir)) dirMap.set(dir, []);
+        dirMap.get(dir)!.push(fp);
+      }
+
+      for (const [dir, filesInDir] of dirMap.entries()) {
+        const shardEntries: Array<{
+          filePath: string;
+          fileName: string;
+          size: number;
+          mtime: number;
+          shard: ReturnType<typeof parseShardDetails>;
+        }> = [];
+        for (const f of filesInDir) {
+          const s = parseShardDetails(f);
+          if (s.isShard) {
+            try {
+              const stat = fs.statSync(f);
+              shardEntries.push({
+                filePath: f,
+                fileName: path.basename(f),
+                size: stat.size,
+                mtime: Math.floor(stat.mtimeMs),
+                shard: s,
+              });
+            } catch { }
+          }
+        }
+
+        const prefixGroups = new Map<string, typeof shardEntries>();
+        for (const entry of shardEntries) {
+          const p = entry.shard.prefix || 'model';
+          if (!prefixGroups.has(p)) prefixGroups.set(p, []);
+          prefixGroups.get(p)!.push(entry);
+        }
+
+        for (const [, entries] of prefixGroups.entries()) {
+          if (entries.length > 1 || (entries.length === 1 && entries[0].shard.totalParts && entries[0].shard.totalParts > 1)) {
+            entries.sort((a, b) => (a.shard.partIndex || 0) - (b.shard.partIndex || 0));
+            const primary = entries[0];
+            const secondaries = entries.slice(1);
+            for (const s of secondaries) {
+              secondaryShardPaths.add(s.filePath);
+            }
+
+            const expectedTotal = entries.find((e) => e.shard.totalParts)?.shard.totalParts || entries.length;
+            const folderName = path.basename(dir);
+            const totalSize = entries.reduce((acc, e) => acc + e.size, 0);
+            const maxModified = Math.max(...entries.map((e) => e.mtime));
+
+            const shards = entries.map((e) => ({
+              fileName: e.fileName,
+              filePath: e.filePath,
+              fileSize: e.size,
+              partIndex: e.shard.partIndex || 1,
+              totalParts: expectedTotal,
+            }));
+
+            multiPartGroups.set(primary.filePath, {
+              primaryPath: primary.filePath,
+              secondaryPaths: secondaries.map((s) => s.filePath),
+              folderName,
+              totalSize,
+              maxModified,
+              totalParts: expectedTotal,
+              availableParts: entries.length,
+              shards,
+            });
+          }
+        }
+      }
+
+      const filesToProcess = allFiles.filter((f) => !secondaryShardPaths.has(f));
+
       emitProgress({
         scannedFiles: 0,
-        totalFiles: allFiles.length,
+        totalFiles: filesToProcess.length,
         status: 'hashing',
-        currentFile: allFiles.length > 0 ? path.basename(allFiles[0]) : '',
+        currentFile: filesToProcess.length > 0 ? path.basename(filesToProcess[0]) : '',
       });
 
       const scannedModels: LocalModel[] = [];
       const hashesToLookup: { hash: string; localId: string }[] = [];
 
       // 2. Process each file with Fast-Path Cache Check
-      for (let i = 0; i < allFiles.length; i++) {
+      for (let i = 0; i < filesToProcess.length; i++) {
         if (this.cancelRequested) {
           logger.info('Scan stopped during hashing phase.');
           emitProgress({
             scannedFiles: i,
-            totalFiles: allFiles.length,
+            totalFiles: filesToProcess.length,
             status: 'idle',
             currentFile: 'Scan cancelled by user.',
           });
           return scannedModels;
         }
 
-        const filePath = allFiles[i];
+        const filePath = filesToProcess[i];
         emitProgress({
           scannedFiles: i + 1,
-          totalFiles: allFiles.length,
+          totalFiles: filesToProcess.length,
           status: 'hashing',
           currentFile: path.basename(filePath),
         });
@@ -263,8 +517,16 @@ export class LibraryScanner {
           continue;
         }
 
-        const modifiedAt = Math.floor(stats.mtimeMs);
-        const fileSize = stats.size;
+        const mp = multiPartGroups.get(filePath);
+        const modifiedAt = mp ? mp.maxModified : Math.floor(stats.mtimeMs);
+        const fileSize = mp ? mp.totalSize : stats.size;
+
+        // Clean up individual secondary shard rows in DB if this is a multi-part primary
+        if (mp && mp.secondaryPaths.length > 0) {
+          for (const secPath of mp.secondaryPaths) {
+            await dbManager.run('DELETE FROM local_models WHERE file_path = ? COLLATE NOCASE;', [secPath]).catch(() => { });
+          }
+        }
 
         // Check SQLite cache by filePath, fileSize, and modifiedAt (case-insensitive for Windows)
         const cached: any = await dbManager.get(
@@ -292,7 +554,7 @@ export class LibraryScanner {
                   const totalMb = (totalBytes / (1024 * 1024)).toFixed(0);
                   emitProgress({
                     scannedFiles: i + 1,
-                    totalFiles: allFiles.length,
+                    totalFiles: filesToProcess.length,
                     status: 'hashing',
                     currentFile: `${path.basename(filePath)} (${fileMb}MB / ${totalMb}MB)`,
                   });
@@ -306,35 +568,55 @@ export class LibraryScanner {
         }
 
         const localId = cached?.id || `loc_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-        const resolvedFileName = resolveModelFileName(filePath);
-        const isLlmPath = filePath.toLowerCase().includes('/llm/') || filePath.toLowerCase().includes('\\llm\\') || filePath.includes('models--');
+        const resolvedFileName = mp ? mp.folderName : resolveModelFileName(filePath);
+        const inferred = inferMetadataFromPath(filePath);
 
         let civitaiModelId = cached?.civitai_model_id;
         let civitaiVersionId = cached?.civitai_version_id;
-        let civitaiName = cached?.civitai_name || undefined;
-        let civitaiBaseModel = cached?.civitai_base_model || undefined;
+        let civitaiName = cached?.civitai_name || (mp ? mp.folderName : undefined);
+        let civitaiBaseModel = cached?.civitai_base_model || inferred.civitaiBaseModel || undefined;
         let previewUrl = companion.localImageUrl || cached?.preview_url || undefined;
-        let modelType = cached?.model_type || (isLlmPath ? ('LLM' as any) : undefined);
+        let modelType = cached?.model_type || inferred.modelType || (mp ? ('LLM' as any) : undefined);
         let nsfw = !!cached?.nsfw;
+        let customLink = cached?.custom_link || undefined;
+        let source = cached?.source || inferred.source || (inferred.hfRepoId ? 'huggingface' : 'civitai');
+        let hfRepoId = cached?.hf_repo_id || inferred.hfRepoId || undefined;
+        let quantization = cached?.quantization || inferred.quantization || undefined;
+        let trainedWords: string[] | undefined = undefined;
+        let description: string[] | string | undefined = undefined;
+        let tags: string[] | undefined = undefined;
+        let civitaiCreator: string | undefined = cached?.civitai_creator || inferred.civitaiCreator || undefined;
 
-        // Offline metadata extraction from companion .info file if not already matched
-        if (!civitaiVersionId && companion.companionInfo) {
+        // Metadata extraction from companion .info file
+        if (companion.companionInfo) {
           const info = companion.companionInfo;
-          if (info.id || info.modelId || info.name) {
-            civitaiVersionId = info.id || civitaiVersionId;
-            civitaiModelId = info.modelId || info.model?.id || civitaiModelId;
-            civitaiName = info.model?.name || info.name || civitaiName;
-            civitaiBaseModel = info.baseModel || civitaiBaseModel;
-            modelType = info.model?.type || info.type || modelType;
-            if (!previewUrl) {
-              previewUrl = this.extractPreviewImage(info) || previewUrl;
+          trainedWords = Array.isArray(info.trainedWords) && info.trainedWords.length > 0
+            ? info.trainedWords
+            : (Array.isArray(info.model?.trainedWords) && info.model.trainedWords.length > 0 ? info.model.trainedWords : undefined);
+          description = info.description || info.model?.description || undefined;
+          tags = Array.isArray(info.tags) ? info.tags : (Array.isArray(info.model?.tags) ? info.model.tags : undefined);
+          civitaiCreator = info.model?.creator?.username || info.creator?.username || civitaiCreator;
+          customLink = info.customLink || customLink;
+          if (info.source) source = info.source;
+          if (info.hfRepoId) hfRepoId = info.hfRepoId;
+
+          if (!civitaiVersionId) {
+            if (info.id || info.modelId || info.name) {
+              civitaiVersionId = info.id || civitaiVersionId;
+              civitaiModelId = info.modelId || info.model?.id || civitaiModelId;
+              civitaiName = info.model?.name || info.name || civitaiName;
+              civitaiBaseModel = info.baseModel || civitaiBaseModel;
+              modelType = info.model?.type || info.type || modelType;
+              if (!previewUrl) {
+                previewUrl = this.extractPreviewImage(info) || previewUrl;
+              }
+              const isNsfw = Boolean(
+                info.model?.nsfw ||
+                (info.images && info.images.some((img: any) => img && (img.nsfw || (img.nsfwLevel && img.nsfwLevel > 1)))) ||
+                (info.nsfwLevel && info.nsfwLevel > 1)
+              );
+              nsfw = isNsfw;
             }
-            const isNsfw = Boolean(
-              info.model?.nsfw ||
-              (info.images && info.images.some((img: any) => img && (img.nsfw || (img.nsfwLevel && img.nsfwLevel > 1)))) ||
-              (info.nsfwLevel && info.nsfwLevel > 1)
-            );
-            nsfw = isNsfw;
           }
         }
 
@@ -349,22 +631,33 @@ export class LibraryScanner {
           civitaiVersionId,
           civitaiName,
           civitaiBaseModel,
-          isMatched: !!civitaiVersionId,
+          civitaiCreator,
+          customLink,
+          source,
+          hfRepoId,
+          quantization,
+          isMatched: !!civitaiVersionId || !!hfRepoId || !!customLink,
           previewUrl,
           localPreviewPath: companion.localImagePath,
           companionInfoPath: companion.companionInfoPath,
           modelType,
           nsfw,
+          trainedWords,
+          description: typeof description === 'string' ? description : undefined,
+          tags,
+          isMultiPart: mp ? true : !!cached?.is_multi_part,
+          totalParts: mp ? mp.totalParts : (cached?.total_parts || undefined),
+          availableParts: mp ? mp.availableParts : (cached?.available_parts || undefined),
+          shards: mp ? mp.shards : (cached?.shards_json ? JSON.parse(cached.shards_json) : undefined),
         };
 
         scannedModels.push(localModel);
 
-        // Save/Update in SQLite. Uses UPSERT so update-check state (has_update,
-        // update_*, update_checked_at, ignored_version_id) survives rescans unchanged.
+        // Save/Update in SQLite. Uses UPSERT so update-check state survives rescans unchanged.
         await dbManager.run(
           `INSERT INTO local_models 
-            (id, file_path, file_name, file_size, modified_at, sha256, civitai_model_id, civitai_version_id, civitai_name, scanned_at, preview_url, model_type, nsfw)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?)
+            (id, file_path, file_name, file_size, modified_at, sha256, civitai_model_id, civitai_version_id, civitai_name, scanned_at, preview_url, model_type, nsfw, custom_link, source, hf_repo_id, quantization, is_multi_part, total_parts, available_parts, shards_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              file_path = excluded.file_path,
              file_name = excluded.file_name,
@@ -377,7 +670,15 @@ export class LibraryScanner {
              scanned_at = CURRENT_TIMESTAMP,
              preview_url = COALESCE(excluded.preview_url, local_models.preview_url),
              model_type = COALESCE(excluded.model_type, local_models.model_type),
-             nsfw = excluded.nsfw`,
+             nsfw = excluded.nsfw,
+             custom_link = COALESCE(excluded.custom_link, local_models.custom_link),
+             source = COALESCE(excluded.source, local_models.source),
+             hf_repo_id = COALESCE(excluded.hf_repo_id, local_models.hf_repo_id),
+             quantization = COALESCE(excluded.quantization, local_models.quantization),
+             is_multi_part = excluded.is_multi_part,
+             total_parts = excluded.total_parts,
+             available_parts = excluded.available_parts,
+             shards_json = excluded.shards_json`,
           [
             localModel.id,
             localModel.filePath,
@@ -391,6 +692,14 @@ export class LibraryScanner {
             localModel.previewUrl || null,
             localModel.modelType || null,
             localModel.nsfw ? 1 : 0,
+            localModel.customLink || null,
+            localModel.source || 'civitai',
+            localModel.hfRepoId || null,
+            localModel.quantization || null,
+            localModel.isMultiPart ? 1 : 0,
+            localModel.totalParts || null,
+            localModel.availableParts || null,
+            localModel.shards ? JSON.stringify(localModel.shards) : null,
           ]
         );
 
@@ -428,6 +737,13 @@ export class LibraryScanner {
               item.civitaiModelId = matchedVersion.modelId;
               item.civitaiName = matchedVersion.model?.name || matchedVersion.name;
               item.civitaiBaseModel = matchedVersion.baseModel;
+              item.civitaiCreator = matchedVersion.model?.creator?.username || item.civitaiCreator;
+              item.trainedWords = Array.isArray(matchedVersion.trainedWords) && matchedVersion.trainedWords.length > 0
+                ? matchedVersion.trainedWords
+                : (Array.isArray(matchedVersion.model?.trainedWords) && matchedVersion.model.trainedWords.length > 0
+                  ? matchedVersion.model.trainedWords
+                  : item.trainedWords);
+              item.description = matchedVersion.description || item.description;
               const preview = this.extractPreviewImage(matchedVersion);
               item.previewUrl = preview || undefined;
               const modelType = matchedVersion.model?.type || matchedVersion.type;
@@ -517,11 +833,16 @@ export class LibraryScanner {
             for (const pModel of pickleModels) {
               if (this.cancelRequested) break;
               try {
-                await modelConverter.convertPickleToSafetensors(pModel.filePath, {
+                const convRes = await modelConverter.convertPickleToSafetensors(pModel.filePath, {
                   deleteOriginal: shouldDeleteOrig,
                   customPythonPath: customPy,
                   comfyuiInstallDir: comfyInstall,
                 });
+                if (convRes.isYolo) {
+                  logger.info(`Auto-conversion preserved YOLO model as .pt: ${pModel.filePath}`);
+                } else if (!convRes.success && convRes.scanResult && !convRes.scanResult.isSafe) {
+                  logger.error(`Auto-conversion blocked malicious model: ${pModel.filePath} -> ${convRes.error}`);
+                }
               } catch (convErr) {
                 logger.warn(`Auto-conversion skipped for ${pModel.filePath}:`, convErr);
               }
@@ -786,6 +1107,220 @@ export class LibraryScanner {
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
+    }
+  }
+
+  async saveModelMetadata(params: SaveModelMetadataParams): Promise<{ success: boolean; error?: string }> {
+    try {
+      const {
+        modelId,
+        filePath,
+        civitaiName,
+        civitaiCreator,
+        civitaiBaseModel,
+        modelType,
+        customLink,
+        source,
+        hfRepoId,
+        civitaiModelId,
+        civitaiVersionId,
+        previewUrl,
+        nsfw,
+        trainedWords,
+        description,
+        tags,
+      } = params;
+
+      if (!filePath || !fs.existsSync(filePath)) {
+        return { success: false, error: `Model file does not exist at ${filePath}` };
+      }
+
+      const ext = path.extname(filePath);
+      const baseWithoutExt = filePath.slice(0, -ext.length);
+      const companionPath = `${baseWithoutExt}.info`;
+
+      // 1. Prepare companion JSON payload
+      let existingData: any = {};
+      const existingCompanion = discoverCompanionFiles(filePath);
+      if (existingCompanion.companionInfo) {
+        existingData = { ...existingCompanion.companionInfo };
+      }
+
+      const updatedCompanion = {
+        ...existingData,
+        id: civitaiVersionId || existingData.id,
+        modelId: civitaiModelId || existingData.modelId,
+        name: civitaiName || existingData.name,
+        type: modelType || existingData.type,
+        baseModel: civitaiBaseModel || existingData.baseModel,
+        creator: civitaiCreator ? { username: civitaiCreator } : existingData.creator,
+        customLink: customLink || existingData.customLink,
+        source: source || existingData.source || (customLink?.includes('huggingface.co') ? 'huggingface' : 'civitai'),
+        hfRepoId: hfRepoId || existingData.hfRepoId,
+        description: description !== undefined ? description : existingData.description,
+        tags: tags || existingData.tags || [],
+        trainedWords: trainedWords || existingData.trainedWords || [],
+        nsfw: nsfw !== undefined ? nsfw : existingData.nsfw,
+        images: previewUrl ? [{ url: previewUrl, nsfw: !!nsfw }] : existingData.images || [],
+      };
+
+      const targetInfoFile = existingCompanion.companionInfoPath || companionPath;
+      fs.writeFileSync(targetInfoFile, JSON.stringify(updatedCompanion, null, 2), 'utf8');
+
+      // 2. Update SQLite database record
+      await dbManager.run(
+        `UPDATE local_models
+         SET civitai_name = ?,
+             civitai_creator = ?,
+             civitai_base_model = ?,
+             model_type = ?,
+             custom_link = ?,
+             source = ?,
+             hf_repo_id = ?,
+             civitai_model_id = ?,
+             civitai_version_id = ?,
+             preview_url = ?,
+             nsfw = ?
+         WHERE id = ? OR file_path = ? COLLATE NOCASE;`,
+        [
+          civitaiName || null,
+          civitaiCreator || null,
+          civitaiBaseModel || null,
+          modelType || null,
+          customLink || null,
+          source || (customLink?.includes('huggingface.co') ? 'huggingface' : 'civitai'),
+          hfRepoId || null,
+          civitaiModelId || null,
+          civitaiVersionId || null,
+          previewUrl || null,
+          nsfw ? 1 : 0,
+          modelId,
+          filePath,
+        ]
+      );
+
+      if (previewUrl && previewUrl.startsWith('http')) {
+        imageCacheService.prefetchToPermanentCache(previewUrl);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      logger.error('Failed to save model metadata:', err);
+      return { success: false, error: err?.message || 'Failed to save metadata' };
+    }
+  }
+
+  async fetchModelMetadataByUrl(urlOrId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const input = (urlOrId || '').trim();
+      if (!input) {
+        return { success: false, error: 'URL or Model ID is required' };
+      }
+
+      // 1. Check if Hugging Face URL or repo pattern (e.g. bartowski/google_gemma-4-E2B-it-GGUF)
+      const hfMatch = input.match(/(?:https?:\/\/huggingface\.co\/)?([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)/i);
+      const isHfUrl = input.includes('huggingface.co') || (hfMatch && !/^\d+$/.test(input) && !input.includes('civitai.'));
+
+      if (isHfUrl && hfMatch) {
+        const repoId = hfMatch[1].replace(/\/tree\/.*|\/blob\/.*/, '');
+        const repoRes = await huggingfaceClient.checkModelRepo(repoId);
+        if (repoRes.exists && repoRes.info) {
+          const info = repoRes.info;
+          let inferredType: any = 'LLM';
+          if (info.pipelineTag === 'text-to-image' || (info.tags && info.tags.includes('diffusers'))) {
+            inferredType = 'Checkpoint';
+          } else if (info.tags && (info.tags.includes('lora') || info.pipelineTag === 'lora')) {
+            inferredType = 'LORA';
+          } else if (info.pipelineTag === 'controlnet') {
+            inferredType = 'ControlNet';
+          }
+
+          return {
+            success: true,
+            data: {
+              source: 'huggingface',
+              civitaiName: info.modelName || repoId,
+              civitaiCreator: info.author || repoId.split('/')[0],
+              civitaiBaseModel: info.pipelineTag || (info.tags?.find((t) => ['sdxl', 'flux', 'sd1.5', 'llama', 'qwen', 'gemma'].some((b) => t.toLowerCase().includes(b))) || undefined),
+              modelType: inferredType,
+              customLink: `https://huggingface.co/${repoId}`,
+              hfRepoId: repoId,
+              tags: info.tags || [],
+              description: `Hugging Face repository: ${repoId}\nPipeline: ${info.pipelineTag || 'unknown'}\nLikes: ${info.likes || 0} | Downloads: ${info.downloads || 0}`,
+              previewUrl: undefined,
+              nsfw: false,
+              trainedWords: [],
+            },
+          };
+        } else {
+          return { success: false, error: repoRes.error || `Hugging Face repository "${repoId}" not found` };
+        }
+      }
+
+      // 2. Check if CivitAI URL or numeric ID
+      const civitaiModelMatch = input.match(/(?:civitai\.(?:com|red)\/models\/)?(\d+)/i);
+      const civitaiVersionMatch = input.match(/modelVersionId=(\d+)/i);
+
+      if (civitaiVersionMatch) {
+        const versionId = parseInt(civitaiVersionMatch[1], 10);
+        const vData = await civitaiClient.fetchModelVersion(versionId);
+        if (vData) {
+          const previewUrl = vData.images && vData.images.length > 0 ? vData.images[0].url : undefined;
+          return {
+            success: true,
+            data: {
+              source: 'civitai',
+              civitaiName: vData.name || vData.model?.name,
+              civitaiCreator: vData.model?.creator?.username,
+              civitaiBaseModel: vData.baseModel,
+              civitaiModelId: vData.modelId,
+              civitaiVersionId: vData.id,
+              modelType: vData.model?.type,
+              customLink: `https://civitai.com/models/${vData.modelId}?modelVersionId=${vData.id}`,
+              description: vData.description || (vData.model as any)?.description,
+              tags: (vData.model as any)?.tags || [],
+              trainedWords: vData.trainedWords || [],
+              previewUrl,
+              nsfw: Boolean(vData.model?.nsfw || (vData.images && vData.images.some((i: any) => i.nsfw || (i.nsfwLevel && i.nsfwLevel > 1)))),
+            },
+          };
+        }
+      }
+
+      if (civitaiModelMatch) {
+        const modelId = parseInt(civitaiModelMatch[1], 10);
+        const mData = await civitaiClient.fetchModel(modelId);
+        if (mData) {
+          const firstVersion = mData.modelVersions && mData.modelVersions.length > 0 ? mData.modelVersions[0] : undefined;
+          const previewUrl = firstVersion?.images && firstVersion.images.length > 0 ? firstVersion.images[0].url : undefined;
+          return {
+            success: true,
+            data: {
+              source: 'civitai',
+              civitaiName: mData.name,
+              civitaiCreator: mData.creator?.username,
+              civitaiBaseModel: firstVersion?.baseModel,
+              civitaiModelId: mData.id,
+              civitaiVersionId: firstVersion?.id,
+              modelType: mData.type,
+              customLink: `https://civitai.com/models/${mData.id}`,
+              description: mData.description,
+              tags: mData.tags || [],
+              trainedWords: firstVersion?.trainedWords || [],
+              previewUrl,
+              nsfw: Boolean(mData.nsfw || (mData.nsfwLevel && mData.nsfwLevel > 1)),
+            },
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: `Could not parse URL or ID: "${input}". Please enter a valid CivitAI or HuggingFace link/ID.`,
+      };
+    } catch (err: any) {
+      logger.error('fetchModelMetadataByUrl failed:', err);
+      return { success: false, error: err?.message || 'Failed to fetch model metadata' };
     }
   }
 }

@@ -8,11 +8,18 @@
 
 **The missing model manager for ComfyUI.** A unified desktop application for discovering, downloading, organizing, and version-managing generative AI models across **CivitAI and Hugging Face Hub**, with zero-memory binary GGUF header parsing and intelligent auto-sorting into ComfyUI's folder structure.
 
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 [![Privacy Policy](https://img.shields.io/badge/Privacy-100%25%20Local--First-00D632.svg)](PRIVACY.md)
 [![Features](https://img.shields.io/badge/Features-Quick%20Crib--Notes-00D632.svg)](docs/FEATURES.md)
 [![Roadmap](https://img.shields.io/badge/Roadmap-View%20Upcoming%20Milestones-8a2be2.svg)](docs/ROADMAP.md)
+
+> [!WARNING]
+> ### ⚠️ NOT FEATURE COMPLETE
+> **RenegadeCMM is under rapid active development and is NOT yet feature complete.**  
+> While the core model discovery, download management, library auto-sorting, and workflow tools are fully functional, there may be latent bugs, edge cases, or evolving interfaces in the system.  
+> **Please report ANY bugs, visual glitches, unexpected crashes, or suggestions directly on our [GitHub Issues Tracker](https://github.com/DevNullInc/RenegadeCMM/issues).** Every report helps harden the platform!
+
 
 > ⚡ **Want the quick summary without the long read? Check out the [Feature Crib-Notes (FEATURES.md)](docs/FEATURES.md).**  
 > 🗺️ **Looking for upcoming features and releases? Check out the [Product Roadmap](docs/ROADMAP.md).**  
@@ -79,8 +86,7 @@
     - [Development Setup](#development-setup)
   - [📜 License](#-license)
     - [License Summary](#license-summary)
-  - [☕ Buy me a coffee or something please?](#-buy-me-a-coffee-or-something-please)
-  - [🔐 Code Signing](#-code-signing)
+  - [💖 Sponsor & Support](#-sponsor--support)
   - [🙏 Author \& Acknowledgments](#-author--acknowledgments)
   - [📧 Support \& Feedback](#-support--feedback)
 
@@ -656,7 +662,7 @@ CMM recognizes and manages models in these ComfyUI folders:
 ### 📊 About & Diagnostics Reporting
 
 1. Navigate to the **About** tab.
-2. View application version information, author credits (**TheStygianRenegade / /dev/null Inc**), license details (GPL-3.0), and active runtime telemetry.
+2. View application version information, author credits (**TheStygianRenegade / /dev/null Inc**), license details (BUSL-1.1), and active runtime telemetry.
 3. Under **Diagnostic Log & Console Feedback**:
    - Inspect live system event logs, scanner output, and network diagnostics.
    - Click **Copy Diagnostic Report** to generate a pre-formatted Markdown summary (including OS, version, active directory count, and recent console warnings/errors) ready to paste into GitHub Issues for instant troubleshooting.
@@ -797,7 +803,7 @@ Creates a zip containing:
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-By contributing to this project, you agree that your contributions will be licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** without additional restrictions (see [CONTRIBUTING.md](CONTRIBUTING.md) and [LEGAL.md](LEGAL.md)).
+By contributing to this project, you agree that your contributions will be licensed under the **Business Source License 1.1 (BUSL-1.1)** and will transition to **GPL-3.0-or-later** pursuant to the Change Date terms (see [CONTRIBUTING.md](CONTRIBUTING.md) and [LEGAL.md](LEGAL.md)).
 
 ### Development Setup
 
@@ -822,63 +828,37 @@ npm run build
 
 ## 📜 License
 
-This project is licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** — see the [LICENSE](LICENSE) file and our full [Legal Information & Notices (LEGAL.md)](LEGAL.md) for statutory terms, warranty disclaimers, and source availability guarantees.
+This project is licensed under the **Business Source License 1.1 (BUSL-1.1)**, converting automatically to the **GNU General Public License v3.0 or later (GPL-3.0-or-later)** four (4) years from the release date of each respective version. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for complete details.
 
 ### License Summary
 
-| Permission        | Condition                                        |
-| ----------------- | ------------------------------------------------ |
-| ✅ Commercial use | 📋 License and copyright notice must be included |
-| ✅ Modification   | 📋 State changes must be disclosed               |
-| ✅ Distribution   | 📋 Source code must be made available            |
-| ✅ Patent use     | 📋 Same license applies to derivatives           |
-| ✅ Private use    |                                                  |
+- **Single-User / Individual Evaluation:** 100% Free with all features and capabilities fully unlocked. Periodic polite reminder notices may invite users to register a single-user license to support ongoing development.
+- **Commercial Teams (> 5 Persons):** Any studio, enterprise, company, or site with more than 5 individuals must obtain a commercial enterprise license prior to production use (<licensing@renegadeinc.net>).
+- **GitHub Sponsors ($10+ USD):** Supporters contributing $10 or more (monthly or one-time) via GitHub Sponsors receive a complimentary single-user license key upon emailing their public signature key to `<licensing@renegadeinc.net>`.
+- **Automatic 4-Year Open Source Sunset:** Each version irrevocably transitions to pure **GPL-3.0-or-later** on its fourth anniversary.
 
-**Key Points:**
-
-- You **CAN** use this software commercially
-- You **CAN** modify and distribute it
-- If you distribute modified versions, you **MUST** release the source code under GPL-3.0-or-later
-- You **MUST** preserve copyright notices, license texts, and provide attribution
-- This license includes an express grant of patent rights from contributors
-- Distributed with **ABSOLUTELY NO WARRANTY** and limited liability as detailed in [LEGAL.md](LEGAL.md)
-
-For the full legal text, see <https://www.gnu.org/licenses/gpl-3.0.en.html> and [LEGAL.md](LEGAL.md).
+For full statutory text and disclosures, see [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md).
 
 ---
 
-## ☕ Buy me a coffee or something please?
+## 💖 Sponsor & Support
 
-Seeing how you scrolled this far, if CMM saves you time organizing your ComfyUI models or makes your workflow easier, consider supporting ongoing development!!
+If CMM saves you time organizing your ComfyUI models or makes your workflow easier, consider supporting ongoing development via **GitHub Sponsors**!
 
 <!-- markdownlint-disable MD033 -->
 <p align="center">
-  <a href="https://cash.app/$StygianRenegade/1.00">
-    <img src="https://img.shields.io/badge/CashApp-$1.00_Coffee-00D632?style=for-the-badge&logo=cashapp&logoColor=white" alt="Buy $1 Coffee" />
-  </a>
-  &nbsp;
-  <a href="https://cash.app/$StygianRenegade/5.00">
-    <img src="https://img.shields.io/badge/CashApp-$5.00_Coffee_%26_Snack-00D632?style=for-the-badge&logo=cashapp&logoColor=white" alt="Buy $5 Coffee & Snack" />
-  </a>
-  &nbsp;
-  <a href="https://cash.app/$StygianRenegade/10.00">
-    <img src="https://img.shields.io/badge/CashApp-$10.00_Lunch_%26_Fuel-00D632?style=for-the-badge&logo=cashapp&logoColor=white" alt="Buy $10 Lunch & Fuel" />
+  <a href="https://github.com/sponsors/DevNullInc">
+    <img src="https://img.shields.io/badge/Sponsor_on_GitHub-EA4AAA?style=for-the-badge&logo=github&logoColor=white" alt="Sponsor on GitHub" />
   </a>
 </p>
 <!-- markdownlint-enable MD033 -->
 
----
-
-## 🔐 Code Signing
-
-> ⏳ **In Progress**: Code signing integration via [SignPath.io](https://signpath.io) (certificate courtesy of the [SignPath Foundation](https://signpath.org)) is currently in progress. While signing pipeline onboarding is finalized, all binaries are built directly on public GitHub Actions runners straight from source. Windows users may see a standard Microsoft Defender SmartScreen prompt until certificate reputation accumulates.
 
 ---
 
 ## 🙏 Author & Acknowledgments
 
 - **Lead Developer / Maintainer**: **TheStygianRenegade** / **/dev/null Inc**
-- [SignPath Foundation](https://signpath.org) & [SignPath.io](https://signpath.io) for providing free open-source code signing
 - [CivitAI](https://civitai.com) for the amazing platform and API
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for the incredible node-based interface
 - The generative AI community for creating and sharing models
