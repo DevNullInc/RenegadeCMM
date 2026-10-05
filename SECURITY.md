@@ -232,6 +232,6 @@ RenegadeCMM integrates GitHub CodeQL static analysis to enforce automated securi
 
 ---
 
-**Last Updated:** September 29, 2026  
-**Applicable Release:** RenegadeCMM v1.6.1 and subsequent releases
+**Last Updated:** October 4, 2026  
+**Applicable Release:** RenegadeCMM v1.6.2 and subsequent releases
 

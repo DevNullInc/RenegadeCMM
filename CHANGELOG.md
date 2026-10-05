@@ -8,7 +8,15 @@ For active, unreleased feature branches and ongoing sprint items, refer to [DEV-
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.6.1] - 2026-10-04
+## [1.6.2] - 2026-10-04
+
+### Legal Documentation Hardening & Software Classification
+- **Classification & Local Tool Boundary**:
+  - Formally classified RenegadeCMM as a local desktop workstation application (distinguishing it from RenegadeSwarm's P2P network distribution role) in [`README.md`](README.md) and [`LEGAL.md`](LEGAL.md).
+  - Clarified technical file parsing vs. semantic moderation scope in [`PRIVACY.md`](PRIVACY.md).
+  - Documented mirror endpoint disclosures (`civitai.red`), default-off blur states, and 18+ age verification requirements across [`docs/FEATURES.md`](docs/FEATURES.md) and [`LEGAL.md`](LEGAL.md).
+  - Confirmed zero remote administrative access and RCE safeguards in [`SECURITY.md`](SECURITY.md).
+  - Documented future Android companion app security, Cloudflare Zero Trust tunneling, and token burn schedules in [`PRIVACY.md`](PRIVACY.md).
 
 ### Licensing Transition: Business Source License 1.1 (BUSL-1.1)
 - **Licensing Model & Enterprise Governance**:
@@ -57,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Expanded live workspace container height (`min-h-[720px] h-[82vh]`).
 - **Application Startup Loading Throbber (`index.html`)**:
   - Embedded SVG and CSS loading animation in `<div id="root">` with spinning rings, radial glow, vector emblem, and progress bar to eliminate blank cold-start windows.
+
+## [1.6.1] - 2026-09-20
 
 ### SafeTensor Conversion & Bytecode Security
 - **Pickle Safety Inspection Guard (`scan_pickle_safety.py`, `modelConverter.ts`)**:

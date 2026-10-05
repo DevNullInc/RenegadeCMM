@@ -165,7 +165,7 @@ export class ImageCacheService {
             port: parsed.port ? Number(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80),
             path: parsed.pathname + parsed.search,
             headers: {
-              'User-Agent': 'RenegadeCMM/1.6.1',
+              'User-Agent': 'RenegadeCMM/1.6.2',
               Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
             },
             timeout: 15000,

@@ -57,7 +57,7 @@ export class CivitAIClient {
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'RenegadeCMM/1.6.1',
+      'User-Agent': 'RenegadeCMM/1.6.2',
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;

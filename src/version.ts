@@ -9,7 +9,7 @@
  * Converts to GNU General Public License v3.0 or later (GPL-3.0-or-later) after 4 years.
  * See LICENSE for full terms and conditions.
  */
-export const APP_VERSION = '1.6.1';
+export const APP_VERSION = '1.6.2';
 
 /**
  * Build Configuration & Release Mode Toggle

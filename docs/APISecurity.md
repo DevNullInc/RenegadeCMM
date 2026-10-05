@@ -137,4 +137,4 @@ Since a leaked CivitAI key can **cost you money** (credits) and expose private/N
 
 ---
 
-*Last reviewed against source: September 20, 2026 (v1.7.0). This document accurately reflects machine-bound encryption, API redaction, Swarm daemon authentication, Sister Wakeup Protocol, and runtime Zod IPC schema validation.*
+*Last reviewed against source: October 4, 2026 (v1.6.2). This document accurately reflects machine-bound encryption, API redaction, Swarm daemon authentication, Sister Wakeup Protocol, and runtime Zod IPC schema validation.*

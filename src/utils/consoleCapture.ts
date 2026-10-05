@@ -159,7 +159,7 @@ export async function generateDiagnosticReport(extraContext?: Record<string, any
   let report = `### Renegade Core Model Manager - Diagnostic Report\n`;
   report += `**Generated:** ${timestamp}\n\n`;
   report += `#### 🖥️ Environment\n`;
-  report += `- **App Version:** ${sysInfo.version || '1.6.1'}\n`;
+  report += `- **App Version:** ${sysInfo.version || '1.6.2'}\n`;
   report += `- **Electron:** ${sysInfo.electronVersion || 'N/A'}\n`;
   report += `- **Node:** ${sysInfo.nodeVersion || 'N/A'}\n`;
   report += `- **Chrome:** ${sysInfo.chromeVersion || 'N/A'}\n`;

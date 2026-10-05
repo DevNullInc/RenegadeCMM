@@ -250,12 +250,12 @@ describe('Security Hardening & Machine-Bound Encryption', () => {
         path: '/models/123.safetensors?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA...',
         headers: {
           authorization: 'Bearer civitai_secret_key_123',
-          'user-agent': 'RenegadeCMM/1.6.1',
+          'user-agent': 'RenegadeCMM/1.6.2',
         },
       };
       sanitizeRedirectHeaders(s3Redirect);
       expect(s3Redirect.headers.authorization).toBeUndefined();
-      expect(s3Redirect.headers['user-agent']).toBe('RenegadeCMM/1.6.1');
+      expect(s3Redirect.headers['user-agent']).toBe('RenegadeCMM/1.6.2');
 
       // 2. Redirect to HuggingFace LFS CDN storage
       const hfCdnRedirect = {

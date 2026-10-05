@@ -301,7 +301,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
         );
         const exportData = {
           exportedAt: new Date().toISOString(),
-          version: '1.6.1',
+          version: '1.6.2',
           config: configRows,
           models: rows,
         };
