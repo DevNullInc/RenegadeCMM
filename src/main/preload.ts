@@ -166,6 +166,14 @@ const api = {
       ipcRenderer.removeListener('library-sort-progress', handler);
     };
   },
+  ignoreSortModel: (modelId: string, filePath?: string, fileName?: string) =>
+    ipcRenderer.invoke('ignore-sort-model', modelId, filePath, fileName),
+  unignoreSortModel: (modelId: string) =>
+    ipcRenderer.invoke('unignore-sort-model', modelId),
+  getIgnoredSortModels: () =>
+    ipcRenderer.invoke('get-ignored-sort-models'),
+  clearIgnoredSortModels: () =>
+    ipcRenderer.invoke('clear-ignored-sort-models'),
 
   // Model Converter (Pickle to SafeTensors) & Hardware Safety
   getConverterEnvironment: (customPythonPath?: string) =>

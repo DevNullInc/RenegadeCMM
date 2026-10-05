@@ -31,6 +31,7 @@ import {
   Sparkles,
   GitBranch,
   KeyRound,
+  Lock,
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
@@ -560,6 +561,17 @@ export function AboutTab() {
                 >
                   {copiedPubKey ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
                 </button>
+              </div>
+
+              {/* Cryptographic Privacy Guarantee */}
+              <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-800/80 space-y-1.5 text-[11px]">
+                <div className="flex items-center gap-1.5 text-slate-200 font-semibold text-[11px]">
+                  <ShieldCheck size={14} className="text-purple-400 shrink-0" />
+                  <span>Non-Reversible Cryptographic Guarantee</span>
+                </div>
+                <p className="text-slate-400 leading-relaxed text-[10.5px]">
+                  Hardware fingerprinting uses one-way salted SHA-256 hashing. It is mathematically <strong>non-reversible</strong> (zero-knowledge) and cannot be tracked back to your physical hardware or personal identity.
+                </p>
               </div>
             </div>
 

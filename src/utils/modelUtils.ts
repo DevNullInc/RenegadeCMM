@@ -137,25 +137,27 @@ export function resolveEffectiveModelType(
     : '';
   const fullText = `${rawType || ''} ${modelName || ''} ${versionsJoined}`.toLowerCase();
 
-  // ControlNet / Adapters
+  // ControlNet / Structural Adapters (excluding standalone IP-Adapter)
   if (
     fullText.includes('controlnet') ||
     fullText.includes('control-net') ||
     fullText.includes('control net') ||
     fullText.includes('cnxl') ||
+    fullText.includes('lllite') ||
     fullText.includes('t2i-adapter') ||
-    fullText.includes('ip-adapter') ||
-    (SUBTYPE_PATTERNS.some(({ regex }) => regex.test(fullText)) && (fullText.includes('control') || fullText.includes('adapter')))
+    (SUBTYPE_PATTERNS.some(({ regex }) => regex.test(fullText)) && (fullText.includes('control') || (fullText.includes('adapter') && !fullText.includes('ip-adapter') && !fullText.includes('ipadapter'))))
   ) {
     return 'Controlnet';
   }
 
-  // LoRA / LyCORIS / LoCon / DoRA
+  // LoRA / LyCORIS / LoCon / DoRA / LoRA rank indicators
   if (
     fullText.includes('lora') ||
     fullText.includes('locon') ||
     fullText.includes('dora') ||
-    fullText.includes('lycoris')
+    fullText.includes('lycoris') ||
+    /[-_](r\d{1,4}|rank\d{1,4}|dim\d{1,4})[-_.]/i.test(fullText) ||
+    /\b(r\d{1,4}|rank\d{1,4}|dim\d{1,4})\b/i.test(fullText)
   ) {
     if (rawType === 'LoCon') return 'LoCon';
     if (rawType === 'DoRA') return 'DoRA';
@@ -172,13 +174,71 @@ export function resolveEffectiveModelType(
   }
 
   // VAE
-  if (fullText.includes('vae') && !fullText.includes('checkpoint')) {
+  if (/\bvae\b|_vae_|-vae-|_vae\.|\.vae\.|wan.*vae/i.test(fullText) || (fullText.includes('vae') && !fullText.includes('checkpoint'))) {
     return 'VAE';
   }
 
   // Upscalers
-  if (fullText.includes('upscaler') || fullText.includes('esrgan') || fullText.includes('upscale')) {
+  if (
+    fullText.includes('upscaler') ||
+    fullText.includes('esrgan') ||
+    fullText.includes('upscale') ||
+    fullText.includes('swinir') ||
+    fullText.includes('ultrasharp') ||
+    fullText.includes('supersharp') ||
+    fullText.includes('realesrgan') ||
+    fullText.includes('remacri') ||
+    fullText.includes('skindiff') ||
+    fullText.includes('hat') ||
+    fullText.includes('dat') ||
+    fullText.includes('omnisr') ||
+    fullText.includes('nmkd') ||
+    /\b[1-8]x\b/i.test(fullText) ||
+    /srx\d/i.test(fullText)
+  ) {
     return 'Upscaler';
+  }
+
+  // Detection / YOLO / ADetailer
+  if (
+    fullText.includes('yolo') ||
+    fullText.includes('ultralytics') ||
+    fullText.includes('adetailer') ||
+    fullText.includes('afterdetailer') ||
+    fullText.includes('bbox') ||
+    fullText.includes('segm') ||
+    fullText.endsWith('.pt')
+  ) {
+    return 'Detection';
+  }
+
+  // InsightFace / ONNX Face analysis
+  if (
+    fullText.includes('insightface') ||
+    fullText.includes('antelope') ||
+    fullText.includes('buffalo') ||
+    fullText.endsWith('.onnx') ||
+    fullText.includes('.onnx')
+  ) {
+    return 'Other';
+  }
+
+  // GGUF / Quantized models
+  if (fullText.endsWith('.gguf') || fullText.includes('.gguf')) {
+    return 'Other';
+  }
+
+  // Text Encoders / CLIP
+  if (
+    fullText.includes('text_encoder') ||
+    fullText.includes('text encoder') ||
+    fullText.includes('textencoder') ||
+    fullText.includes('clip_l') ||
+    fullText.includes('clip_g') ||
+    fullText.includes('t5xxl') ||
+    fullText.includes('t5_')
+  ) {
+    return 'Other';
   }
 
   // Hypernetworks
@@ -205,5 +265,5 @@ export function resolveEffectiveModelType(
     return rawType as ModelType;
   }
 
-  return 'Checkpoint';
+  return 'Other';
 }

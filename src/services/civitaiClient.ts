@@ -168,7 +168,20 @@ export class CivitAIClient {
         });
         return res.data;
       } catch (err: any) {
-        if (err?.response?.status === 404) return null;
+        if (err?.response?.status === 404) {
+          // Automatic mirror fallback to civitai.red if primary was standard civitai.com
+          if (!this.baseUrl.includes('civitai.red')) {
+            try {
+              const mirrorUrl = 'https://civitai.red/api/v1';
+              const mirrorRes = await axios.get(`${mirrorUrl}/model-versions/by-hash/${cleanHash}`, {
+                headers: this.getHeaders(),
+                timeout: 8000,
+              });
+              if (mirrorRes.data) return mirrorRes.data;
+            } catch {}
+          }
+          return null;
+        }
         throw err;
       }
     });

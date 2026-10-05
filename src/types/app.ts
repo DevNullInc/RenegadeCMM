@@ -75,23 +75,27 @@ export const COMFYUI_STANDARD_MODEL_SUBFOLDERS: string[] = [
 ];
 
 export const DEFAULT_FILENAME_PATTERNS: FilenamePatternRule[] = [
-  { pattern: 'ip-adapter', folder: 'ipadapter', case_sensitive: false },
+  { pattern: 'ip-adapter|ip_adapter|ipadapter', folder: 'ipadapter', case_sensitive: false },
+  { pattern: 'vae|_vae|\\.vae\\.|vae-fp32|vae-fp16|wan.*vae|sdxl_vae|flux_vae', folder: 'vae', case_sensitive: false },
+  { pattern: 'controlnet|control-net|control_net|lllite|anytest|t2i-adapter|t2iadapter', folder: 'controlnet', case_sensitive: false },
   { pattern: 'photomaker', folder: 'photomaker', case_sensitive: false },
   { pattern: 'pulid', folder: 'pulid', case_sensitive: false },
-  { pattern: 'instantid', folder: 'insightface', case_sensitive: false },
+  { pattern: 'instantid|antelope|buffalo|insightface|faceid', folder: 'insightface', case_sensitive: false },
+  { pattern: '\\.onnx$', folder: 'insightface', case_sensitive: false },
   { pattern: 'reactor', folder: 'reactor', case_sensitive: false },
   { pattern: 'rmbg', folder: 'RMBG', case_sensitive: false },
   { pattern: 'sam\\d', folder: 'sam3', case_sensitive: false },
-  { pattern: 'yolo', folder: 'yolo', case_sensitive: false },
-  { pattern: 'ultralytics', folder: 'ultralytics', case_sensitive: false },
+  { pattern: 'yolo|adetailer|afterdetailer|bbox|segm', folder: 'ultralytics', case_sensitive: false },
+  { pattern: 'clip.*vision|clip_vision|clipvision|vision_encoder|vit-[ghlb]|clips?[-_]vit|siglip|open_clip|dino|dinov2|dinov3', folder: 'clip_vision', case_sensitive: false },
+  { pattern: 't5|clip.*encoder|text.*encoder|textencoder|clip_l|clip_g|spiece', folder: 'text_encoders', case_sensitive: false },
+  { pattern: 'esrgan|swinir|real-esrgan|realesrgan|ultrasharp|supersharp|remacri|skindiff|upscale|hat|dat|omnisr|nmkd|[1-8]x|srx\\d', folder: 'upscale_models', case_sensitive: false },
+  { pattern: 'lora|locon|dora|lycoris|_r\\d+|-r\\d+|rank\\d+|dim\\d+', folder: 'loras', case_sensitive: false },
   { pattern: '(?:^|[^a-zA-Z0-9])(llm|qwen|quan|llama|mistral|gemma|deepseek|phi)(?:\\d|[^a-zA-Z0-9]|$)', folder: 'LLM', case_sensitive: false },
   { pattern: '\\.gguf$', folder: 'gguf', case_sensitive: false },
-  { pattern: 'anima|krea|flux.*krea|wan.*video|wan2\\.?1|wan_\\d|cogvideo|hunyuan|mochi|ltxv|lumina|chroma|auraflow|pixart', folder: 'diffusion_models', case_sensitive: false },
+  { pattern: 'animacy|anima|minimax|h3|ltx|ltxv|krea|flux.*krea|wan.*video|wan2\\.?1|wan_\\d|cogvideo|hunyuan|mochi|lumina|chroma|auraflow|pixart|cosmos|consisid|omnigen|easycontrol|melbandroformer', folder: 'diffusion_models', case_sensitive: false },
   { pattern: 'unet', folder: 'unet', case_sensitive: false },
   { pattern: 'diffusion', folder: 'diffusion_models', case_sensitive: false },
-  { pattern: 'esrgan|swinir|real-esrgan', folder: 'upscale_models', case_sensitive: false },
-  { pattern: 'clip_vision', folder: 'clip_vision', case_sensitive: false },
-  { pattern: 't5|clip.*encoder|text.*encoder', folder: 'text_encoders', case_sensitive: false },
+  { pattern: 'aio|all-in-one|all_in_one|full_version|full-version', folder: 'checkpoints', case_sensitive: false },
 ];
 
 export interface FolderConfig {

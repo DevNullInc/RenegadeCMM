@@ -22,8 +22,7 @@ let customPortOverride: number | null = null;
  * 1. Checks window.__CMM_API_PORT__ (injected via preload or launcher).
  * 2. Checks URL query parameters (?apiPort=..., ?api_port=..., ?port=...).
  * 3. Checks localStorage ('cmm_api_port') saved from previous custom runs.
- * 4. Checks window.location.port when accessed directly via HTTP.
- * 5. Falls back to default port 5174.
+ * 4. Falls back to default port 5174.
  */
 export function getApiPort(): number {
   if (customPortOverride && customPortOverride > 0 && customPortOverride <= 65535) {
@@ -65,15 +64,6 @@ export function getApiPort(): number {
         }
       }
     } catch {}
-
-    // 4. Same-origin fallback when accessed directly through HTTP backend
-    if (window.location.port && window.location.port !== '5173') {
-      const p = parseInt(window.location.port, 10);
-      if (p > 0 && p <= 65535) {
-        customPortOverride = p;
-        return p;
-      }
-    }
   }
 
   return 5174;
@@ -106,8 +96,9 @@ export function getApiBase(): string {
  * Auto-discovers the running CMM backend if the default port fails.
  */
 export async function autoDiscoverApiPort(): Promise<number> {
-  const candidates = [getApiPort(), 5174, 5175, 8080, 8081, 5173];
-  const unique = Array.from(new Set(candidates));
+  const current = getApiPort();
+  const candidates = [current, 5174, 5175, 5180, 8080, 8081];
+  const unique = Array.from(new Set(candidates.filter((p) => p > 0 && p <= 65535)));
 
   for (const p of unique) {
     try {
@@ -117,14 +108,14 @@ export async function autoDiscoverApiPort(): Promise<number> {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data && (data.name === 'RenegadeCMM' || data.status === 'online')) {
+        if (data && (data.name === 'RenegadeCMM' || data.status === 'online' || data.status === 'disabled')) {
           setApiPort(p);
           return p;
         }
       }
     } catch {}
   }
-  return getApiPort();
+  return current;
 };
 
 const scanProgressListeners: Array<(progress: any) => void> = [];
@@ -161,7 +152,8 @@ if (typeof window !== 'undefined') {
 
 export function setupWebBridgeIfNeeded() {
   if (typeof window !== 'undefined' && !window.civitaiAPI) {
-    console.info('[RenegadeCMM] Electron IPC not found. Initializing HTTP Native Server Bridge on port ${getApiPort()}.');
+    console.info(`[RenegadeCMM] Electron IPC not found. Initializing HTTP Native Server Bridge on port ${getApiPort()}.`);
+    autoDiscoverApiPort().catch(() => {});
 
     window.civitaiAPI = {
       getConfig: async () => {
@@ -1310,6 +1302,54 @@ export function setupWebBridgeIfNeeded() {
 
       onLibrarySortProgress: (_callback: (progress: { current: number; total: number; file: string }) => void) => {
         return () => {};
+      },
+
+      ignoreSortModel: async (modelId: string, filePath?: string, fileName?: string) => {
+        try {
+          const res = await fetch(`${getApiBase()}/library/ignore-sort-model`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelId, filePath, fileName }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+
+      unignoreSortModel: async (modelId: string) => {
+        try {
+          const res = await fetch(`${getApiBase()}/library/unignore-sort-model`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelId }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+
+      getIgnoredSortModels: async () => {
+        try {
+          const res = await fetch(`${getApiBase()}/library/ignored-sort-models`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (e: any) {
+          return [];
+        }
+      },
+
+      clearIgnoredSortModels: async () => {
+        try {
+          const res = await fetch(`${getApiBase()}/library/clear-ignored-sort-models`, { method: 'POST' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
       },
 
       onProtocolAction: (_callback: (actionPayload: any) => void) => { },

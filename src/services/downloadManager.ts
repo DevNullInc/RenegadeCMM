@@ -290,8 +290,63 @@ export class DownloadManager {
   }
 
   addTask(task: Omit<DownloadTask, 'id' | 'status' | 'progress' | 'downloadedBytes' | 'totalBytes' | 'speedBps'>): DownloadTask {
-    const id = `dl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const cleanUrl = sanitizeDownloadUrl(task.downloadUrl || '');
+    const cleanTargetRoot = (task.targetRoot || '').trim().toLowerCase();
+    const cleanTargetFolder = (task.targetFolder || '').trim().toLowerCase();
+    const cleanFileName = (task.fileName || '').trim().toLowerCase();
+    const cleanSha256 = (task.sha256 || '').trim().toLowerCase();
+
+    // Deduplication check: Refuse to add duplicate download if a task for the exact same file is already in progress (pending, downloading, verifying)
+    const existingInProgress = Array.from(this.tasks.values()).find((existing) => {
+      const isInProgress =
+        existing.status === 'pending' ||
+        existing.status === 'downloading' ||
+        existing.status === 'verifying';
+      if (!isInProgress) return false;
+
+      // 1. Exact SHA256 match (if both specify hash)
+      if (cleanSha256 && existing.sha256 && cleanSha256 === existing.sha256.trim().toLowerCase()) {
+        return true;
+      }
+
+      // 2. Exact Download URL match (if both specify URL)
+      if (cleanUrl && existing.downloadUrl && cleanUrl.toLowerCase() === sanitizeDownloadUrl(existing.downloadUrl).toLowerCase()) {
+        return true;
+      }
+
+      // 3. Exact Model Version ID match with identical filename
+      if (
+        task.modelVersionId &&
+        existing.modelVersionId &&
+        task.modelVersionId === existing.modelVersionId &&
+        cleanFileName === (existing.fileName || '').trim().toLowerCase()
+      ) {
+        return true;
+      }
+
+      // 4. Exact File Name match (case-insensitive) in the same target folder / root
+      if (cleanFileName && cleanFileName === (existing.fileName || '').trim().toLowerCase()) {
+        const existingRoot = (existing.targetRoot || '').trim().toLowerCase();
+        const existingFolder = (existing.targetFolder || '').trim().toLowerCase();
+        if (
+          (!cleanTargetRoot || !existingRoot || cleanTargetRoot === existingRoot) &&
+          (!cleanTargetFolder || !existingFolder || cleanTargetFolder === existingFolder)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    if (existingInProgress) {
+      logger.warn(
+        `Duplicate download request rejected: '${task.fileName}' (${task.modelName}) is already in progress [Task ${existingInProgress.id} - Status: ${existingInProgress.status}].`
+      );
+      return existingInProgress;
+    }
+
+    const id = `dl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const fullTask: DownloadTask = {
       ...task,
       id,

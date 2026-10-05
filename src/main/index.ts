@@ -2385,6 +2385,111 @@ function mapDbRowToLocalModel(r: any): LocalModel {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: e?.message || 'Orphan model scan failed' }));
         }
+      } else if (url === '/api/library/analyze-sorting' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const result = await librarySorter.analyzeLibrary(body);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ totalModels: 0, misplacedCount: 0, correctCount: 0, items: [], error: e?.message }));
+        }
+      } else if (url === '/api/library/execute-sorting' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const items = body?.items || body;
+          const validItems = z.array(
+            z.object({
+              modelId: z.string(),
+              sourcePath: z.string(),
+              targetPath: z.string(),
+            })
+          ).parse(items);
+          const result = await librarySorter.executeSort(validItems, (prog) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('library-sort-progress', prog);
+            }
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, movedCount: 0, failedCount: 0, errors: [{ error: e?.message }] }));
+        }
+      } else if (url === '/api/library/ignore-sort-model' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { modelId, filePath, fileName } = body || {};
+          if (!modelId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'modelId is required' }));
+            return;
+          }
+          const result = await librarySorter.ignoreSortModel(String(modelId), filePath, fileName);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message }));
+        }
+      } else if (url === '/api/library/unignore-sort-model' && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { modelId } = body || {};
+          if (!modelId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'modelId is required' }));
+            return;
+          }
+          const result = await librarySorter.unignoreSortModel(String(modelId));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message }));
+        }
+      } else if (url === '/api/library/ignored-sort-models' && req.method === 'GET') {
+        try {
+          const rows = await librarySorter.getIgnoredSortModels();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(rows));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify([]));
+        }
+      } else if (url === '/api/library/clear-ignored-sort-models' && req.method === 'POST') {
+        try {
+          const result = await librarySorter.clearIgnoredSortModels();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message }));
+        }
+      } else if ((url === '/api/optimizer/save-trigger-words' || url === '/api/save-model-trigger-words' || url === '/api/models/trigger-words') && req.method === 'POST') {
+        try {
+          const body = await getBody();
+          const { filePath, triggerWords } = body || {};
+          if (!filePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+            return;
+          }
+          const allowedRoots = getAllowedModelRoots(currentConfig);
+          if (!isPathWithinAllowedRoots(filePath, allowedRoots)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target model path must reside within permitted library directories' }));
+            return;
+          }
+          const validWords = Array.isArray(triggerWords) ? triggerWords.map((w: any) => String(w).slice(0, 256)) : [];
+          const result = await storageOptimizer.updateModelTriggerWords(filePath, validWords);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e?.message || 'Failed to save trigger words' }));
+        }
       } else if ((url === '/api/converter/python-status' || url === '/api/converter/status') && req.method === 'GET') {
         try {
           const result = await modelConverter.getPythonEnvironment(
@@ -3367,6 +3472,26 @@ function registerIpcHandlers() {
         mainWindow.webContents.send('library-sort-progress', prog);
       }
     });
+  });
+
+  ipcMain.handle('ignore-sort-model', async (_event: unknown, modelId: string, filePath?: string, fileName?: string) => {
+    const validModelId = z.string().min(1).max(256).parse(modelId);
+    const validFilePath = filePath ? z.string().max(4096).parse(filePath) : undefined;
+    const validFileName = fileName ? z.string().max(512).parse(fileName) : undefined;
+    return await librarySorter.ignoreSortModel(validModelId, validFilePath, validFileName);
+  });
+
+  ipcMain.handle('unignore-sort-model', async (_event: unknown, modelId: string) => {
+    const validModelId = z.string().min(1).max(256).parse(modelId);
+    return await librarySorter.unignoreSortModel(validModelId);
+  });
+
+  ipcMain.handle('get-ignored-sort-models', async () => {
+    return await librarySorter.getIgnoredSortModels();
+  });
+
+  ipcMain.handle('clear-ignored-sort-models', async () => {
+    return await librarySorter.clearIgnoredSortModels();
   });
 
   // Model Converter Handlers

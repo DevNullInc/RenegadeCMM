@@ -1972,6 +1972,21 @@ export const SettingsTab: React.FC = () => {
             </p>
           </div>
 
+          {/* Cryptographic Privacy & Non-Reversible Fingerprint Disclaimer */}
+          <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2 text-xs">
+            <div className="flex items-center gap-2 text-slate-200 font-semibold text-xs">
+              <ShieldCheck size={16} className="text-purple-400 shrink-0" />
+              <span>Hardware Fingerprint Privacy &amp; Cryptographic Guarantee</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Your hardware-bound keypair is derived locally using a salted, one-way cryptographic hash (SHA-256). The fingerprinting process is mathematically <strong>non-reversible</strong> (pre-image resistant): no raw serial numbers, MAC addresses, or identifying device specifications are ever transmitted, stored in plaintext, or exposed.
+            </p>
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pt-0.5">
+              <Lock size={12} className="text-slate-400 shrink-0" />
+              <span>Zero-knowledge design: External parties and licensors cannot reverse-engineer or trace this public key back to your physical hardware or personal identity.</span>
+            </div>
+          </div>
+
           {licenseStatus?.isValid && licenseStatus.license && (
             <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-slate-400 font-medium">

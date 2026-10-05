@@ -165,4 +165,53 @@ describe('FolderRouter', () => {
     expect(result3.fullPath.startsWith(testRoot)).toBe(true);
     expect(result3.fullPath).not.toContain('..');
   });
+
+  it('should evaluate folder alias equivalence correctly', () => {
+    const router = new FolderRouter();
+
+    // LoRA aliases
+    expect(router.isFolderEquivalent('Lora', 'loras')).toBe(true);
+    expect(router.isFolderEquivalent('loras', 'Lora')).toBe(true);
+    expect(router.isFolderEquivalent('lycoris', 'loras')).toBe(true);
+
+    // InsightFace / ONNX aliases
+    expect(router.isFolderEquivalent('antelopev2', 'insightface')).toBe(true);
+    expect(router.isFolderEquivalent('buffalo_l', 'insightface')).toBe(true);
+
+    // Upscaler aliases
+    expect(router.isFolderEquivalent('ESRGAN', 'upscale_models')).toBe(true);
+    expect(router.isFolderEquivalent('upscalers', 'upscale_models')).toBe(true);
+
+    // Text Encoders / CLIP aliases
+    expect(router.isFolderEquivalent('TextEncoders', 'text_encoders')).toBe(true);
+    expect(router.isFolderEquivalent('clip', 'text_encoders')).toBe(true);
+
+    // Detection aliases
+    expect(router.isFolderEquivalent('AfterDetailer', 'ultralytics')).toBe(true);
+    expect(router.isFolderEquivalent('yolo', 'ultralytics')).toBe(true);
+
+    // Non-equivalent folders
+    expect(router.isFolderEquivalent('checkpoints', 'loras')).toBe(false);
+    expect(router.isFolderEquivalent('vae', 'controlnet')).toBe(false);
+  });
+
+  it('should route ONNX, Upscalers, Detection, and Text Encoders accurately', () => {
+    const router = new FolderRouter({ rootPath: 'D:\\ComfyUI\\models' });
+
+    expect(
+      router.computePath({ fileName: '1k3d68.onnx', modelType: 'Other' }).folderName
+    ).toBe('insightface');
+
+    expect(
+      router.computePath({ fileName: '1x-ITF-SkinDiffDetail-Lite-v1.pth', modelType: 'Other' }).folderName
+    ).toBe('upscale_models');
+
+    expect(
+      router.computePath({ fileName: '10Eros_v1.4_text_encoder.safetensors', modelType: 'Other' }).folderName
+    ).toBe('text_encoders');
+
+    expect(
+      router.computePath({ fileName: '2DCockAndBallYolo8x.pt', modelType: 'Detection' }).folderName
+    ).toBe('ultralytics');
+  });
 });

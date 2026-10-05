@@ -248,6 +248,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   const [activeModel, setActiveModel] = useState<CivitAIModel | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<CivitAIModelVersion | null>(null);
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+  const [queuingVersionIds, setQueuingVersionIds] = useState<Set<number>>(new Set());
 
   // Dual-Source Search: CivitAI vs Hugging Face
   const [searchSource, setSearchSource] = useState<'civitai' | 'huggingface'>('civitai');
@@ -750,6 +751,9 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   };
 
   const handleQuickDownload = (model: CivitAIModel, version: CivitAIModelVersion) => {
+    if (!version || queuingVersionIds.has(version.id)) return;
+    setQueuingVersionIds((prev) => new Set(prev).add(version.id));
+
     const oldInstalledModel = (deleteOldOnUpdate && model)
       ? localModels.find((m) => m.civitaiModelId === model.id)
       : undefined;
@@ -759,7 +763,14 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       deleteOldModelId: oldInstalledModel?.id,
     });
     setDownloadSuccess(`Queued download for ${model.name} (${version.name})`);
-    setTimeout(() => setDownloadSuccess(null), 3500);
+    setTimeout(() => {
+      setDownloadSuccess(null);
+      setQueuingVersionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(version.id);
+        return next;
+      });
+    }, 2500);
   };
 
   const handleQuickUpdate = (
@@ -767,6 +778,9 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     version: CivitAIModelVersion,
     targetInstalledModel?: LocalModel
   ) => {
+    if (!version || queuingVersionIds.has(version.id)) return;
+    setQueuingVersionIds((prev) => new Set(prev).add(version.id));
+
     const oldInstalledModel =
       targetInstalledModel || localModels.find((m) => m.civitaiModelId === model.id);
 
@@ -775,7 +789,14 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       deleteOldModelId: oldInstalledModel?.id,
     });
     setDownloadSuccess(`Queued update for ${model.name} (${version.name})`);
-    setTimeout(() => setDownloadSuccess(null), 3500);
+    setTimeout(() => {
+      setDownloadSuccess(null);
+      setQueuingVersionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(version.id);
+        return next;
+      });
+    }, 2500);
   };
 
   const triggerDownload = (version: CivitAIModelVersion) => {
@@ -1165,32 +1186,34 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       {installStatus.hasUpdate && installStatus.updateVersion && (
                         <button
                           type="button"
+                          disabled={queuingVersionIds.has(installStatus.updateVersion.id)}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleQuickUpdate(model, installStatus.updateVersion!, installStatus.targetInstalledModel);
                           }}
                           title={`Quick Update to ${installStatus.updateVersion.name}`}
                           aria-label={`Quick Update ${model.name} to ${installStatus.updateVersion.name}`}
-                          className="px-2.5 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-lg shadow-amber-950/70 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-black text-[11px] group/up glow-amber animate-pulse"
+                          className="px-2.5 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-lg shadow-amber-950/70 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-black text-[11px] group/up glow-amber animate-pulse disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                         >
                           <Sparkles size={13} className="group-hover/up:rotate-12 transition-transform text-slate-950 shrink-0" />
-                          <span>Quick Update</span>
+                          <span>{queuingVersionIds.has(installStatus.updateVersion.id) ? 'Queuing...' : 'Quick Update'}</span>
                         </button>
                       )}
 
                       {firstVersion && (
                         <button
                           type="button"
+                          disabled={queuingVersionIds.has(firstVersion.id)}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleQuickDownload(model, firstVersion);
                           }}
                           title={`Quick Download (${firstVersion.name})`}
                           aria-label={`Quick Download ${model.name}`}
-                          className="px-2.5 py-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-400/60 shadow-lg shadow-emerald-950/60 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-bold text-[11px] group/dl glow-emerald"
+                          className="px-2.5 py-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-400/60 shadow-lg shadow-emerald-950/60 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-bold text-[11px] group/dl glow-emerald disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                         >
                           <Download size={13} className="group-hover/dl:animate-bounce text-white shrink-0" />
-                          <span>{installStatus.hasUpdate ? 'Download' : 'Quick Download'}</span>
+                          <span>{queuingVersionIds.has(firstVersion.id) ? 'Queuing...' : installStatus.hasUpdate ? 'Download' : 'Quick Download'}</span>
                         </button>
                       )}
                     </div>

@@ -22,6 +22,32 @@ import {
 import { sanitizeFileName } from '../utils/pathUtils';
 import { logger } from '../utils/logger';
 
+export const FOLDER_ALIASES: Record<string, string[]> = {
+  checkpoints: ['checkpoint', 'checkpoints', 'models'],
+  loras: ['lora', 'loras', 'lycoris', 'locon', 'dora'],
+  vae: ['vae', 'vaes'],
+  embeddings: ['embeddings', 'embedding', 'textual_inversion', 'textualinversion'],
+  controlnet: ['controlnet', 'control_net', 'controlnets'],
+  upscale_models: ['upscale_models', 'upscalers', 'upscaler', 'esrgan', 'realesrgan', 'upscale', 'swinir', 'hat', 'dat', 'omnisr', 'nmkd'],
+  text_encoders: ['text_encoders', 'textencoders', 'clip', 'text_encoder', 'text_encoder_models', 't5'],
+  clip: ['clip', 'text_encoders', 'textencoders', 'clip_models'],
+  clip_vision: ['clip_vision', 'clipvision', 'clip_vision_models'],
+  diffusion_models: ['diffusion_models', 'diffusion', 'unet', 'diffusers'],
+  LLM: ['llm', 'llms', 'text_models', 'gguf'],
+  hypernetworks: ['hypernetworks', 'hypernetwork'],
+  insightface: ['insightface', 'antelopev2', 'buffalo_l', 'buffalo_m', 'buffalo_s', 'models/antelopev2', 'models/buffalo_l', 'face_analysis', 'models'],
+  ultralytics: ['ultralytics', 'yolo', 'detection', 'bbox', 'segm', 'afterdetailer', 'adetailer', 'adetailer/bbox', 'adetailer/segm'],
+  yolo: ['yolo', 'ultralytics', 'detection', 'bbox', 'segm', 'afterdetailer', 'adetailer'],
+  detection: ['detection', 'ultralytics', 'yolo', 'bbox', 'segm', 'afterdetailer', 'adetailer'],
+  ipadapter: ['ipadapter', 'ip_adapter', 'ip-adapter'],
+  reactor: ['reactor', 'insightface'],
+  photomaker: ['photomaker'],
+  pulid: ['pulid'],
+  gguf: ['gguf', 'llm', 'llms', 'text_models'],
+  wildcards: ['wildcards', 'wildcard'],
+  workflows: ['workflows', 'workflow'],
+};
+
 export class FolderRouter {
   private config: FolderConfig;
 
@@ -54,6 +80,46 @@ export class FolderRouter {
     };
   }
 
+  /**
+   * Evaluates if a given directory or alias is logically equivalent to the target ComfyUI model folder.
+   */
+  isFolderEquivalent(currentFolder: string, targetFolder: string): boolean {
+    if (!currentFolder || !targetFolder) return false;
+    const curr = currentFolder.trim().toLowerCase();
+    const targ = targetFolder.trim().toLowerCase();
+    if (curr === targ) return true;
+
+    // Check aliases of targetFolder
+    const targetAliases = FOLDER_ALIASES[targetFolder] || FOLDER_ALIASES[targ] || [];
+    if (targetAliases.some((a) => a.toLowerCase() === curr)) {
+      return true;
+    }
+
+    // Check aliases of currentFolder
+    const currentAliases = FOLDER_ALIASES[currentFolder] || FOLDER_ALIASES[curr] || [];
+    if (currentAliases.some((a) => a.toLowerCase() === targ)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Resolves any folder alias (e.g. 'ESRGAN', 'Lora', 'diffusers') to its standardized canonical ComfyUI folder name.
+   */
+  getCanonicalFolderName(folder: string): string {
+    if (!folder) return '';
+    const norm = folder.trim().toLowerCase();
+    for (const [canonical, aliases] of Object.entries(FOLDER_ALIASES)) {
+      if (canonical.toLowerCase() === norm) return canonical;
+      if (aliases.some((a) => a.toLowerCase() === norm)) return canonical;
+    }
+    for (const standard of COMFYUI_STANDARD_MODEL_SUBFOLDERS) {
+      if (standard.toLowerCase() === norm) return standard;
+    }
+    return folder;
+  }
+
   determineFolder(
     fileName: string,
     modelType: ModelType,
@@ -83,7 +149,7 @@ export class FolderRouter {
       Poses: 'workflows',
       Wildcards: 'wildcards',
       Workflows: 'workflows',
-      Detection: 'detection',
+      Detection: 'ultralytics',
     };
 
     const isSpecializedType = Boolean(modelType && specializedTypes[modelType]);
@@ -111,9 +177,17 @@ export class FolderRouter {
       return specializedTypes[modelType];
     }
 
-    // 4. Base model intelligence for Checkpoint / Other / standalone weights
+    // 4. Check for explicit AIO / Merged Checkpoint naming
+    if (
+      /\b(aio|all-in-one|all_in_one|full_version|full-version)\b/i.test(nameWithSpaces) ||
+      /[-_](aio|all-in-one|all_in_one|checkpoint|ckpt)[-_.]/i.test(nameLower)
+    ) {
+      return 'checkpoints';
+    }
+
+    // 5. Base model intelligence for Checkpoint / Other / standalone weights
     const isDiffusionBase =
-      /\b(anima|krea|flux|wan|wan2|cogvideo|hunyuan|mochi|ltxv|ltx-video|auraflow|pixart|lumina|chroma|kolors|sd 3|sd 3\.5|sd3)\b/i.test(
+      /\b(minimax|h3|ltx|ltxv|ltx-video|anima|krea|flux|wan|wan2|cogvideo|hunyuan|mochi|auraflow|pixart|lumina|chroma|kolors|cosmos|consisid|omnigen|easycontrol|melbandroformer|sd 3|sd 3\.5|sd3)\b/i.test(
         baseLower
       );
 
@@ -123,14 +197,26 @@ export class FolderRouter {
       );
 
     if (isLlmBase) {
-      return 'LLM';
+      if (nameLower.endsWith('.gguf') || /\b(gguf|instruct|chat|tokenizer|coder|assistant|text|language)\b/i.test(nameLower) || modelType === 'Other' || /\b(coder|assistant)\b/i.test(nameWithSpaces)) {
+        return 'LLM';
+      }
     }
 
     if (isDiffusionBase) {
       return 'diffusion_models';
     }
 
-    // 5. Filename keyword checks for Checkpoint / Other / standalone weights
+    // 6. Filename keyword checks for Checkpoint / Other / standalone weights
+    if (
+      /\b(minimax|h3|ltx|ltxv|anima|krea|cogvideo|hunyuan|mochi|lumina|chroma|auraflow|pixart|cosmos|consisid|omnigen|easycontrol|melbandroformer)\b/i.test(nameWithSpaces) ||
+      /\b(minimax|h3|ltx|ltxv|anima|krea|cogvideo|hunyuan|mochi|lumina|chroma|auraflow|pixart|cosmos|consisid|omnigen|easycontrol|melbandroformer)\b/i.test(nameLower) ||
+      /wan.*video|wan2\.?1|wan_\d/i.test(nameLower) ||
+      /flux.*krea/i.test(nameLower) ||
+      /minimax.*h3/i.test(nameLower)
+    ) {
+      return 'diffusion_models';
+    }
+
     if (
       /\b(qwen|quan|llama|mistral|gemma|deepseek|phi)\b/i.test(nameWithSpaces) ||
       /\b(qwen|quan|llama|mistral|gemma|deepseek|phi)\b/i.test(nameLower) ||
@@ -139,16 +225,56 @@ export class FolderRouter {
       return 'LLM';
     }
 
-    if (
-      /\b(anima|krea|cogvideo|hunyuan|mochi|ltxv|lumina|chroma|auraflow|pixart)\b/i.test(nameWithSpaces) ||
-      /\b(anima|krea|cogvideo|hunyuan|mochi|ltxv|lumina|chroma|auraflow|pixart)\b/i.test(nameLower) ||
-      /wan.*video|wan2\.?1|wan_\d/i.test(nameLower) ||
-      /flux.*krea/i.test(nameLower)
-    ) {
-      return 'diffusion_models';
+    // 6. Direct file pattern fallbacks for GGUF, LoRAs, ONNX, Upscalers, Detection, Clip Vision, and Text Encoders
+    if (nameLower.endsWith('.gguf')) {
+      return 'gguf';
     }
 
-    // 6. Fallback to modelType folder mapping
+    if (
+      /\b(lora|locon|dora|lycoris)\b/i.test(nameLower) ||
+      /[-_](r\d{1,4}|rank\d{1,4}|dim\d{1,4})[-_.]/i.test(nameLower)
+    ) {
+      return 'loras';
+    }
+
+    if (nameLower.endsWith('.onnx') || /\b(insightface|antelope|buffalo)\b/i.test(nameLower)) {
+      return 'insightface';
+    }
+
+    if (
+      nameLower.endsWith('.pt') ||
+      /\b(yolo|ultralytics|adetailer|afterdetailer|bbox|segm)\b/i.test(nameLower)
+    ) {
+      return 'ultralytics';
+    }
+
+    if (
+      nameLower.endsWith('.pth') ||
+      /\b(esrgan|swinir|real-esrgan|realesrgan|ultrasharp|supersharp|remacri|skindiff|upscale|hat|dat|omnisr|nmkd)\b/i.test(nameLower) ||
+      /\b[1-8]x\b/i.test(nameLower) ||
+      /srx\d/i.test(nameLower)
+    ) {
+      return 'upscale_models';
+    }
+
+    if (
+      /\b(clip_vision|clip-vision|clipvision|vision_encoder|vit-[ghlb]|clips?[-_]vit|siglip|open_clip)\b/i.test(nameLower) ||
+      /clip.*vit/i.test(nameLower) ||
+      /clips?[-_]vit/i.test(nameLower) ||
+      /clip.*vision/i.test(nameLower)
+    ) {
+      return 'clip_vision';
+    }
+
+    if (
+      /\b(text_encoder|textencoder|t5xxl|t5_|t5-|clip_l|clip_g)\b/i.test(nameLower) ||
+      /text.*encoder/i.test(nameLower) ||
+      /clip.*encoder/i.test(nameLower)
+    ) {
+      return 'text_encoders';
+    }
+
+    // 7. Fallback to modelType folder mapping
     return this.config.folderMappings[modelType] || 'checkpoints';
   }
 

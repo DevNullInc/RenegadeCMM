@@ -89,7 +89,9 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   const [selectedSortModelIds, setSelectedSortModelIds] = useState<Set<string>>(new Set());
   const [isSortModalOpen, setIsSortModalOpen] = useState<boolean>(false);
   const [sortFeedback, setSortFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
-  const [sortCategoryFilter, setSortCategoryFilter] = useState<'all' | 'controlnet' | 'diffusion_models' | 'LLM' | 'loras' | 'other'>('all');
+  const [sortCategoryFilter, setSortCategoryFilter] = useState<string>('all');
+  const [ignoredSortModels, setIgnoredSortModels] = useState<Array<{ model_id: string; file_path?: string; file_name?: string; created_at?: string }>>([]);
+  const [showIgnoredSortList, setShowIgnoredSortList] = useState<boolean>(false);
 
   // Missing Model Pulling State
   const [pullingModelId, setPullingModelId] = useState<string | null>(null);
@@ -214,8 +216,9 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     if (!window.civitaiAPI || typeof window.civitaiAPI.analyzeLibrarySorting !== 'function') return;
     setIsAnalyzingSort(true);
     try {
+      const activeList = modelsList && modelsList.length > 0 ? modelsList : localModels;
       const plan: LibrarySortPlan = await window.civitaiAPI.analyzeLibrarySorting(
-        modelsList ? { models: modelsList } : undefined
+        activeList && activeList.length > 0 ? { models: activeList } : undefined
       );
       setSortPlan(plan);
       if (plan && plan.items) {
@@ -228,11 +231,81 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     }
   };
 
+  const loadIgnoredSortModels = async () => {
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.getIgnoredSortModels === 'function') {
+        const list = await window.civitaiAPI.getIgnoredSortModels();
+        if (Array.isArray(list)) {
+          const normalized = list.map((r: any) => ({
+            model_id: String(r.modelId || r.model_id || ''),
+            file_path: r.filePath || r.file_path || '',
+            file_name: r.fileName || r.file_name || '',
+            created_at: r.createdAt || r.created_at || '',
+          }));
+          setIgnoredSortModels(normalized);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load ignored sort models:', e);
+    }
+  };
+
+  const handleIgnoreSortItem = async (item: { id: string; currentPath: string; fileName: string }) => {
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.ignoreSortModel === 'function') {
+        await window.civitaiAPI.ignoreSortModel(item.id, item.currentPath, item.fileName);
+        setSortPlan((prev) => {
+          if (!prev) return prev;
+          const newItems = prev.items.filter((i) => i.id !== item.id);
+          return {
+            ...prev,
+            misplacedCount: Math.max(0, prev.misplacedCount - 1),
+            items: newItems,
+          };
+        });
+        setSelectedSortModelIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+        await loadIgnoredSortModels();
+      }
+    } catch (e) {
+      console.error('Failed to ignore sort item:', e);
+    }
+  };
+
+  const handleUnignoreSortItem = async (modelId: string) => {
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.unignoreSortModel === 'function') {
+        await window.civitaiAPI.unignoreSortModel(modelId);
+        setIgnoredSortModels((prev) => prev.filter((item) => item.model_id !== modelId));
+        await loadIgnoredSortModels();
+        await handleAnalyzeSort();
+      }
+    } catch (e) {
+      console.error('Failed to unignore sort item:', e);
+    }
+  };
+
+  const handleClearIgnoredSort = async () => {
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.clearIgnoredSortModels === 'function') {
+        await window.civitaiAPI.clearIgnoredSortModels();
+        setIgnoredSortModels([]);
+        await handleAnalyzeSort();
+      }
+    } catch (e) {
+      console.error('Failed to clear ignored sort models:', e);
+    }
+  };
+
   const handleOpenSortModal = async () => {
     setIsSortModalOpen(true);
+    setShowIgnoredSortList(false);
     setSortFeedback(null);
     setSortCategoryFilter('all');
-    await handleAnalyzeSort();
+    await Promise.all([handleAnalyzeSort(), loadIgnoredSortModels()]);
   };
 
   const handleExecuteSort = async () => {
@@ -3509,204 +3582,345 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 </div>
               )}
 
-              {/* Category Filter & Selection Bar */}
-              {sortPlan && sortPlan.items.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-900/70 border border-slate-800 rounded-2xl">
-                  {/* Category Pills */}
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setSortCategoryFilter('all')}
-                      className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
-                        sortCategoryFilter === 'all'
-                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      All ({sortPlan.items.length})
-                    </button>
-                    {sortPlan.items.some((i) => i.targetFolder === 'controlnet') && (
+              {/* Top View Toggle: Misplaced Models vs Ignored Models */}
+              <div className="flex items-center justify-between gap-3 p-1.5 bg-slate-950/80 border border-slate-800 rounded-2xl">
+                <div className="flex items-center gap-1.5 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowIgnoredSortList(false)}
+                    className={`flex-1 py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      !showIgnoredSortList
+                        ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <ArrowUpDown size={14} />
+                    <span>Misplaced Models ({sortPlan ? sortPlan.misplacedCount : 0})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowIgnoredSortList(true)}
+                    className={`flex-1 py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      showIgnoredSortList
+                        ? 'bg-rose-500/20 border border-rose-500/40 text-rose-300 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <EyeOff size={14} />
+                    <span>Ignored ({ignoredSortModels.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {showIgnoredSortList ? (
+                /* Ignored Models Management View */
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between p-3.5 bg-slate-900/70 border border-slate-800 rounded-2xl">
+                    <div className="flex items-center gap-2 text-xs text-slate-300">
+                      <EyeOff size={16} className="text-rose-400 shrink-0" />
+                      <span>
+                        <strong>{ignoredSortModels.length}</strong> model{ignoredSortModels.length === 1 ? '' : 's'} ignored. These stay permanently in their current folders for specialized custom node requirements.
+                      </span>
+                    </div>
+                    {ignoredSortModels.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setSortCategoryFilter('controlnet')}
-                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
-                          sortCategoryFilter === 'controlnet'
-                            ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 font-bold'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
+                        onClick={handleClearIgnoredSort}
+                        className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-colors cursor-pointer shrink-0"
                       >
-                        ControlNet ({sortPlan.items.filter((i) => i.targetFolder === 'controlnet').length})
-                      </button>
-                    )}
-                    {sortPlan.items.some((i) => i.targetFolder === 'diffusion_models') && (
-                      <button
-                        type="button"
-                        onClick={() => setSortCategoryFilter('diffusion_models')}
-                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
-                          sortCategoryFilter === 'diffusion_models'
-                            ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300 font-bold'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Diffusion Models ({sortPlan.items.filter((i) => i.targetFolder === 'diffusion_models').length})
-                      </button>
-                    )}
-                    {sortPlan.items.some((i) => i.targetFolder === 'LLM') && (
-                      <button
-                        type="button"
-                        onClick={() => setSortCategoryFilter('LLM')}
-                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
-                          sortCategoryFilter === 'LLM'
-                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-bold'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        LLM / Text ({sortPlan.items.filter((i) => i.targetFolder === 'LLM').length})
-                      </button>
-                    )}
-                    {sortPlan.items.some((i) => i.targetFolder === 'loras') && (
-                      <button
-                        type="button"
-                        onClick={() => setSortCategoryFilter('loras')}
-                        className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
-                          sortCategoryFilter === 'loras'
-                            ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 font-bold'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        LoRA ({sortPlan.items.filter((i) => i.targetFolder === 'loras').length})
+                        Clear All Ignored
                       </button>
                     )}
                   </div>
 
-                  {/* Select All Toggle */}
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedSortModelIds.size === sortPlan.items.length) {
-                          setSelectedSortModelIds(new Set());
-                        } else {
-                          setSelectedSortModelIds(new Set(sortPlan.items.map((i) => i.id)));
-                        }
-                      }}
-                      className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
-                    >
-                      {selectedSortModelIds.size === sortPlan.items.length ? 'Deselect All' : 'Select All'}
-                    </button>
-                    <span className="text-slate-400 text-[11px]">
-                      {selectedSortModelIds.size} of {sortPlan.items.length} selected
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Items List */}
-              {isAnalyzingSort ? (
-                <div className="flex flex-col items-center justify-center py-16 space-y-3">
-                  <Loader2 size={32} className="animate-spin text-amber-400" />
-                  <span className="text-xs text-slate-400 font-medium">Analyzing library model directory hierarchy...</span>
-                </div>
-              ) : sortPlan && sortPlan.items.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 glass-panel rounded-2xl border border-emerald-500/30 bg-emerald-500/5">
-                  <CheckCircle2 size={40} className="text-emerald-400" />
-                  <h3 className="text-sm font-bold text-emerald-300">All Models Are Perfectly Placed!</h3>
-                  <p className="text-xs text-slate-400 max-w-md">
-                    Every ControlNet, diffusion model, LLM, LoRA, and Checkpoint in your library is already organized in its designated ComfyUI subfolder.
-                  </p>
-                </div>
-              ) : sortPlan && (
-                <div className="space-y-3">
-                  {sortPlan.items
-                    .filter((item) => {
-                      if (sortCategoryFilter === 'all') return true;
-                      return item.targetFolder === sortCategoryFilter;
-                    })
-                    .map((item) => {
-                      const isSelected = selectedSortModelIds.has(item.id);
-                      return (
+                  {ignoredSortModels.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 glass-panel rounded-2xl border border-slate-800 bg-slate-900/40">
+                      <ShieldCheck size={32} className="text-slate-500" />
+                      <h4 className="text-xs font-bold text-slate-300">No Ignored Models</h4>
+                      <p className="text-[11px] text-slate-500 max-w-sm">
+                        Click the "Ignore" button on any model card to exempt it permanently from auto-sorting.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {ignoredSortModels.map((item) => (
                         <div
-                          key={item.id}
-                          onClick={() => {
-                            setSelectedSortModelIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              return next;
-                            });
-                          }}
-                          className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
-                            isSelected
-                              ? 'bg-slate-900/90 border-amber-500/50 shadow-md shadow-amber-950/20'
-                              : 'bg-slate-950/60 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700'
+                          key={item.model_id}
+                          className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 flex items-center justify-between gap-3 hover:border-slate-700 transition-colors"
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <h5 className="text-xs font-bold text-slate-200 truncate" title={item.file_name || item.model_id}>
+                              {item.file_name || item.model_id}
+                            </h5>
+                            {item.file_path && (
+                              <p className="text-[10px] text-slate-400 font-mono truncate" title={item.file_path}>
+                                {item.file_path}
+                              </p>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleUnignoreSortItem(item.model_id)}
+                            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 border border-slate-800 hover:border-amber-500/40 text-xs font-semibold transition-all cursor-pointer shrink-0 flex items-center gap-1.5"
+                          >
+                            <Eye size={13} />
+                            <span>Unignore</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Standard Misplaced Models View */
+                <div className="space-y-5">
+                  {/* Category Filter & Selection Bar */}
+                  {sortPlan && sortPlan.items.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-900/70 border border-slate-800 rounded-2xl">
+                      {/* Category Pills */}
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setSortCategoryFilter('all')}
+                          className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                            sortCategoryFilter === 'all'
+                              ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
                           }`}
                         >
-                          <div className="flex items-start gap-3.5 flex-1 min-w-0">
-                            {/* Checkbox */}
-                            <div className="pt-1 shrink-0">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedSortModelIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(item.id)) next.delete(item.id);
-                                    else next.add(item.id);
-                                    return next;
-                                  });
-                                }}
-                                className="rounded border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer h-4 w-4"
-                              />
-                            </div>
+                          All ({sortPlan.items.length})
+                        </button>
+                        {Array.from(new Set(sortPlan.items.map((i) => i.targetFolder))).sort().map((folder) => {
+                          const count = sortPlan.items.filter((i) => i.targetFolder === folder).length;
+                          const isSelected = sortCategoryFilter === folder;
 
-                            {/* Thumbnail Preview */}
-                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 shrink-0">
-                              <FallbackImage
-                                src={item.previewUrl}
-                                alt={item.fileName}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
+                          const getFolderStyle = (f: string) => {
+                            switch (f) {
+                              case 'loras':
+                                return { label: 'LoRA', activeCls: 'bg-rose-500/20 border-rose-500/40 text-rose-300' };
+                              case 'controlnet':
+                                return { label: 'ControlNet', activeCls: 'bg-purple-500/20 border-purple-500/40 text-purple-300' };
+                              case 'diffusion_models':
+                                return { label: 'Diffusion Models', activeCls: 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300' };
+                              case 'LLM':
+                                return { label: 'LLM / Text', activeCls: 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' };
+                              case 'checkpoints':
+                                return { label: 'Checkpoints', activeCls: 'bg-blue-500/20 border-blue-500/40 text-blue-300' };
+                              case 'upscale_models':
+                                return { label: 'Upscalers', activeCls: 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300' };
+                              case 'vae':
+                                return { label: 'VAE', activeCls: 'bg-pink-500/20 border-pink-500/40 text-pink-300' };
+                              case 'embeddings':
+                                return { label: 'Embeddings', activeCls: 'bg-teal-500/20 border-teal-500/40 text-teal-300' };
+                              case 'text_encoders':
+                                return { label: 'Text Encoders', activeCls: 'bg-violet-500/20 border-violet-500/40 text-violet-300' };
+                              case 'clip':
+                                return { label: 'CLIP', activeCls: 'bg-fuchsia-500/20 border-fuchsia-500/40 text-fuchsia-300' };
+                              case 'clip_vision':
+                                return { label: 'CLIP Vision', activeCls: 'bg-sky-500/20 border-sky-500/40 text-sky-300' };
+                              case 'insightface':
+                                return { label: 'InsightFace', activeCls: 'bg-amber-500/20 border-amber-500/40 text-amber-300' };
+                              case 'ultralytics':
+                              case 'yolo':
+                              case 'detection':
+                                return { label: 'Detection / YOLO', activeCls: 'bg-orange-500/20 border-orange-500/40 text-orange-300' };
+                              case 'gguf':
+                                return { label: 'GGUF', activeCls: 'bg-lime-500/20 border-lime-500/40 text-lime-300' };
+                              case 'hypernetworks':
+                                return { label: 'Hypernetworks', activeCls: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300' };
+                              default:
+                                return { label: f, activeCls: 'bg-slate-700/40 border-slate-600 text-slate-200' };
+                            }
+                          };
 
-                            {/* Model Details */}
-                            <div className="space-y-1 min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className="font-bold text-slate-100 text-xs truncate max-w-sm" title={item.fileName}>
-                                  {item.fileName}
-                                </h4>
-                                {item.baseModel && (
-                                  <span className="px-2 py-0.5 rounded-md text-[9px] font-semibold bg-slate-800 border border-slate-700 text-slate-300">
-                                    {item.baseModel}
-                                  </span>
-                                )}
+                          const style = getFolderStyle(folder);
+
+                          return (
+                            <button
+                              key={folder}
+                              type="button"
+                              onClick={() => setSortCategoryFilter(folder)}
+                              className={`px-3 py-1 rounded-xl border transition-all cursor-pointer ${
+                                isSelected
+                                  ? `${style.activeCls} font-bold`
+                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {style.label} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Select All Toggle */}
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedSortModelIds.size === sortPlan.items.length) {
+                              setSelectedSortModelIds(new Set());
+                            } else {
+                              setSelectedSortModelIds(new Set(sortPlan.items.map((i) => i.id)));
+                            }
+                          }}
+                          className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                        >
+                          {selectedSortModelIds.size === sortPlan.items.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                        <span className="text-slate-400 text-[11px]">
+                          {selectedSortModelIds.size} of {sortPlan.items.length} selected
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Items List */}
+                  {isAnalyzingSort ? (
+                    <div className="flex flex-col items-center justify-center py-16 space-y-3">
+                      <Loader2 size={32} className="animate-spin text-amber-400" />
+                      <span className="text-xs text-slate-400 font-medium">Analyzing library model directory hierarchy...</span>
+                    </div>
+                  ) : sortPlan && sortPlan.items.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 glass-panel rounded-2xl border border-emerald-500/30 bg-emerald-500/5">
+                      <CheckCircle2 size={40} className="text-emerald-400" />
+                      <h3 className="text-sm font-bold text-emerald-300">All Models Are Perfectly Placed!</h3>
+                      <p className="text-xs text-slate-400 max-w-md">
+                        Every ControlNet, diffusion model, LLM, LoRA, and Checkpoint in your library is already organized in its designated ComfyUI subfolder.
+                      </p>
+                    </div>
+                  ) : sortPlan && (
+                    <div className="space-y-3">
+                      {sortPlan.items
+                        .filter((item) => {
+                          if (sortCategoryFilter === 'all') return true;
+                          return item.targetFolder === sortCategoryFilter;
+                        })
+                        .map((item) => {
+                          const isSelected = selectedSortModelIds.has(item.id);
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setSelectedSortModelIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(item.id)) next.delete(item.id);
+                                  else next.add(item.id);
+                                  return next;
+                                });
+                              }}
+                              className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                                isSelected
+                                  ? 'bg-slate-900/90 border-amber-500/50 shadow-md shadow-amber-950/20'
+                                  : 'bg-slate-950/60 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                                {/* Checkbox */}
+                                <div className="pt-1 shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedSortModelIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(item.id)) next.delete(item.id);
+                                        else next.add(item.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="rounded border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer h-4 w-4"
+                                  />
+                                </div>
+
+                                {/* Thumbnail Preview */}
+                                <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 shrink-0">
+                                  <FallbackImage
+                                    src={item.previewUrl}
+                                    alt={item.fileName}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+
+                                {/* Model Details */}
+                                <div className="space-y-1 min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h4 className="font-bold text-slate-100 text-xs truncate max-w-sm" title={item.fileName}>
+                                      {item.fileName}
+                                    </h4>
+                                    {item.baseModel && (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-semibold bg-slate-800 border border-slate-700 text-slate-300">
+                                        {item.baseModel}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <p className="text-[11px] text-amber-300 font-medium">
+                                    {item.reason}
+                                  </p>
+
+                                  {item.companionFiles.length > 0 && (
+                                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                      <span className="text-[10px] font-semibold text-slate-400">
+                                        +{item.companionFiles.length} companion{item.companionFiles.length > 1 ? 's' : ''}:
+                                      </span>
+                                      {item.companionFiles.slice(0, 3).map((c, idx) => {
+                                        const companionName = c.split(/[\\/]/).pop() || c;
+                                        return (
+                                          <span
+                                            key={idx}
+                                            title={companionName}
+                                            className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 text-[9px] font-mono truncate max-w-[180px]"
+                                          >
+                                            {companionName}
+                                          </span>
+                                        );
+                                      })}
+                                      {item.companionFiles.length > 3 && (
+                                        <span
+                                          title={item.companionFiles.slice(3).map((c) => c.split(/[\\/]/).pop()).join('\n')}
+                                          className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-500 text-[9px] font-semibold"
+                                        >
+                                          +{item.companionFiles.length - 3} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
-                              <p className="text-[11px] text-amber-300 font-medium">
-                                {item.reason}
-                              </p>
+                              {/* Relocation Route Indicator & Ignore Button */}
+                              <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
+                                <div className="flex items-center gap-2 text-xs font-bold bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 shadow-inner">
+                                  <span className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/40 text-rose-300 font-mono text-[11px]">
+                                    {item.currentFolder}
+                                  </span>
+                                  <ArrowRight size={14} className="text-amber-400" />
+                                  <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[11px]">
+                                    {item.targetFolder}
+                                  </span>
+                                </div>
 
-                              {item.companionFiles.length > 0 && (
-                                <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                                  <span>+ {item.companionFiles.length} companion file(s) ({item.companionFiles.map((c) => c.split(/[\\/]/).pop()).join(', ')})</span>
-                                </p>
-                              )}
+                                <button
+                                  type="button"
+                                  title="Ignore this model - Keep in this folder permanently (for specialized custom node requirements)"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleIgnoreSortItem(item);
+                                  }}
+                                  className="p-2 px-3 rounded-xl bg-slate-950/80 hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold group"
+                                >
+                                  <EyeOff size={14} className="group-hover:text-rose-400" />
+                                  <span className="inline">Ignore</span>
+                                </button>
+                              </div>
                             </div>
-                          </div>
-
-                          {/* Relocation Route Indicator */}
-                          <div className="flex items-center gap-2 text-xs font-bold shrink-0 self-end sm:self-center bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 shadow-inner">
-                            <span className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/40 text-rose-300 font-mono text-[11px]">
-                              {item.currentFolder}
-                            </span>
-                            <ArrowRight size={14} className="text-amber-400" />
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[11px]">
-                              {item.targetFolder}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

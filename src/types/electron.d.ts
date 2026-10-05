@@ -128,6 +128,10 @@ export interface CivitaiAPI {
   analyzeLibrarySorting: (options?: { models?: any[]; modelIds?: string[] }) => Promise<any>;
   executeLibrarySorting: (planItems: Array<{ modelId: string; sourcePath: string; targetPath: string }>) => Promise<any>;
   onLibrarySortProgress?: (callback: (progress: { current: number; total: number; file: string }) => void) => (() => void) | void;
+  ignoreSortModel: (modelId: string, filePath?: string, fileName?: string) => Promise<any>;
+  unignoreSortModel: (modelId: string) => Promise<any>;
+  getIgnoredSortModels: () => Promise<any>;
+  clearIgnoredSortModels: () => Promise<any>;
 
   // Model Converter (Pickle to SafeTensors) & Hardware Safety
   getConverterEnvironment: (customPythonPath?: string) => Promise<any>;

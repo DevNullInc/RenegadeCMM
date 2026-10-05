@@ -112,4 +112,66 @@ describe('Folder Writeability Sanity Check & Download Pre-flight', () => {
     expect(updated?.status).toBe('failed');
     expect(updated?.error).toContain('Cannot write to destination folder');
   });
+
+  it('refuses duplicate downloads when identical file name, hash, or download URL is already in progress', () => {
+    const dm = new DownloadManager(0); // 0 active concurrency to keep tasks in pending status
+
+    const firstTask = dm.addTask({
+      downloadUrl: 'https://civitai.com/api/download/models/12345',
+      fileName: 'flux_realism.safetensors',
+      modelType: 'Checkpoint',
+      sha256: 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855',
+      modelVersionId: 12345,
+      modelName: 'Flux Realism',
+      sizeKB: 1000,
+    });
+
+    expect(dm.getTasks().length).toBe(1);
+
+    // 1. Attempt adding exact same modelVersionId
+    const dup1 = dm.addTask({
+      downloadUrl: 'https://civitai.com/api/download/models/12345',
+      fileName: 'flux_realism.safetensors',
+      modelType: 'Checkpoint',
+      modelVersionId: 12345,
+      modelName: 'Flux Realism',
+      sizeKB: 1000,
+    });
+    expect(dup1.id).toBe(firstTask.id);
+    expect(dm.getTasks().length).toBe(1);
+
+    // 2. Attempt adding exact same SHA256
+    const dup2 = dm.addTask({
+      downloadUrl: 'https://civitai.com/api/download/models/99999',
+      fileName: 'flux_realism_copy.safetensors',
+      modelType: 'Checkpoint',
+      sha256: 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855',
+      modelName: 'Flux Realism',
+      sizeKB: 1000,
+    });
+    expect(dup2.id).toBe(firstTask.id);
+    expect(dm.getTasks().length).toBe(1);
+
+    // 3. Attempt adding exact same download URL
+    const dup3 = dm.addTask({
+      downloadUrl: 'https://civitai.com/api/download/models/12345',
+      fileName: 'flux_different_name.safetensors',
+      modelType: 'Checkpoint',
+      modelName: 'Flux Realism',
+      sizeKB: 1000,
+    });
+    expect(dup3.id).toBe(firstTask.id);
+    expect(dm.getTasks().length).toBe(1);
+
+    // 4. Attempt adding exact same file name in the same folder
+    const dup4 = dm.addTask({
+      downloadUrl: 'https://mirror.com/models/other',
+      fileName: 'flux_realism.safetensors',
+      modelType: 'Checkpoint',
+      modelName: 'Flux Realism',
+      sizeKB: 1000,
+    });
+    expect(dup4.id).toBe(firstTask.id);
+    expect(dm.getTasks().length).toBe(1);
+  });
 });
