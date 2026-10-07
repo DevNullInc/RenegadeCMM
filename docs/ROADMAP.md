@@ -17,7 +17,7 @@ graph LR
     v161 --> v162["✅ v1.6.2<br/>Drag-Drop Import, Zod IPC & UX Polish"]
     v162 --> v163["✅ v1.6.3<br/>Library Auto-Sorter, CodeQL Hardening & BSL 1.1"]
     v163 --> v17["🎯 v1.7.0<br/>Smart Collections & Trigger Hub"]
-    v17 --> v20["🎯 v2.0.0<br/>Unified Multi-Gen & Package Launch Hub"]
+    v17 --> v20["🎯 v2.0.0<br/>RenegadeFlow Headless Engine & Launch Hub"]
 ```
 
 ---
@@ -226,13 +226,14 @@ graph LR
 
 ---
 
-### Phase 5: v2.0.0 — Unified Multi-Gen Ecosystem & Automated Package Launch Hub
+### Phase 5: v2.0.0 — RenegadeFlow Native Headless Engine & Modular AI Workstation
 
-> **Goal**: Expand Renegade CMM into an all-in-one generative AI workstation and runtime manager. Launch, orchestrate, and automatically install multiple generative backends, model engines, and LLM suites directly from a single native launchpad.
+> **Goal**: Expand RenegadeCMM into an integrated generative AI workstation powered by the native RenegadeFlow inference engine, local multi-modal package orchestration, and isolated runtime environments.
 
-- [ ] **Universal Multi-Gen Launchpad & Suite Selector**:
-  - Unified launchpad allowing users to configure and boot preferred generation environments: **ComfyUI**, **AUTOMATIC1111**, **Stable Diffusion WebUI / SD.Next**, **Fooocus**, **SwarmUI**, and more.
-  - Dedicated package profile switching with customizable launch flags, port overrides, environment variables, and GPU acceleration arguments.
+- [ ] **RenegadeFlow — Native Headless Inference Engine**:
+  - High-performance, lightweight headless execution backend integrated directly into the Workflows tab, replacing external bloated third-party node-graph software runtimes and standalone browser wrappers.
+  - Complete backwards compatibility with existing third-party node extensions, custom nodes, and serialized JSON/PNG workflow graphs, enabling existing setups to transition without modification.
+  - Native execution pipeline with optimized memory buffers, direct GPU scheduling, background prompt queuing, and real-time generation preview streaming directly within RenegadeCMM.
 - [ ] **Automated Host Package Installer & Environment Provisioning**:
   - One-click native installation and environment setup for supported generation suites directly onto the host computer.
   - Automated dependency bootstrapping: Git cloning, isolated Python virtual environments (`.venv`), PyTorch/CUDA wheels, and required dependencies.
@@ -240,9 +241,8 @@ graph LR
 - [ ] **Integrated Local LLM & Multi-Modal Packages**:
   - Package orchestration for local LLM runtimes (Ollama, llama.cpp, text-generation-webui, KoboldCPP).
   - Cross-modal workflow bridging allowing local LLMs to generate prompts, detailed captions, and structured generation parameters directly for diffusion engines.
-- [ ] **Cross-Engine Unified Model Linker**:
-  - Eliminate duplicate model files across engines (e.g. Automatic1111's `models/Stable-diffusion/` vs. ComfyUI's `models/checkpoints/` vs. Fooocus / SwarmUI directory structures) using automated symlinks, hardlinks, or NTFS junctions.
-  - Centralized master model repository management with hot-swap link relocation: moving physical files automatically updates links across all installed engines without broken references.
+- [ ] **Universal Multi-Gen Launchpad & Suite Selector (Release TBD)**:
+  - Unified launchpad allowing users to configure and boot external third-party generation environments with dedicated package profile switching, customizable launch flags, port overrides, environment variables, and GPU acceleration arguments.
 
 ---
 
