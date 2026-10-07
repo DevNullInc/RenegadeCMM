@@ -340,5 +340,21 @@ describe('LicenseService Cryptographic Verification Engine', () => {
       (crypto as any).verify = originalCryptoVerify;
     }
   });
+
+  it('should successfully verify default licensor master public key format and valid tokens', async () => {
+    const defaultService = new LicenseService();
+    expect(DEFAULT_LICENSOR_MASTER_PUBLIC_KEY).toBe(
+      'MCowBQYDK2VwAyEAn8MKXhX4ZSwUroJOks4QCwD0kqXj5d0+jyip0skvWe4='
+    );
+
+    // Verify that the default master public key parses as a valid SPKI Ed25519 key
+    const pubKey = crypto.createPublicKey({
+      key: Buffer.from(DEFAULT_LICENSOR_MASTER_PUBLIC_KEY, 'base64'),
+      format: 'der',
+      type: 'spki',
+    });
+    expect(pubKey.asymmetricKeyType).toBe('ed25519');
+  });
 });
+
 

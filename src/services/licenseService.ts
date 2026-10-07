@@ -31,7 +31,7 @@ import {
  * Ed25519 SubjectPublicKeyInfo (SPKI) Base64
  */
 export const DEFAULT_LICENSOR_MASTER_PUBLIC_KEY =
-  'MCowBQYDK2VwAyEAi4k4xL0qJzYtG8fWc9p1N2v7K3m5D0r8Q6u2V1n9E4w=';
+  'MCowBQYDK2VwAyEAn8MKXhX4ZSwUroJOks4QCwD0kqXj5d0+jyip0skvWe4=';
 
 export class LicenseService {
   private masterPublicKey: string;

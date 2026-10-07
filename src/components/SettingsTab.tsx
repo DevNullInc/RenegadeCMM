@@ -50,7 +50,6 @@ import {
   Share2,
   Cpu,
   AlertTriangle,
-  KeyRound,
 } from 'lucide-react';
 import {
   AppConfig,
@@ -66,7 +65,6 @@ import {
   DEFAULT_FILENAME_PATTERNS,
 } from '../types/app';
 
-import { LicenseValidationResult } from '../types/license';
 import { NodeResolutionCard } from './NodeResolutionCard';
 import { FolderBrowserModal } from './FolderBrowserModal';
 
@@ -107,9 +105,6 @@ export const SettingsTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [pythonStatus, setPythonStatus] = useState<PythonEnvironmentStatus | null>(null);
-  const [userPublicKey, setUserPublicKey] = useState<string>('');
-  const [licenseStatus, setLicenseStatus] = useState<LicenseValidationResult | null>(null);
-  const [copiedPubKey, setCopiedPubKey] = useState(false);
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
   const [checkingPython, setCheckingPython] = useState(false);
   const [comfyStatus, setComfyStatus] = useState<ComfyUIStatus | null>(null);
@@ -517,14 +512,6 @@ export const SettingsTab: React.FC = () => {
           checkSwarmConnection(loaded.swarm_server_url || 'http://127.0.0.1:5180');
           probePythonEnv(loaded.custom_python_path, loaded.comfyui_install_dir);
           checkAllFoldersAccess(folders);
-          if (window.civitaiAPI) {
-            if (typeof window.civitaiAPI.getUserPublicKey === 'function') {
-              window.civitaiAPI.getUserPublicKey().then((pk: string) => setUserPublicKey(pk || '')).catch(() => {});
-            }
-            if (typeof window.civitaiAPI.getLicenseStatus === 'function') {
-              window.civitaiAPI.getLicenseStatus().then((ls: any) => setLicenseStatus(ls || null)).catch(() => {});
-            }
-          }
         }
       }
     };
@@ -1907,102 +1894,6 @@ export const SettingsTab: React.FC = () => {
               <span>Paste Config</span>
             </button>
           </div>
-        </div>
-      </div>
-
-            {/* Cryptographic Machine Key & License Status */}
-      <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2.5 text-slate-100 font-bold text-base">
-            <KeyRound className="text-purple-400" size={20} />
-            <h2>Cryptographic Machine Key &amp; License Status</h2>
-          </div>
-          <span
-            className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
-              licenseStatus?.isValid
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-            }`}
-          >
-            {licenseStatus?.isValid
-              ? `Registered (${licenseStatus.license?.type || 'Active'})`
-              : 'Evaluation / Unregistered'}
-          </span>
-        </div>
-
-        <p className="text-xs text-slate-400 leading-relaxed">
-          Your local RenegadeCMM installation uses a unique Ed25519 cryptographic keypair for offline license authentication and signature verification. Provide your public key below when generating or requesting license keys.
-        </p>
-
-        <div className="space-y-3 pt-1">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-slate-300">
-                Machine Public Key (Ed25519 SPKI)
-              </label>
-              <span className="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
-                Hardware Bound
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                value={userPublicKey || 'Generating machine keypair...'}
-                className="flex-1 bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-purple-300 font-mono focus:outline-none select-all"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!userPublicKey) return;
-                  navigator.clipboard.writeText(userPublicKey);
-                  setCopiedPubKey(true);
-                  setTimeout(() => setCopiedPubKey(false), 2000);
-                }}
-                disabled={!userPublicKey}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-sm"
-                title="Copy machine public key to clipboard"
-              >
-                {copiedPubKey ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                <span>{copiedPubKey ? 'Copied!' : 'Copy Key'}</span>
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              This public key is safe to share with your organization administrator or licensor to generate signed CMM1 license tokens.
-            </p>
-          </div>
-
-          {/* Cryptographic Privacy & Non-Reversible Fingerprint Disclaimer */}
-          <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2 text-xs">
-            <div className="flex items-center gap-2 text-slate-200 font-semibold text-xs">
-              <ShieldCheck size={16} className="text-purple-400 shrink-0" />
-              <span>Hardware Fingerprint Privacy &amp; Cryptographic Guarantee</span>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Your hardware-bound keypair is derived locally using a salted, one-way cryptographic hash (SHA-256). The fingerprinting process is mathematically <strong>non-reversible</strong> (pre-image resistant): no raw serial numbers, MAC addresses, or identifying device specifications are ever transmitted, stored in plaintext, or exposed.
-            </p>
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pt-0.5">
-              <Lock size={12} className="text-slate-400 shrink-0" />
-              <span>Zero-knowledge design: External parties and licensors cannot reverse-engineer or trace this public key back to your physical hardware or personal identity.</span>
-            </div>
-          </div>
-
-          {licenseStatus?.isValid && licenseStatus.license && (
-            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-slate-400 font-medium">
-                <span>Active Licensee:</span>
-                <span className="font-bold text-slate-200">{licenseStatus.license.licensee}</span>
-              </div>
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800 text-slate-400 font-medium">
-                <span>License Type:</span>
-                <span className="font-semibold text-purple-300 uppercase">{licenseStatus.license.type}</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-400 font-medium">
-                <span>Authorized Seats:</span>
-                <span className="text-slate-200">{licenseStatus.license.seats} concurrent user(s)</span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
