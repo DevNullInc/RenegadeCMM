@@ -216,107 +216,117 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
   const primaryGitUrl = resolution?.managerMatch?.gitUrl || (candidates.length > 0 ? candidates[0].cloneUrl : null);
 
   return (
-    <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4 shadow-xl transition-all">
+    <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-3 shadow-xl transition-all overflow-hidden">
       {/* Header Flag */}
       <div
         onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex items-start md:items-center justify-between gap-3 flex-col md:flex-row cursor-pointer select-none group"
+        className="cursor-pointer select-none group space-y-2.5"
       >
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className="p-2 rounded-xl bg-cyan-600/15 text-cyan-400 border border-cyan-500/25 shrink-0 group-hover:scale-105 transition-transform">
-            <Package size={20} />
-          </div>
-          <div className="min-w-0 space-y-0.5 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-bold text-slate-100 group-hover:text-cyan-300 transition-colors truncate">
-                {packName}
-              </h3>
-              {resolution?.managerMatch?.author && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800/90 text-purple-300 border border-slate-700/80 font-mono">
-                  by {resolution.managerMatch.author}
-                </span>
-              )}
+        {/* Top: Icon + Pack Name + Author + Expand Chevron */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="p-2 rounded-xl bg-cyan-600/15 text-cyan-400 border border-cyan-500/25 shrink-0 group-hover:scale-105 transition-transform mt-0.5">
+              <Package size={18} />
             </div>
-            {isGroup ? (
-              <p className="text-[11px] text-slate-400">
-                {linkedNodes.length} workflow node classes linked to this package
-              </p>
-            ) : nodeType && nodeType !== packName ? (
-              <p className="text-[11px] font-mono text-slate-400 truncate">
-                {nodeType}
-              </p>
-            ) : null}
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-slate-100 group-hover:text-cyan-300 transition-colors break-words">
+                  {packName}
+                </h3>
+                {resolution?.managerMatch?.author && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800/90 text-purple-300 border border-slate-700/80 font-mono shrink-0">
+                    by {resolution.managerMatch.author}
+                  </span>
+                )}
+              </div>
+              {isGroup ? (
+                <p className="text-[11px] text-slate-400">
+                  {linkedNodes.length} workflow node class{linkedNodes.length !== 1 ? 'es' : ''} linked to this package
+                </p>
+              ) : nodeType && nodeType !== packName ? (
+                <p className="text-[11px] font-mono text-slate-400 truncate">
+                  {nodeType}
+                </p>
+              ) : null}
+            </div>
           </div>
-        </div>
 
-        {/* Right Badges & Top Actions */}
-        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-          {resolution?.isInstalled ? (
-            <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">
-              <CheckCircle2 size={13} />
-              <span>Installed ({resolution.installedFolder || 'ComfyUI'})</span>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold">
-              <AlertCircle size={13} />
-              <span>{isGroup ? `${linkedNodes.length} Missing Nodes` : 'Missing Node'}</span>
-            </span>
-          )}
-
-          {/* Top Install Extension Button */}
-          {!resolution?.isInstalled && primaryGitUrl && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCloneRepo(primaryGitUrl);
-              }}
-              disabled={isCloning === primaryGitUrl}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
-              title="1-click Git clone this custom node extension into ComfyUI custom_nodes folder"
-            >
-              {isCloning === primaryGitUrl ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Download size={13} />
-              )}
-              <span>Install Extension</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSearchGitHub();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 rounded-xl text-xs font-bold transition-all shadow cursor-pointer"
-            title="Search GitHub for this custom node repository"
-          >
-            <ExternalLink size={13} />
-            <span className="hidden sm:inline">Search GitHub</span>
-          </button>
-
-          {!isGroup && nodeType && onLocateInWorkflow && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onLocateInWorkflow(nodeType);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 rounded-xl text-xs font-bold transition-all shadow cursor-pointer"
-              title="Pan and zoom to this node in workflow canvas"
-            >
-              <MapPin size={13} />
-              <span className="hidden sm:inline">Show in Workflow</span>
-            </button>
-          )}
-
-          <div className="p-1 rounded-lg text-slate-400 group-hover:text-slate-200 transition-colors">
+          <div className="p-1 rounded-lg text-slate-400 group-hover:text-slate-200 transition-colors shrink-0 mt-0.5">
             <ChevronDown
               size={18}
               className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
             />
+          </div>
+        </div>
+
+        {/* Sub-row: Status Badge + Action Buttons */}
+        <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-slate-800/60">
+          <div className="flex items-center gap-2 shrink-0 max-w-full">
+            {resolution?.isInstalled ? (
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-semibold max-w-[220px] truncate"
+                title={resolution.installedFolder ? `Installed in ${resolution.installedFolder}` : 'Installed (ComfyUI Core Built-in)'}
+              >
+                <CheckCircle2 size={13} className="shrink-0" />
+                <span className="truncate">Installed ({resolution.installedFolder || 'ComfyUI Core'})</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-semibold shrink-0">
+                <AlertCircle size={13} className="shrink-0" />
+                <span>{isGroup ? `${linkedNodes.length} Missing Nodes` : 'Missing Node'}</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+            {/* Top Install Extension Button */}
+            {!resolution?.isInstalled && primaryGitUrl && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCloneRepo(primaryGitUrl);
+                }}
+                disabled={isCloning === primaryGitUrl}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95 shrink-0"
+                title="1-click Git clone this custom node extension into ComfyUI custom_nodes folder"
+              >
+                {isCloning === primaryGitUrl ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Download size={12} />
+                )}
+                <span>Install Extension</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSearchGitHub();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 rounded-xl text-xs font-medium transition-all shadow cursor-pointer shrink-0"
+              title="Search GitHub for this custom node repository"
+            >
+              <ExternalLink size={12} />
+              <span>Search GitHub</span>
+            </button>
+
+            {!isGroup && nodeType && onLocateInWorkflow && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onLocateInWorkflow(nodeType);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 rounded-xl text-xs font-medium transition-all shadow cursor-pointer shrink-0"
+                title="Pan and zoom to this node in workflow canvas"
+              >
+                <MapPin size={12} />
+                <span>Show in Canvas</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

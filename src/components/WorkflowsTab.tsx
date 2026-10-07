@@ -1101,24 +1101,24 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                       : 'bg-amber-950/10 border-amber-500/30 text-amber-200'
                       }`}
                   >
-                    <div className="flex items-start md:items-center justify-between gap-3 flex-col md:flex-row">
-                      <div className="space-y-1 min-w-0 flex-1">
+                    <div className="space-y-2.5">
+                      <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           {model.isInstalled ? (
                             <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
                           ) : (
                             <AlertCircle size={15} className="text-amber-400 shrink-0" />
                           )}
-                          <span className="font-bold text-xs font-mono text-slate-100 truncate max-w-[280px]">
+                          <span className="font-bold text-xs font-mono text-slate-100 break-all">
                             {model.modelName}
                           </span>
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono shrink-0">
                             {model.nodeType}
                           </span>
                         </div>
 
                         {model.isInstalled ? (
-                          <p className="text-[10px] text-slate-400 font-mono truncate max-w-xl">
+                          <p className="text-[10px] text-slate-400 font-mono truncate" title={model.localPath}>
                             {model.localPath}
                           </p>
                         ) : (
@@ -1130,7 +1130,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
                       {/* Actions */}
                       {!model.isInstalled && (
-                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20 flex-wrap">
                           {onSearchModel && (
                             <button
                               onClick={() => {
@@ -1139,7 +1139,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                                   .replace(/[-_]/g, ' ');
                                 onSearchModel(cleanSearchTerm);
                               }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow cursor-pointer active:scale-95"
+                              className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition-all shadow cursor-pointer active:scale-95 shrink-0"
                             >
                               <Search size={12} />
                               <span>Search CivitAI</span>
@@ -1158,7 +1158,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                                 window.open(searchUrl, '_blank', 'noopener,noreferrer');
                               }
                             }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow cursor-pointer active:scale-95"
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition-all shadow cursor-pointer active:scale-95 shrink-0"
                             title="Search model repository on Hugging Face"
                           >
                             <Search size={12} />
