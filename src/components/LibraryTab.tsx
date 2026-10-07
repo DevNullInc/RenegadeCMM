@@ -388,7 +388,8 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   useEffect(() => {
     if (!window.civitaiAPI || typeof window.civitaiAPI.onDownloadProgress !== 'function') return;
     const seenCompleted = new Set<string>();
-    window.civitaiAPI.onDownloadProgress((tasks: any[]) => {
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const unsub = window.civitaiAPI.onDownloadProgress((tasks: any[]) => {
       const completed = (Array.isArray(tasks) ? tasks : []).filter(
         (t) => t && t.status === 'completed' && t.computedPath
       );
@@ -396,9 +397,14 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
       for (const t of completed) seenCompleted.add(t.id);
       if (hasNew) {
         // Brief delay so the completed file is fully flushed before it is indexed.
-        setTimeout(() => loadLocalModels(), 1500);
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => loadLocalModels(), 1500);
       }
     });
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (typeof unsub === 'function') unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

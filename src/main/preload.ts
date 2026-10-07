@@ -39,7 +39,11 @@ const api = {
   saveModelMetadata: (params: any) => ipcRenderer.invoke('save-model-metadata', params),
   fetchModelMetadataByUrl: (urlOrId: string) => ipcRenderer.invoke('fetch-model-metadata-by-url', urlOrId),
   onScanProgress: (callback: (progress: any) => void) => {
-    ipcRenderer.on('scan-progress', (_event: unknown, progress: any) => callback(progress));
+    const handler = (_event: unknown, progress: any) => callback(progress);
+    ipcRenderer.on('scan-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('scan-progress', handler);
+    };
   },
 
   // Download Queue
@@ -52,7 +56,11 @@ const api = {
   clearFinishedDownloads: () => ipcRenderer.invoke('clear-finished-downloads'),
   getDownloads: () => ipcRenderer.invoke('get-downloads'),
   onDownloadProgress: (callback: (tasks: any[]) => void) => {
-    ipcRenderer.on('download-progress', (_event: unknown, tasks: any) => callback(tasks));
+    const handler = (_event: unknown, tasks: any) => callback(tasks);
+    ipcRenderer.on('download-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('download-progress', handler);
+    };
   },
 
   // Versioning & Backup
@@ -64,7 +72,11 @@ const api = {
     ipcRenderer.invoke('unignore-model-update', modelId, versionId),
   getIgnoredUpdates: () => ipcRenderer.invoke('get-ignored-updates'),
   onUpdateCheckProgress: (callback: (progress: any) => void) => {
-    ipcRenderer.on('update-check-progress', (_event: unknown, progress: any) => callback(progress));
+    const handler = (_event: unknown, progress: any) => callback(progress);
+    ipcRenderer.on('update-check-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('update-check-progress', handler);
+    };
   },
   exportBackup: (filePath?: string) => ipcRenderer.invoke('export-backup', filePath),
   importBackup: (fileOrBuffer?: any) => ipcRenderer.invoke('import-backup', fileOrBuffer),
@@ -192,7 +204,11 @@ const api = {
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   checkAppUpdate: () => ipcRenderer.invoke('check-app-update'),
   onAppLog: (callback: (log: { level: string; message: string }) => void) => {
-    ipcRenderer.on('app-log', (_event: unknown, log: any) => callback(log));
+    const handler = (_event: unknown, log: any) => callback(log);
+    ipcRenderer.on('app-log', handler);
+    return () => {
+      ipcRenderer.removeListener('app-log', handler);
+    };
   },
 
   // License Management & Cryptographic Verification
@@ -208,7 +224,11 @@ const api = {
   restartApp: () => ipcRenderer.invoke('restart-app'),
   shutdownApp: () => ipcRenderer.invoke('shutdown-app'),
   onProtocolAction: (callback: (actionPayload: any) => void) => {
-    ipcRenderer.on('protocol-action', (_event: unknown, payload: any) => callback(payload));
+    const handler = (_event: unknown, payload: any) => callback(payload);
+    ipcRenderer.on('protocol-action', handler);
+    return () => {
+      ipcRenderer.removeListener('protocol-action', handler);
+    };
   },
 };
 

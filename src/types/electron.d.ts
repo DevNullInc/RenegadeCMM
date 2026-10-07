@@ -35,7 +35,7 @@ export interface CivitaiAPI {
   clearLibrary: () => Promise<any>;
   saveModelMetadata: (params: any) => Promise<{ success: boolean; error?: string }>;
   fetchModelMetadataByUrl: (urlOrId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-  onScanProgress: (callback: (progress: any) => void) => void;
+  onScanProgress: (callback: (progress: any) => void) => (() => void) | void;
 
   // Download Queue
   addDownload: (task: any) => Promise<any>;
@@ -46,7 +46,7 @@ export interface CivitaiAPI {
   deleteDownload: (id: string) => Promise<any>;
   clearFinishedDownloads: () => Promise<any>;
   getDownloads: () => Promise<any>;
-  onDownloadProgress: (callback: (tasks: any[]) => void) => void;
+  onDownloadProgress: (callback: (tasks: any[]) => void) => (() => void) | void;
 
   // Versioning & Backup
   checkUpdate: (localModel: any) => Promise<any>;
@@ -54,7 +54,7 @@ export interface CivitaiAPI {
   ignoreModelUpdate: (modelId: number, versionId: number) => Promise<any>;
   unignoreModelUpdate: (modelId: number, versionId: number) => Promise<any>;
   getIgnoredUpdates: () => Promise<any>;
-  onUpdateCheckProgress: (callback: (progress: any) => void) => void;
+  onUpdateCheckProgress: (callback: (progress: any) => void) => (() => void) | void;
   exportBackup: (filePath?: string) => Promise<any>;
   importBackup: (fileOrBuffer?: any) => Promise<any>;
 
@@ -159,7 +159,7 @@ export interface CivitaiAPI {
   setApiPort?: (port: number) => Promise<void>;
   restartApp: () => Promise<any>;
   shutdownApp: () => Promise<any>;
-  onProtocolAction: (callback: (actionPayload: any) => void) => void;
+  onProtocolAction: (callback: (actionPayload: any) => void) => (() => void) | void;
 
   _isMock?: boolean;
 }

@@ -3991,9 +3991,18 @@ function performFullShutdown() {
 }
 
 // Timer to send download progress updates to renderer UI
+let lastDownloadTasksSnapshot = '';
 setInterval(() => {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('download-progress', downloadManager.getTasks());
+    const tasks = downloadManager.getTasks();
+    const hasActive = tasks.some(
+      (t) => t.status === 'downloading' || t.status === 'pending' || t.status === 'verifying'
+    );
+    const snapshot = `${tasks.length}:${tasks.map((t) => `${t.id}-${t.status}`).join(',')}`;
+    if (hasActive || snapshot !== lastDownloadTasksSnapshot) {
+      lastDownloadTasksSnapshot = snapshot;
+      mainWindow.webContents.send('download-progress', tasks);
+    }
   }
 }, 500);
 

@@ -26,7 +26,7 @@ interface CachedImageEntry {
 export class ImageCacheService {
   private libraryCacheDir: string;
   private browseSessionCache: Map<string, CachedImageEntry> = new Map();
-  private maxBrowseEntries: number = 500;
+  private maxBrowseEntries: number = 150;
   private inflightRequests: Map<string, Promise<{ buffer: Buffer; contentType: string } | null>> = new Map();
   private readonly allowedImageHosts: string[] = [
     'civitai.com',

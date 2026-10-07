@@ -40,20 +40,31 @@ export const DownloadsTab: React.FC = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
     const fetchDownloads = async () => {
       if (window.civitaiAPI) {
         const currentTasks = await window.civitaiAPI.getDownloads();
-        setTasks(Array.isArray(currentTasks) ? currentTasks : []);
+        if (isMounted) {
+          setTasks(Array.isArray(currentTasks) ? currentTasks : []);
+        }
       }
     };
 
     fetchDownloads();
 
-    if (window.civitaiAPI) {
-      window.civitaiAPI.onDownloadProgress((updatedTasks) => {
-        setTasks(Array.isArray(updatedTasks) ? updatedTasks : []);
+    let unsub: (() => void) | void;
+    if (window.civitaiAPI && typeof window.civitaiAPI.onDownloadProgress === 'function') {
+      unsub = window.civitaiAPI.onDownloadProgress((updatedTasks) => {
+        if (isMounted) {
+          setTasks(Array.isArray(updatedTasks) ? updatedTasks : []);
+        }
       });
     }
+
+    return () => {
+      isMounted = false;
+      if (typeof unsub === 'function') unsub();
+    };
   }, []);
 
   // Prune selections that reference tasks that no longer exist in the queue.

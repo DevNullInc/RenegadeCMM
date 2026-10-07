@@ -230,17 +230,30 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
   // Listen for real-time download progress to update inline progress bars
   useEffect(() => {
-    if (window.civitaiAPI?.onDownloadProgress) {
-      window.civitaiAPI.onDownloadProgress((tasks: DownloadTask[]) => {
-        const taskMap: Record<string, DownloadTask> = {};
-        for (const t of tasks) {
-          if (t.fileName) {
-            taskMap[t.fileName.toLowerCase()] = t;
+    if (!window.civitaiAPI?.onDownloadProgress) return;
+    let prevSnapshot = '';
+    const unsub = window.civitaiAPI.onDownloadProgress((tasks: DownloadTask[]) => {
+      if (!Array.isArray(tasks)) return;
+      const taskMap: Record<string, DownloadTask> = {};
+      let activeCount = 0;
+      for (const t of tasks) {
+        if (t?.fileName) {
+          taskMap[t.fileName.toLowerCase()] = t;
+          if (t.status === 'downloading' || t.status === 'pending' || t.status === 'verifying') {
+            activeCount++;
           }
         }
+      }
+      const snapshot = `${activeCount}:${tasks.length}:${tasks.map((t) => `${t.id}:${t.status}:${Math.floor(t.progress || 0)}`).join(',')}`;
+      if (snapshot !== prevSnapshot) {
+        prevSnapshot = snapshot;
         setActiveTasks(taskMap);
-      });
-    }
+      }
+    });
+
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
   }, []);
 
   // Manual ComfyUI status re-check

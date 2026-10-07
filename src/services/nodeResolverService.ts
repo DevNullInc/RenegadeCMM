@@ -587,6 +587,10 @@ export class NodeResolverService {
 
     const request = this.performGitHubSearches(rawTerm, limit).then((results) => {
       if (Date.now() >= this.rateLimitCooldownUntil) {
+        if (this.inMemorySearchCache.size >= 100) {
+          const firstKey = this.inMemorySearchCache.keys().next().value;
+          if (firstKey) this.inMemorySearchCache.delete(firstKey);
+        }
         this.inMemorySearchCache.set(cacheKey, { timestamp: Date.now(), results });
       }
       return results;

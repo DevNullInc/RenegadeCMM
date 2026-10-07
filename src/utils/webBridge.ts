@@ -379,6 +379,10 @@ export function setupWebBridgeIfNeeded() {
 
       onScanProgress: (callback: (progress: any) => void) => {
         scanProgressListeners.push(callback);
+        return () => {
+          const idx = scanProgressListeners.indexOf(callback);
+          if (idx !== -1) scanProgressListeners.splice(idx, 1);
+        };
       },
 
       addDownload: async (task: any) => {
@@ -464,6 +468,10 @@ export function setupWebBridgeIfNeeded() {
 
       onDownloadProgress: (callback: (tasks: any[]) => void) => {
         downloadProgressListeners.push(callback);
+        return () => {
+          const idx = downloadProgressListeners.indexOf(callback);
+          if (idx !== -1) downloadProgressListeners.splice(idx, 1);
+        };
       },
 
       checkUpdate: async (localModel: any) => {

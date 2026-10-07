@@ -301,17 +301,22 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
-    if (window.civitaiAPI) {
-      window.civitaiAPI.onDownloadProgress((tasks) => {
-        const taskArr = Array.isArray(tasks) ? tasks : [];
-        const downloading = taskArr.filter(
-          (t) => t.status === 'downloading' || t.status === 'pending' || t.status === 'verifying'
-        );
-        setActiveDownloadsCount(downloading.length);
-      });
+    let unsubDownload: (() => void) | void;
+    let unsubProtocol: (() => void) | void;
 
-      if (window.civitaiAPI.onProtocolAction) {
-        window.civitaiAPI.onProtocolAction((actionPayload) => {
+    if (window.civitaiAPI) {
+      if (typeof window.civitaiAPI.onDownloadProgress === 'function') {
+        unsubDownload = window.civitaiAPI.onDownloadProgress((tasks) => {
+          const taskArr = Array.isArray(tasks) ? tasks : [];
+          const downloading = taskArr.filter(
+            (t) => t.status === 'downloading' || t.status === 'pending' || t.status === 'verifying'
+          );
+          setActiveDownloadsCount((prev) => (prev !== downloading.length ? downloading.length : prev));
+        });
+      }
+
+      if (typeof window.civitaiAPI.onProtocolAction === 'function') {
+        unsubProtocol = window.civitaiAPI.onProtocolAction((actionPayload) => {
           if (!actionPayload || typeof actionPayload !== 'object') return;
           if (actionPayload.action === 'navigate' && actionPayload.tab) {
             setActiveTab(actionPayload.tab as Tab);
@@ -341,6 +346,8 @@ function MainApp() {
     window.addEventListener('scroll', handleScroll);
 
     return () => {
+      if (typeof unsubDownload === 'function') unsubDownload();
+      if (typeof unsubProtocol === 'function') unsubProtocol();
       if (element) {
         element.removeEventListener('scroll', handleScroll);
       }

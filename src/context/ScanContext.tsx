@@ -30,8 +30,11 @@ export const ScanProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [lastCompletedAt, setLastCompletedAt] = useState<number | null>(null);
 
   useEffect(() => {
+    let unsub: (() => void) | void;
+    let completeTimer: NodeJS.Timeout | null = null;
+
     if (window.civitaiAPI && typeof window.civitaiAPI.onScanProgress === 'function') {
-      window.civitaiAPI.onScanProgress((progress: ScanProgress) => {
+      unsub = window.civitaiAPI.onScanProgress((progress: ScanProgress) => {
         if (!progress) return;
         setScanProgress(progress);
 
@@ -45,7 +48,8 @@ export const ScanProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } else if (progress.status === 'completed') {
           setIsScanning(false);
           setLastCompletedAt(Date.now());
-          setTimeout(() => {
+          if (completeTimer) clearTimeout(completeTimer);
+          completeTimer = setTimeout(() => {
             setScanProgress((prev) => (prev?.status === 'completed' ? null : prev));
           }, 4000);
         } else if (progress.status === 'failed') {
@@ -74,6 +78,11 @@ export const ScanProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         })
         .catch(() => {});
     }
+
+    return () => {
+      if (completeTimer) clearTimeout(completeTimer);
+      if (typeof unsub === 'function') unsub();
+    };
   }, []);
 
   const startScan = async () => {
