@@ -880,6 +880,7 @@ If CMM saves you time organizing your ComfyUI models or makes your workflow easi
 - **Vulnerability Reporting**: [GitHub Security](https://github.com/DevNullInc/RenegadeCMM/security)
 - **Discussions**: [GitHub Discussions](https://github.com/DevNullInc/RenegadeCMM/discussions)
 - **Privacy Policy**: [PRIVACY.md](PRIVACY.md)
+- **Master EULA**: [EULA.md](EULA.md)
 - **API Key & Security Architecture**: [docs/APISecurity.md](docs/APISecurity.md)
 
 ---

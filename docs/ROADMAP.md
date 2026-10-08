@@ -241,8 +241,12 @@ graph LR
 - [ ] **Integrated Local LLM & Multi-Modal Packages**:
   - Package orchestration for local LLM runtimes (Ollama, llama.cpp, text-generation-webui, KoboldCPP).
   - Cross-modal workflow bridging allowing local LLMs to generate prompts, detailed captions, and structured generation parameters directly for diffusion engines.
-- [ ] **Universal Multi-Gen Launchpad & Suite Selector (Release TBD)**:
+
+  ### Phase X: vX.X.X TBD
+- [ ] **Universal Multi-Gen Launchpad & Suite Selector**:
   - Unified launchpad allowing users to configure and boot external third-party generation environments with dedicated package profile switching, customizable launch flags, port overrides, environment variables, and GPU acceleration arguments.
+  - Cross-engine unified model linker to eliminate duplicate model files across engines using automated symlinks, hardlinks, or NTFS junctions.
+  - Centralized master model repository management with hot-swap link relocation.
 
 ---
 
