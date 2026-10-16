@@ -393,10 +393,11 @@ def scan_model_file(file_path):
     }
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if a != "--"]
+    if len(args) < 1:
         print(json.dumps({"error": "Usage: scan_pickle_safety.py <file_path>"}))
         sys.exit(1)
 
-    result = scan_model_file(sys.argv[1])
+    result = scan_model_file(args[0])
     print(json.dumps(result))
 

@@ -14,6 +14,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import {
+  getAllowedModelRoots,
   isAllowedOriginOrReferer,
   isPathWithinAllowedRoots,
   isSafeModelPath,
@@ -24,6 +25,8 @@ import {
 import { webhookService } from '../src/services/webhookService';
 import { storageOptimizer } from '../src/services/storageOptimizer';
 import { swarmBridge } from '../src/services/swarmBridge';
+import { testFolderWritable } from '../src/utils/pathUtils';
+import { findComfyUIRoot } from '../src/utils/comfyuiUtils';
 
 describe('Penetration Testing & Security Hardening Suite', () => {
   let tempDir: string;
@@ -214,6 +217,31 @@ describe('Penetration Testing & Security Hardening Suite', () => {
       expect(swarmBridge.normalizeUrl('http://169.254.169.254/swarm')).toBe('http://127.0.0.1:5180');
       expect(swarmBridge.normalizeUrl('file:///etc/hosts')).toBe('http://127.0.0.1:5180');
       expect(swarmBridge.normalizeUrl('javascript:alert(1)')).toBe('http://127.0.0.1:5180');
+    });
+  });
+
+  describe('7. Robust Folder Handling & Traversal Containment', () => {
+    it('constructs canonical allowed roots including configured directories, cwd, and tmpdir', () => {
+      const roots = getAllowedModelRoots({
+        comfyui_root: modelDir,
+        comfyui_folders: [modelDir],
+      });
+      expect(roots).toContain(modelDir);
+      expect(roots).toContain(process.cwd());
+      expect(roots).toContain(os.tmpdir());
+    });
+
+    it('testFolderWritable does NOT create arbitrary folders on disk during pre-flight checks', () => {
+      const nonExistent = path.join(tempDir, 'typo_accidental_dir');
+      const check = testFolderWritable(nonExistent);
+      expect(check.exists).toBe(false);
+      expect(check.writable).toBe(false);
+      expect(fs.existsSync(nonExistent)).toBe(false);
+    });
+
+    it('findComfyUIRoot cleanly rejects null byte injection attempts', () => {
+      expect(findComfyUIRoot('C:\\some\\path\0exploit')).toBe('');
+      expect(findComfyUIRoot('')).toBe('');
     });
   });
 });

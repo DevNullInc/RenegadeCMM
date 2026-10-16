@@ -106,4 +106,28 @@ describe('ModelConverterService (Pickle to SafeTensors)', () => {
     expect(conv.isYolo).toBe(true);
     expect(conv.error).toContain('YOLO');
   }, 15000);
+
+  it('converts clean PyTorch tensors to SafeTensors and populates architecture metadata', async () => {
+    const ptPath = path.join(tempDir, 'flux_test.pt');
+    const targetStPath = path.join(tempDir, 'flux_test.safetensors');
+
+    // Create a real PyTorch pickle tensor file with Flux keys
+    const { execSync } = await import('child_process');
+    try {
+      execSync(
+        `python -c "import torch; torch.save({'double_blocks.0.img_in.weight': torch.randn(8, 8, dtype=torch.float16), 'double_blocks.0.txt_in.weight': torch.randn(8, 8, dtype=torch.bfloat16)}, r'${ptPath}')"`
+      );
+    } catch {
+      // If system python does not have torch, skip test
+      return;
+    }
+
+    const conv = await modelConverter.convertPickleToSafetensors(ptPath, { targetPath: targetStPath });
+    expect(conv.success).toBe(true);
+    expect(conv.targetPath).toBe(targetStPath);
+    expect(fs.existsSync(targetStPath)).toBe(true);
+    expect(conv.tensorCount).toBe(2);
+    expect(conv.modelType).toBe('diffusion_model');
+    expect(conv.architecture).toBe('flux.1-dev');
+  }, 30000);
 });

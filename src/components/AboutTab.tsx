@@ -30,6 +30,7 @@ import {
   KeyRound,
   CheckCircle2,
   XCircle,
+  Power,
 } from 'lucide-react';
 import {
   subscribeLogs,
@@ -54,6 +55,7 @@ export function AboutTab() {
   const [sysInfo, setSysInfo] = useState<any>({ version: APP_VERSION });
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'up-to-date' | 'error'>('idle');
   const [updateResult, setUpdateResult] = useState<AppUpdateCheckResult | null>(null);
+  const [appAction, setAppAction] = useState<'restarting' | 'shutting-down' | null>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
   const isFullRelease = !BUILD_CONFIG.IS_DEV_BUILD || sysInfo.isDevBuild === false;
@@ -75,6 +77,32 @@ export function AboutTab() {
     } catch (e) {
       console.warn('Failed to check for updates:', e);
       setUpdateStatus('error');
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!confirm('Are you sure you want to restart the application? This will reload backend services and refresh the interface.')) return;
+    setAppAction('restarting');
+    try {
+      if (window.civitaiAPI && typeof window.civitaiAPI.restartApp === 'function') {
+        await window.civitaiAPI.restartApp();
+      } else {
+        window.location.reload();
+      }
+    } catch (e) {
+      setAppAction(null);
+      alert('Failed to restart app. You may need to restart manually.');
+    }
+  };
+
+  const handleShutdown = async () => {
+    if (!confirm('Are you sure you want to shut down the application?')) return;
+    setAppAction('shutting-down');
+    try {
+      await window.civitaiAPI.shutdownApp();
+    } catch (e) {
+      setAppAction(null);
+      alert('Failed to shut down app.');
     }
   };
 
@@ -327,6 +355,54 @@ export function AboutTab() {
               <Bug size={15} className="text-rose-400" />
               <span>Report Issue / Bug</span>
               <ExternalLink size={12} className="text-rose-400/60" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {appAction && (
+        <div className={`p-4 rounded-2xl flex items-center gap-3 text-sm font-semibold animate-pulse ${
+          appAction === 'restarting'
+            ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300'
+            : 'bg-red-500/10 border border-red-500/30 text-red-300'
+        }`}>
+          {appAction === 'restarting' ? (
+            <RefreshCw size={20} className="animate-spin" />
+          ) : (
+            <Power size={20} />
+          )}
+          <span>{appAction === 'restarting' ? 'Restarting backend services and refreshing interface...' : 'Shutting down application...'}</span>
+        </div>
+      )}
+
+      {/* Application Lifecycle Control */}
+      <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-base font-bold text-slate-100 flex items-center gap-2.5">
+              <Power size={20} className="text-purple-400" />
+              <span>Application Control</span>
+            </h2>
+            <p className="text-xs text-slate-400">
+              Restart the app to refresh system caches or shut down all background listeners.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={handleRestart}
+              disabled={!!appAction}
+              className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
+            >
+              <RefreshCw size={16} className={appAction === 'restarting' ? 'animate-spin' : ''} />
+              <span>{appAction === 'restarting' ? 'Restarting...' : 'Restart App'}</span>
+            </button>
+            <button
+              onClick={handleShutdown}
+              disabled={!!appAction}
+              className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-red-600/20 cursor-pointer"
+            >
+              <Power size={16} />
+              <span>{appAction === 'shutting-down' ? 'Shutting Down...' : 'Shut Down'}</span>
             </button>
           </div>
         </div>

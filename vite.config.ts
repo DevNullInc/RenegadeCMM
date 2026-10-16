@@ -25,6 +25,17 @@ import { hardwareScanner } from './src/services/hardwareScanner';
 import { swarmBridge } from './src/services/swarmBridge';
 import { licenseService } from './src/services/licenseService';
 import { encryptKey } from './src/utils/secureStorage';
+import { testFolderWritable, listDirectoryEntries } from './src/utils/pathUtils';
+import {
+  inspectComfyUIInstall,
+  autoDetectComfyUIInstall,
+  checkComfyUIStatus,
+} from './src/utils/comfyuiUtils';
+import {
+  getAllowedModelRoots,
+  isPathWithinAllowedRoots,
+  sanitizePathString,
+} from './src/utils/securityValidator';
 
 let currentConfig: any = {
   comfyui_root: '',
@@ -204,7 +215,20 @@ function apiServerPlugin(): Plugin {
               return;
             }
             try {
-              const resolved = path.resolve(rawPath);
+              const resolved = sanitizePathString(rawPath);
+              if (!resolved) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: 'Invalid file path format' }));
+                return;
+              }
+
+              const allowedRoots = getAllowedModelRoots(currentConfig);
+              if (!isPathWithinAllowedRoots(resolved, allowedRoots)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ error: 'Access forbidden: Path outside permitted model directories' }));
+                return;
+              }
+
               const ext = path.extname(resolved).toLowerCase();
               const allowedExts: Record<string, string> = {
                 '.jpg': 'image/jpeg',
@@ -243,6 +267,12 @@ function apiServerPlugin(): Plugin {
                 res.end(JSON.stringify({ success: false, error: 'masterPath and duplicatePath are required' }));
                 return;
               }
+              const allowedRoots = getAllowedModelRoots(currentConfig);
+              if (!isPathWithinAllowedRoots(masterPath, allowedRoots) || !isPathWithinAllowedRoots(duplicatePath, allowedRoots)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target paths must reside within permitted library directories' }));
+                return;
+              }
               await storageOptimizer.executeHardlink(masterPath, duplicatePath);
               res.end(JSON.stringify({ success: true }));
             } catch (e: any) {
@@ -256,6 +286,12 @@ function apiServerPlugin(): Plugin {
               if (!filePath) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+                return;
+              }
+              const allowedRoots = getAllowedModelRoots(currentConfig);
+              if (!isPathWithinAllowedRoots(filePath, allowedRoots)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target model path must reside within permitted library directories' }));
                 return;
               }
               const result = await storageOptimizer.packageCompanionFilesForModel(filePath);
@@ -279,6 +315,12 @@ function apiServerPlugin(): Plugin {
               if (!filePath) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ success: false, error: 'filePath is required' }));
+                return;
+              }
+              const allowedRoots = getAllowedModelRoots(currentConfig);
+              if (!isPathWithinAllowedRoots(filePath, allowedRoots)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ success: false, error: 'Access forbidden: Target model path must reside within permitted library directories' }));
                 return;
               }
               const result = await precisionInspector.inspectModel(filePath);
@@ -314,6 +356,12 @@ function apiServerPlugin(): Plugin {
               if (!sourcePath) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ success: false, error: 'sourcePath is required' }));
+                return;
+              }
+              const allowedRoots = getAllowedModelRoots(currentConfig);
+              if (!isPathWithinAllowedRoots(sourcePath, allowedRoots) || (targetPath && !isPathWithinAllowedRoots(targetPath, allowedRoots))) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ success: false, error: 'Access forbidden: Conversion paths must reside within permitted library directories' }));
                 return;
               }
               const result = await modelConverter.convertPickleToSafetensors(sourcePath, {
@@ -402,6 +450,108 @@ function apiServerPlugin(): Plugin {
             }
           } else if (pathname === '/api/clear-finished-downloads' && req.method === 'POST') {
             res.end(JSON.stringify({ success: true, cleared: 0 }));
+          } else if (pathname === '/api/list-directory' && (req.method === 'POST' || req.method === 'GET')) {
+            try {
+              const body = req.method === 'POST' ? await getBody() : {};
+              const raw =
+                body?.dirPath ||
+                body?.path ||
+                parsedUrl.searchParams.get('dirPath') ||
+                parsedUrl.searchParams.get('path') ||
+                undefined;
+              const targetPath = raw ? sanitizePathString(raw) || undefined : undefined;
+              const result = listDirectoryEntries(targetPath);
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: e?.message || 'Failed to list directory' }));
+            }
+          } else if (pathname === '/api/check-folder-access' && (req.method === 'POST' || req.method === 'GET')) {
+            try {
+              const body = req.method === 'POST' ? await getBody() : {};
+              const raw =
+                body?.folderPath ||
+                body?.dirPath ||
+                body?.path ||
+                parsedUrl.searchParams.get('folderPath') ||
+                parsedUrl.searchParams.get('dirPath') ||
+                parsedUrl.searchParams.get('path') ||
+                '';
+              const target = sanitizePathString(raw) || '';
+              const access = testFolderWritable(target, { createIfMissing: Boolean(body?.createIfMissing) });
+              res.end(JSON.stringify(access));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ exists: false, writable: false, error: e?.message }));
+            }
+          } else if (pathname === '/api/browse-folder' && req.method === 'POST') {
+            const body = await getBody();
+            res.end(JSON.stringify({ canceled: false, path: body?.defaultPath || process.cwd() }));
+          } else if (
+            (pathname === '/api/check-comfyui-install' ||
+              pathname === '/api/inspect-comfyui-install' ||
+              pathname === '/api/comfyui-install') &&
+            (req.method === 'POST' || req.method === 'GET')
+          ) {
+            try {
+              const body = req.method === 'POST' ? await getBody() : {};
+              const target =
+                body?.installPath ||
+                body?.path ||
+                parsedUrl.searchParams.get('installPath') ||
+                parsedUrl.searchParams.get('path') ||
+                currentConfig.comfyui_install_dir;
+              const result = inspectComfyUIInstall(target, currentConfig);
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(
+                JSON.stringify({
+                  valid: false,
+                  customNodesExist: false,
+                  installedNodes: [],
+                  nodeCount: 0,
+                  cmmNodeInstalled: false,
+                  error: e?.message,
+                })
+              );
+            }
+          } else if (
+            (pathname === '/api/auto-detect-comfyui' || pathname === '/api/autodetect-comfyui') &&
+            (req.method === 'POST' || req.method === 'GET')
+          ) {
+            try {
+              const result = await autoDetectComfyUIInstall(currentConfig);
+              res.end(JSON.stringify(result));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ found: false, message: e?.message || 'Auto-detection failed' }));
+            }
+          } else if (
+            (pathname === '/api/comfyui/status' || pathname === '/api/comfyui-status') &&
+            (req.method === 'POST' || req.method === 'GET')
+          ) {
+            try {
+              const body = req.method === 'POST' ? await getBody() : {};
+              const targetUrl =
+                body?.serverUrl ||
+                body?.url ||
+                parsedUrl.searchParams.get('serverUrl') ||
+                parsedUrl.searchParams.get('url') ||
+                currentConfig.comfyui_server_url ||
+                'http://127.0.0.1:8188';
+              const status = await checkComfyUIStatus(targetUrl);
+              res.end(JSON.stringify(status));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(
+                JSON.stringify({
+                  online: false,
+                  serverUrl: 'http://127.0.0.1:8188',
+                  error: e?.message || 'Failed to ping ComfyUI',
+                })
+              );
+            }
           } else {
             res.statusCode = 404;
             res.end(JSON.stringify({ error: 'Endpoint not found' }));

@@ -25,7 +25,6 @@ import {
   ShieldCheck,
   FolderPlus,
   RefreshCw,
-  Power,
   Archive,
   Copy,
   Check,
@@ -117,7 +116,6 @@ export const SettingsTab: React.FC = () => {
   const [pastedJsonText, setPastedJsonText] = useState('');
   const [importFeedback, setImportFeedback] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [appAction, setAppAction] = useState<'restarting' | 'shutting-down' | null>(null);
   const [newFolderInput, setNewFolderInput] = useState('');
   const [newPattern, setNewPattern] = useState('');
   const [newFolder, setNewFolder] = useState('');
@@ -320,16 +318,23 @@ export const SettingsTab: React.FC = () => {
       try {
         const res = await window.civitaiAPI.inspectComfyUIInstall(customPath);
         setInstallInfo(res);
-        if (res?.autoModelsDir) {
+        if (res?.valid && res?.autoModelsDir) {
           setConfig((prev) => {
-            if (!prev.comfyui_folders || prev.comfyui_folders.length === 0) {
+            const autoModel = res.autoModelsDir!;
+            const existing = prev.comfyui_folders || [];
+            if (existing.length === 0) {
               return {
                 ...prev,
-                comfyui_folders: [res.autoModelsDir!],
-                comfyui_root: res.autoModelsDir!,
+                comfyui_folders: [autoModel],
+                comfyui_root: autoModel,
               };
             }
-            return prev;
+            const others = existing.filter((f) => f.toLowerCase() !== autoModel.toLowerCase());
+            return {
+              ...prev,
+              comfyui_folders: [autoModel, ...others],
+              comfyui_root: autoModel,
+            };
           });
         }
       } catch {
@@ -686,32 +691,6 @@ export const SettingsTab: React.FC = () => {
     }
   };
 
-  const handleRestart = async () => {
-    if (!confirm('Are you sure you want to restart the application? This will reload backend services and refresh the interface.')) return;
-    setAppAction('restarting');
-    try {
-      if (window.civitaiAPI && typeof window.civitaiAPI.restartApp === 'function') {
-        await window.civitaiAPI.restartApp();
-      } else {
-        window.location.reload();
-      }
-    } catch (e) {
-      setAppAction(null);
-      alert('Failed to restart app. You may need to restart manually.');
-    }
-  };
-
-  const handleShutdown = async () => {
-    if (!confirm('Are you sure you want to shut down the application?')) return;
-    setAppAction('shutting-down');
-    try {
-      await window.civitaiAPI.shutdownApp();
-    } catch (e) {
-      setAppAction(null);
-      alert('Failed to shut down app.');
-    }
-  };
-
   const handleScaffoldFolders = async (targetDir?: string) => {
     if (!window.civitaiAPI?.scaffoldModelFolders || (!targetDir && config.comfyui_folders.length === 0)) return;
     setIsScaffolding(true);
@@ -945,7 +924,7 @@ export const SettingsTab: React.FC = () => {
     try {
       const exportData = {
         _format: 'renegadecmm-settings',
-        version: '1.6.2',
+        version: '1.7.0',
         exportedAt: new Date().toISOString(),
         settings: config,
       };
@@ -1079,21 +1058,6 @@ export const SettingsTab: React.FC = () => {
         <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center gap-2.5 text-sm font-semibold glow-rose animate-fadeIn">
           <AlertCircle size={20} />
           <span>{importError}</span>
-        </div>
-      )}
-
-      {appAction && (
-        <div className={`p-4 rounded-2xl flex items-center gap-3 text-sm font-semibold animate-pulse ${
-          appAction === 'restarting'
-            ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300'
-            : 'bg-red-500/10 border border-red-500/30 text-red-300'
-        }`}>
-          {appAction === 'restarting' ? (
-            <RefreshCw size={20} className="animate-spin" />
-          ) : (
-            <Power size={20} />
-          )}
-          <span>{appAction === 'restarting' ? 'Restarting backend services and refreshing interface...' : 'Shutting down application...'}</span>
         </div>
       )}
 
@@ -2920,35 +2884,6 @@ export const SettingsTab: React.FC = () => {
               </button>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Application Lifecycle Control */}
-      <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-5 shadow-xl">
-        <h2 className="text-base font-bold text-slate-100 flex items-center gap-2.5">
-          <Power size={20} className="text-purple-400" />
-          <span>Application Control</span>
-        </h2>
-        <p className="text-xs text-slate-400">
-          Restart the app to refresh system caches or shut down all background listeners.
-        </p>
-        <div className="flex gap-4">
-          <button
-            onClick={handleRestart}
-            disabled={!!appAction}
-            className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
-          >
-            <RefreshCw size={16} className={appAction === 'restarting' ? 'animate-spin' : ''} />
-            <span>{appAction === 'restarting' ? 'Restarting...' : 'Restart App'}</span>
-          </button>
-          <button
-            onClick={handleShutdown}
-            disabled={!!appAction}
-            className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-red-600/20 cursor-pointer"
-          >
-            <Power size={16} />
-            <span>{appAction === 'shutting-down' ? 'Shutting Down...' : 'Shut Down'}</span>
-          </button>
         </div>
       </div>
 

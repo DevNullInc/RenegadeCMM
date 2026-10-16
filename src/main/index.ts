@@ -42,8 +42,16 @@ import { swarmAuthToken } from '../services/swarmAuthToken';
 import { licenseService } from '../services/licenseService';
 import { encryptKey, decryptKey, isLegacyEncrypted } from '../utils/secureStorage';
 import { logger } from '../utils/logger';
-import { testFolderWritable } from '../utils/pathUtils';
+import { testFolderWritable, listDirectoryEntries } from '../utils/pathUtils';
 import {
+  findComfyUIRoot as findComfyUIRootUtil,
+  analyzeComfyUIStructure as analyzeComfyUIStructureUtil,
+  inspectComfyUIInstall as inspectComfyUIInstallUtil,
+  autoDetectComfyUIInstall as autoDetectComfyUIInstallUtil,
+  checkComfyUIStatus as checkComfyUIStatusUtil,
+} from '../utils/comfyuiUtils';
+import {
+  getAllowedModelRoots,
   isAllowedOriginOrReferer,
   isPathWithinAllowedRoots,
   isSafeNetworkUrl,
@@ -134,17 +142,7 @@ export function mapDbRowToLocalModel(r: any): LocalModel {
   };
 }
 
-export function getAllowedModelRoots(cfg: AppConfig): string[] {
-  const roots: string[] = [];
-  if (cfg.comfyui_root) roots.push(cfg.comfyui_root);
-  if (Array.isArray(cfg.comfyui_folders)) roots.push(...cfg.comfyui_folders);
-  if (cfg.comfyui_install_dir) roots.push(cfg.comfyui_install_dir);
-  if (cfg.comfyui_custom_nodes_dir) roots.push(cfg.comfyui_custom_nodes_dir);
-  if (cfg.default_download_folder) roots.push(cfg.default_download_folder);
-  roots.push(process.cwd());
-  roots.push(os.tmpdir());
-  return roots;
-}
+export { getAllowedModelRoots };
 
 app.setName('renegadecmm');
 
@@ -476,7 +474,15 @@ function scaffoldConfiguredModelFolders(config: AppConfig, specificDir?: string)
   const targets = new Set<string>();
 
   if (specificDir && typeof specificDir === 'string' && specificDir.trim()) {
-    targets.add(specificDir.trim());
+    const sanitized = sanitizePathString(specificDir.trim());
+    if (sanitized) {
+      const allowedRoots = getAllowedModelRoots(config);
+      if (isPathWithinAllowedRoots(sanitized, allowedRoots)) {
+        targets.add(sanitized);
+      } else {
+        logger.warn(`Security: Blocked scaffolding in unauthorized directory: ${sanitized}`);
+      }
+    }
   } else {
     if (config.comfyui_folders && Array.isArray(config.comfyui_folders)) {
       for (const f of config.comfyui_folders) {
@@ -520,59 +526,7 @@ function getSubdirectories(dirPath: string): string[] {
   }
 }
 
-interface DirectoryEntry {
-  name: string;
-  isDirectory: boolean;
-  path: string;
-}
 
-/** Lists the drive roots plus the contents of a directory, for the in-app folder browser. */
-function listDirectoryEntries(dirPath?: string) {
-  const roots =
-    process.platform === 'win32'
-      ? Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:\\`)
-      : [path.parse(os.homedir()).root];
-  const availableRoots = roots.filter((r) => fs.existsSync(r));
-
-  let target = dirPath && dirPath.trim() ? path.resolve(dirPath.trim()) : availableRoots[0] || os.homedir();
-
-  try {
-    const stat = fs.statSync(target);
-    if (!stat.isDirectory()) target = path.dirname(target);
-  } catch {
-    target = path.dirname(target);
-  }
-
-  const isRoot = availableRoots.includes(target) || path.parse(target).root === target;
-  const entries: DirectoryEntry[] = [];
-  if (!isRoot) {
-    try {
-      const parent = path.dirname(target);
-      entries.push({ name: '..', isDirectory: true, path: parent });
-    } catch { }
-  }
-  try {
-    const items = fs.readdirSync(target, { withFileTypes: true }).filter((e) => e.isDirectory());
-    for (const item of items) {
-      if (item.name.startsWith('.') || item.name === '__pycache__') continue;
-      entries.push({ name: item.name, isDirectory: true, path: path.join(target, item.name) });
-    }
-  } catch { }
-  entries.sort((a, b) => {
-    if (a.name === '..') return -1;
-    if (b.name === '..') return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return {
-    path: target,
-    name: path.basename(target) || target,
-    parent: path.dirname(target),
-    isRoot,
-    roots: availableRoots,
-    entries,
-  };
-}
 
 function checkCmmCompanionNode(nodes: string[], customNodesDir: string): { installed: boolean; folderName?: string } {
   if (!customNodesDir || !nodes || nodes.length === 0) {
@@ -609,41 +563,7 @@ function checkCmmCompanionNode(nodes: string[], customNodesDir: string): { insta
 }
 
 function findComfyUIRoot(rawPath: string): string {
-  const norm = path.resolve(rawPath);
-  if (!fs.existsSync(norm)) return norm;
-
-  // 1. Direct ComfyUI root check
-  if (
-    fs.existsSync(path.join(norm, 'main.py')) ||
-    (fs.existsSync(path.join(norm, 'custom_nodes')) && fs.existsSync(path.join(norm, 'models')))
-  ) {
-    return norm;
-  }
-
-  // 2. Windows portable wrapper check: e.g. D:\ComfyUI_windows_portable\ComfyUI
-  const subComfy = path.join(norm, 'ComfyUI');
-  if (
-    fs.existsSync(subComfy) &&
-    (fs.existsSync(path.join(subComfy, 'main.py')) ||
-      (fs.existsSync(path.join(subComfy, 'custom_nodes')) && fs.existsSync(path.join(subComfy, 'models'))))
-  ) {
-    return subComfy;
-  }
-
-  // 3. User passed custom_nodes or models subfolder directly
-  const basename = path.basename(norm).toLowerCase();
-  if (basename === 'custom_nodes' || basename === 'models') {
-    const parent = path.dirname(norm);
-    if (
-      fs.existsSync(path.join(parent, 'main.py')) ||
-      fs.existsSync(path.join(parent, 'custom_nodes')) ||
-      fs.existsSync(path.join(parent, 'models'))
-    ) {
-      return parent;
-    }
-  }
-
-  return norm;
+  return findComfyUIRootUtil(rawPath);
 }
 
 function analyzeComfyUIStructure(dirPath: string) {
@@ -729,92 +649,9 @@ function analyzeComfyUIStructure(dirPath: string) {
 }
 
 function inspectComfyUIInstall(installPath?: string) {
-  const rawPath = (installPath || currentConfig.comfyui_install_dir || '').trim();
-
-  // If no explicit path specified, infer from primary model folder (e.g. /path/to/ComfyUI/models -> /path/to/ComfyUI)
-  if (!rawPath) {
-    const primaryModelFolder = currentConfig.comfyui_root || (currentConfig.comfyui_folders && currentConfig.comfyui_folders[0]) || '';
-    if (primaryModelFolder) {
-      const parent = path.dirname(primaryModelFolder);
-      if (fs.existsSync(parent)) {
-        const structure = analyzeComfyUIStructure(parent);
-        const hasCustomNodes = structure.hasCustomNodes;
-        const nodes = hasCustomNodes ? getSubdirectories(path.join(parent, 'custom_nodes')) : [];
-        const cmmCheck = checkCmmCompanionNode(nodes, path.join(parent, 'custom_nodes'));
-        const isValid = structure.confidenceScore >= 35 || structure.hasMainPy || (structure.hasModelsDir && structure.hasCustomNodes);
-
-        if (isValid) {
-          return {
-            valid: true,
-            inferred: true,
-            installDir: parent,
-            customNodesDir: hasCustomNodes ? path.join(parent, 'custom_nodes') : '',
-            customNodesExist: hasCustomNodes,
-            installedNodes: nodes,
-            nodeCount: nodes.length,
-            cmmNodeInstalled: cmmCheck.installed,
-            cmmNodeFolderName: cmmCheck.folderName,
-            structure,
-            autoModelsDir: structure.detectedModelsDir,
-          };
-        }
-      }
-    }
-    return {
-      valid: false,
-      inferred: false,
-      installDir: '',
-      customNodesDir: '',
-      customNodesExist: false,
-      installedNodes: [],
-      nodeCount: 0,
-      cmmNodeInstalled: false,
-    };
-  }
-
-  const effectiveRoot = findComfyUIRoot(rawPath);
-  const exists = fs.existsSync(effectiveRoot);
-  if (!exists) {
-    const structure = analyzeComfyUIStructure(effectiveRoot);
-    return {
-      valid: false,
-      inferred: false,
-      installDir: rawPath,
-      customNodesDir: '',
-      customNodesExist: false,
-      installedNodes: [],
-      nodeCount: 0,
-      cmmNodeInstalled: false,
-      structure,
-      autoModelsDir: path.join(path.resolve(rawPath), 'models'),
-    };
-  }
-
-  const structure = analyzeComfyUIStructure(effectiveRoot);
-  const customNodesDir = structure.hasCustomNodes ? path.join(effectiveRoot, 'custom_nodes') : '';
-  const installedNodes = structure.hasCustomNodes ? getSubdirectories(customNodesDir) : [];
-  const cmmCheck = checkCmmCompanionNode(installedNodes, customNodesDir);
-
-  const isValid =
-    structure.hasMainPy ||
-    (structure.hasModelsDir && structure.hasCustomNodes) ||
-    (structure.hasComfyCore && structure.hasCustomNodes) ||
-    structure.confidenceScore >= 35;
-
-  return {
-    valid: isValid,
-    inferred: effectiveRoot !== path.resolve(rawPath),
-    installDir: effectiveRoot,
-    customNodesDir,
-    customNodesExist: structure.hasCustomNodes,
-    installedNodes,
-    nodeCount: installedNodes.length,
-    cmmNodeInstalled: cmmCheck.installed,
-    cmmNodeFolderName: cmmCheck.folderName,
-    structure,
-    autoModelsDir: structure.detectedModelsDir,
-  };
+  return inspectComfyUIInstallUtil(installPath, currentConfig);
 }
+
 
 /**
  * Determines the custom_nodes directory to scan for node resolution, in priority order:
@@ -849,98 +686,9 @@ async function purgeStaleNodeResolutionCache() {
 }
 
 function autoDetectComfyUIInstall() {
-  const candidates: string[] = [];
-
-  // 1. From existing config
-  if (currentConfig.comfyui_install_dir) {
-    candidates.push(currentConfig.comfyui_install_dir);
-  }
-
-  // 2. From model folders
-  const allFolders = [currentConfig.comfyui_root, ...(currentConfig.comfyui_folders || [])].filter(Boolean);
-  for (const folder of allFolders) {
-    const parent = path.dirname(folder);
-    candidates.push(parent);
-    const grandparent = path.dirname(parent);
-    candidates.push(grandparent);
-  }
-
-  // 3. From common standard OS locations
-  const homeDir = os.homedir();
-  if (process.platform === 'win32') {
-    const drives = ['C:', 'D:', 'E:', 'F:'];
-    for (const d of drives) {
-      candidates.push(
-        path.join(d, 'ComfyUI'),
-        path.join(d, 'comfyui'),
-        path.join(d, 'ComfyUI_windows_portable'),
-        path.join(d, 'ComfyUI_windows_portable', 'ComfyUI'),
-        path.join(d, 'AI', 'ComfyUI'),
-        path.join(d, 'AI', 'comfyui'),
-        path.join(d, 'AI', 'ComfyUI_windows_portable', 'ComfyUI'),
-        path.join(d, 'stable-diffusion', 'ComfyUI'),
-        path.join(d, 'sd', 'ComfyUI')
-      );
-    }
-    candidates.push(
-      path.join(homeDir, 'ComfyUI'),
-      path.join(homeDir, 'comfyui'),
-      path.join(homeDir, 'Desktop', 'ComfyUI'),
-      path.join(homeDir, 'Desktop', 'ComfyUI_windows_portable', 'ComfyUI'),
-      path.join(homeDir, 'Documents', 'ComfyUI')
-    );
-  } else {
-    // Linux / macOS
-    candidates.push(
-      path.join(homeDir, 'ComfyUI'),
-      path.join(homeDir, 'comfyui'),
-      path.join(homeDir, 'ai', 'ComfyUI'),
-      path.join(homeDir, 'ai', 'comfyui'),
-      path.join(homeDir, 'AI', 'ComfyUI'),
-      path.join(homeDir, 'AI', 'comfyui'),
-      path.join(homeDir, 'Projects', 'ComfyUI'),
-      path.join(homeDir, 'projects', 'comfyui'),
-      path.join(homeDir, 'stable-diffusion', 'ComfyUI'),
-      '/opt/ComfyUI',
-      '/opt/comfyui',
-      '/workspace/ComfyUI',
-      '/workspace/comfyui'
-    );
-  }
-
-  const uniqueCandidates = Array.from(new Set(candidates.map((c) => path.resolve(c))));
-  let bestMatch: { installPath: string; info: any; score: number } | null = null;
-
-  for (const candidate of uniqueCandidates) {
-    try {
-      if (!fs.existsSync(candidate)) continue;
-      const info = inspectComfyUIInstall(candidate);
-      if (info.valid) {
-        const score = info.structure?.confidenceScore || 0;
-        if (!bestMatch || score > bestMatch.score) {
-          bestMatch = { installPath: info.installDir || candidate, info, score };
-          if (score >= 90) break;
-        }
-      }
-    } catch { }
-  }
-
-  if (bestMatch) {
-    return {
-      found: true,
-      path: bestMatch.installPath,
-      info: bestMatch.info,
-      candidatesChecked: uniqueCandidates.length,
-      message: `Detected ComfyUI installation at: ${bestMatch.installPath}`,
-    };
-  }
-
-  return {
-    found: false,
-    candidatesChecked: uniqueCandidates.length,
-    message: 'Could not automatically find a valid ComfyUI directory. Please specify your installation folder manually.',
-  };
+  return autoDetectComfyUIInstallUtil(currentConfig);
 }
+
 
 async function pullMissingModel(modelData: any, targetRoot?: string) {
   let versionId = modelData.civitaiVersionId || modelData.civitai_version_id || modelData.versionId;
@@ -1254,53 +1002,10 @@ function resolveWorkflowScanPaths(config: AppConfig, customPaths?: string | stri
   return Array.from(candidateDirs);
 }
 
-async function checkComfyUIStatus(targetUrl?: string): Promise<{ online: boolean; serverUrl: string; version?: string; devices?: string[]; os?: string; error?: string }> {
-  let url = (targetUrl && targetUrl.trim()) ? targetUrl.trim() : (currentConfig.comfyui_server_url || 'http://127.0.0.1:8188');
-  url = url.replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(url)) {
-    url = `http://${url}`;
-  }
-
-  try {
-    const res = await axios.get(`${url}/system_stats`, {
-      timeout: 1500,
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (res.status === 200 && res.data) {
-      const data = res.data;
-      const devices = Array.isArray(data.devices)
-        ? data.devices.map((d: any) => d.name || d.type || 'Device')
-        : [];
-      const version = data.system?.comfyui_version || data.system?.version || 'Active';
-      return {
-        online: true,
-        serverUrl: url,
-        version: String(version),
-        devices,
-        os: data.system?.os,
-      };
-    }
-  } catch (err: any) {
-    try {
-      const fallback = await axios.get(`${url}/prompt`, { timeout: 1000 });
-      if (fallback.status === 200) {
-        return {
-          online: true,
-          serverUrl: url,
-          version: 'Active',
-          devices: [],
-        };
-      }
-    } catch { }
-  }
-
-  return {
-    online: false,
-    serverUrl: url,
-    error: 'ComfyUI server not responding',
-  };
+async function checkComfyUIStatus(targetUrl?: string) {
+  return await checkComfyUIStatusUtil(targetUrl || currentConfig.comfyui_server_url);
 }
+
 
 async function saveComfyUIWorkflow(fileName: string, data: any, fileType = 'json'): Promise<{ success: boolean; filePath?: string; fileName?: string; error?: string }> {
   try {
@@ -2539,7 +2244,8 @@ function startHttpBridgeServer() {
         try {
           const body = await getBody();
           const folderPath = body?.folderPath || body?.path || '';
-          const result = testFolderWritable(folderPath);
+          const sanitized = sanitizePathString(folderPath) || '';
+          const result = testFolderWritable(sanitized, { createIfMissing: Boolean(body?.createIfMissing) });
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(result));
         } catch (e: any) {
@@ -3736,11 +3442,15 @@ function registerIpcHandlers() {
     return listDirectoryEntries(validDirPath);
   });
 
-  ipcMain.handle('check-folder-access', async (_event: unknown, folderPath: string) => {
+  ipcMain.handle('check-folder-access', async (_event: unknown, folderPath: string, createIfMissing?: boolean) => {
     if (!folderPath || typeof folderPath !== 'string') {
       return { exists: false, writable: false, error: 'No folder path provided' };
     }
-    return testFolderWritable(folderPath);
+    const sanitized = sanitizePathString(folderPath);
+    if (!sanitized) {
+      return { exists: false, writable: false, error: 'Invalid folder path format' };
+    }
+    return testFolderWritable(sanitized, { createIfMissing: Boolean(createIfMissing) });
   });
 
   ipcMain.handle('ignore-duplicate-set', async (_event: unknown, sha256: string, count: number = 2) => {

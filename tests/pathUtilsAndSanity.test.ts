@@ -39,12 +39,20 @@ describe('Folder Writeability Sanity Check & Download Pre-flight', () => {
     expect(result.error).toBeUndefined();
   });
 
-  it('handles non-existent subdirectory creation check gracefully', () => {
+  it('handles non-existent subdirectory creation check gracefully when createIfMissing is true', () => {
     const subDir = path.join(tempTestDir, 'nested', 'checkpoints');
-    const result = testFolderWritable(subDir);
+    const result = testFolderWritable(subDir, { createIfMissing: true });
     expect(result.exists).toBe(true);
     expect(result.writable).toBe(true);
     expect(fs.existsSync(subDir)).toBe(true);
+  });
+
+  it('does not create non-existent directories when createIfMissing is omitted or false', () => {
+    const nonExistent = path.join(tempTestDir, 'non_existent_should_not_exist');
+    const result = testFolderWritable(nonExistent);
+    expect(result.exists).toBe(false);
+    expect(result.writable).toBe(false);
+    expect(fs.existsSync(nonExistent)).toBe(false);
   });
 
   it('fails with informative error when path is empty or invalid', () => {
@@ -80,12 +88,15 @@ describe('Folder Writeability Sanity Check & Download Pre-flight', () => {
       throw err;
     });
 
-    const result = testFolderWritable(fakeDrivePath);
+    let result: any;
+    try {
+      result = testFolderWritable(fakeDrivePath, { createIfMissing: true });
+    } finally {
+      spy.mockRestore();
+    }
     expect(result.writable).toBe(false);
     expect(result.exists).toBe(false);
     expect(result.error).toContain('Drive or parent directory not found');
-
-    spy.mockRestore();
   });
 
   it('fails download task immediately when target directory fails writeability sanity check', async () => {

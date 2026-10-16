@@ -141,6 +141,28 @@ export function isPathWithinAllowedRoots(
   });
 }
 
+
+/**
+ * Constructs the canonical list of allowed root directories from application configuration.
+ */
+export function getAllowedModelRoots(cfg?: {
+  comfyui_root?: string;
+  comfyui_folders?: string[];
+  comfyui_install_dir?: string;
+  comfyui_custom_nodes_dir?: string;
+  default_download_folder?: string;
+}): string[] {
+  const roots: string[] = [];
+  if (cfg?.comfyui_root) roots.push(cfg.comfyui_root);
+  if (Array.isArray(cfg?.comfyui_folders)) roots.push(...cfg.comfyui_folders);
+  if (cfg?.comfyui_install_dir) roots.push(cfg.comfyui_install_dir);
+  if (cfg?.comfyui_custom_nodes_dir) roots.push(cfg.comfyui_custom_nodes_dir);
+  if (cfg?.default_download_folder) roots.push(cfg.default_download_folder);
+  roots.push(process.cwd());
+  roots.push(os.tmpdir());
+  return roots;
+}
+
 /**
  * Validates that a file has a recognized model extension and is within allowed roots if provided.
  */

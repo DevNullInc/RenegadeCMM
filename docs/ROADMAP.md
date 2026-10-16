@@ -197,19 +197,19 @@ graph LR
   - 100% test coverage: **186 unit/integration tests passing across 28 suites**.
 - [x] **Remote Desktop Graphics Mode (`cmm.ps1`, `cmm.bat`, `src/main/index.ts`)**:
   - Added `Start-Remote` and `Restart-Remote` commands disabling GPU hardware acceleration to eliminate modal window flickering and compositor artifacts during remote desktop (RDP/VNC) sessions.
-- [ ] **Pickle-to-SafeTensors Converter Architecture Overhaul (`scripts/convert_to_safetensors.py` & `modelConverter.ts`)**:
-  - **Problem Analysis**: The current Python conversion routine (`convert_to_safetensors.py`) applies state-dict unpacking heuristics designed primarily for monolithic Stable Diffusion checkpoints and LoRAs (searching specifically for `state_dict`, `model`, or `module` wrapper keys). When processing non-checkpoint pickle containers (such as standalone DiT transformer weights, text encoders, VAEs, custom pickled model packages, or standalone modules), the script misidentifies the internal tensor hierarchy or erroneously assumes the model is a LoRA/checkpoint, resulting in missing weight keys or conversion failures.
-  - **Planned Architecture Fix**:
-    - **Generic Dynamic Archive Introspection**: Refactor PyTorch deserialization to traverse arbitrary nested object graphs, collections, and custom Python class instances without hardcoded assumptions about checkpoint/LoRA dictionary keys.
-    - **Modular Conversion Profiles**: Implement dedicated extraction profiles for:
-      1. *Monolithic Checkpoints* (SD 1.5, SDXL, Pony).
-      2. *LoRAs / LoCons / DoRAs* (preserving `lora_unet_*`, `lora_te_*` naming conventions).
-      3. *Standalone DiT / UNet Weights* (Flux, Wan, Hunyuan, Anima, CogVideo).
-      4. *Text Encoders & CLIP / T5 Modules*.
-      5. *VAEs & Autoencoders*.
-      6. *Raw PyTorch State-Dicts & Arbitrary Tensors*.
-    - **Tensor Metadata & Header Preservation**: Retain tensor dtype fidelity (FP16, BF16, FP32) and write appropriate SafeTensors header metadata tags (`__metadata__`) without corrupting non-LoRA layer weights.
-    - **Safe Memory Streaming**: Implement chunked streaming conversion for large models (> 10GB) to prevent host memory exhaustion during CPU state-dict deserialization.
+- [x] **Pickle-to-SafeTensors Converter Architecture Overhaul (`scripts/convert_to_safetensors.py` & `modelConverter.ts`)**:
+  - **Generic Dynamic Archive Introspection**: Refactored PyTorch deserialization to traverse arbitrary nested object graphs, collections, and custom Python class instances without hardcoded assumptions about checkpoint/LoRA dictionary keys. Includes `ResilientUnpickler` fallback to prevent failures on missing third-party dependencies.
+  - **Modular Conversion Profiles**: Implemented dedicated extraction profiles for:
+    1. *Monolithic Checkpoints* (SD 1.5, SDXL, SD 2.x, Pony, Illustrious).
+    2. *LoRAs / LoCons / DoRAs* (preserving `lora_unet_*`, `lora_te_*` naming conventions).
+    3. *Standalone DiT / UNet Weights* (Flux, Wan 2.1, Hunyuan Video, Anima, CogVideoX, SD3/3.5, Chroma, PixArt, Lumina).
+    4. *Text Encoders & CLIP / T5 Modules* (CLIP ViT-L, ViT-bigG, T5-XXL, Qwen, Gemma).
+    5. *VAEs & Autoencoders* (SD/SDXL VAE, TAESD, Wan VAE, Flux VAE).
+    6. *Raw PyTorch State-Dicts & Arbitrary Tensors*.
+  - **Tensor Metadata & Header Preservation**: Retains tensor dtype fidelity (FP16, BF16, FP32) and writes rich SafeTensors header metadata (`modelspec.architecture`, `modelspec.type`, `modelspec.title`, `modelspec.tensor_count`, `modelspec.dtypes`, `modelspec.date`).
+  - **Safe Memory Streaming**: Minimized host memory duplication during serialization with pointer-level shared storage deduplication (`storage().data_ptr()`) and explicit garbage collection (`gc.collect()`).
+- [x] **Application Lifecycle Quick Access Relocation (`SettingsTab.tsx` & `AboutTab.tsx`)**:
+  - Relocated Restart and Shutdown controls from the bottom of Settings to the top of the About tab for rapid, low-scroll reachability alongside real-time service restart and shutdown feedback banners.
 
 ## Planned Future Releases
 

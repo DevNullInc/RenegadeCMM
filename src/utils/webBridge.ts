@@ -97,7 +97,8 @@ export function getApiBase(): string {
  */
 export async function autoDiscoverApiPort(): Promise<number> {
   const current = getApiPort();
-  const candidates = [current, 5174, 5175, 5180, 8080, 8081];
+  const windowPort = typeof window !== 'undefined' && window.location.port ? parseInt(window.location.port, 10) : 0;
+  const candidates = [5174, current, windowPort, 5175, 5180, 8080, 8081];
   const unique = Array.from(new Set(candidates.filter((p) => p > 0 && p <= 65535)));
 
   for (const p of unique) {
@@ -188,11 +189,22 @@ export function setupWebBridgeIfNeeded() {
 
       inspectComfyUIInstall: async (customPath?: string) => {
         try {
-          const res = await fetch(`${getApiBase()}/check-comfyui-install`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ installPath: customPath }),
-          });
+          let res: Response;
+          try {
+            res = await fetch(`${getApiBase()}/check-comfyui-install`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ installPath: customPath }),
+              signal: AbortSignal.timeout(1500),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          } catch {
+            res = await fetch('/api/check-comfyui-install', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ installPath: customPath }),
+            });
+          }
           return await res.json();
         } catch {
           return { valid: false, customNodesExist: false, installedNodes: [], nodeCount: 0, cmmNodeInstalled: false };
@@ -201,10 +213,20 @@ export function setupWebBridgeIfNeeded() {
 
       autoDetectComfyUI: async () => {
         try {
-          const res = await fetch(`${getApiBase()}/auto-detect-comfyui`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
+          let res: Response;
+          try {
+            res = await fetch(`${getApiBase()}/auto-detect-comfyui`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(2000),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          } catch {
+            res = await fetch('/api/auto-detect-comfyui', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
           return await res.json();
         } catch {
           return { found: false, message: 'Could not communicate with local backend bridge.' };
@@ -653,12 +675,27 @@ export function setupWebBridgeIfNeeded() {
 
       listDirectory: async (dirPath?: string) => {
         try {
-          const res = await fetch(`${getApiBase()}/list-directory`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dirPath }),
-          });
-          return await res.json();
+          let res: Response;
+          try {
+            res = await fetch(`${getApiBase()}/list-directory`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dirPath }),
+              signal: AbortSignal.timeout(1500),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          } catch {
+            res = await fetch('/api/list-directory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dirPath }),
+            });
+          }
+          const data = await res.json();
+          if (data && Array.isArray(data.entries)) {
+            return data;
+          }
+          return { path: dirPath || '', parent: '', isRoot: true, roots: [], entries: [] };
         } catch (e) {
           return { path: '', parent: '', isRoot: true, roots: [], entries: [] };
         }
@@ -666,11 +703,22 @@ export function setupWebBridgeIfNeeded() {
 
       checkFolderAccess: async (folderPath: string) => {
         try {
-          const res = await fetch(`${getApiBase()}/check-folder-access`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ folderPath }),
-          });
+          let res: Response;
+          try {
+            res = await fetch(`${getApiBase()}/check-folder-access`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folderPath }),
+              signal: AbortSignal.timeout(1500),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          } catch {
+            res = await fetch('/api/check-folder-access', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folderPath }),
+            });
+          }
           return await res.json();
         } catch (e: any) {
           return { exists: false, writable: false, error: e?.message || 'Check failed' };
@@ -732,13 +780,38 @@ export function setupWebBridgeIfNeeded() {
 
       checkComfyUIStatus: async (serverUrl?: string) => {
         try {
-          const res = await fetch(`${getApiBase()}/comfyui/status`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serverUrl }),
-          });
+          let res: Response;
+          try {
+            res = await fetch(`${getApiBase()}/comfyui/status`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ serverUrl }),
+              signal: AbortSignal.timeout(1500),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          } catch {
+            res = await fetch('/api/comfyui/status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ serverUrl }),
+            });
+          }
           return await res.json();
         } catch (e: any) {
+          try {
+            const directUrl = (serverUrl && serverUrl.trim()) ? serverUrl.trim().replace(/\/+$/, '') : 'http://127.0.0.1:8188';
+            const direct = await fetch(`${directUrl}/system_stats`, { signal: AbortSignal.timeout(1500) });
+            if (direct.ok) {
+              const data = await direct.json();
+              return {
+                online: true,
+                serverUrl: directUrl,
+                version: data.system?.comfyui_version || 'Active',
+                devices: Array.isArray(data.devices) ? data.devices.map((d: any) => d.name || 'Device') : [],
+                os: data.system?.os,
+              };
+            }
+          } catch {}
           return { online: false, serverUrl: serverUrl || 'http://127.0.0.1:8188', error: e.message };
         }
       },

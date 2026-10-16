@@ -553,7 +553,7 @@ export class DownloadManager {
 
       // Pre-flight sanity check on destination directory before network stream
       const targetDir = path.dirname(targetPath);
-      const accessCheck = testFolderWritable(targetDir);
+      const accessCheck = testFolderWritable(targetDir, { createIfMissing: true });
       if (!accessCheck.writable) {
         throw new Error(
           `Cannot write to destination folder (${targetDir}): ${accessCheck.error || 'Destination drive or directory is locked or read-only'}`
@@ -591,7 +591,7 @@ export class DownloadManager {
 
       const makeRequest = async (useRange: boolean): Promise<AxiosResponse> => {
         const headers: Record<string, string> = {
-          'User-Agent': 'RenegadeCMM/1.6.2',
+          'User-Agent': 'RenegadeCMM/1.7.0',
         };
         if (useRange && existingBytes > 0) {
           headers['Range'] = `bytes=${existingBytes}-`;
