@@ -23,6 +23,7 @@ import {
   Trash2,
   ListChecks,
   Check,
+  ExternalLink,
 } from 'lucide-react';
 import { DownloadTask } from '../types/app';
 
@@ -200,15 +201,15 @@ export const DownloadsTab: React.FC = () => {
         <div>
           <h1 className="text-3xl font-extrabold text-slate-100 tracking-tight flex items-center gap-2.5">
             <span>Download Queue</span>
-            <ArrowDownCircle size={24} className="text-purple-400" />
+            <ArrowDownCircle size={24} className="text-rose-400" />
           </h1>
           <p className="text-sm text-slate-400 mt-1">
             Active background model downloads with automatic Range resumption and SHA256 integrity verification.
           </p>
         </div>
 
-        <div className="glass-panel px-5 py-3.5 rounded-2xl flex items-center gap-4 border border-purple-500/30 shadow-xl glow-purple">
-          <div className="p-2.5 rounded-xl bg-purple-600/20 text-purple-400">
+        <div className="glass-panel px-5 py-3.5 rounded-2xl flex items-center gap-4 border border-rose-500/30 shadow-xl glow-crimson">
+          <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-400">
             <Activity className="animate-pulse" size={22} />
           </div>
           <div>
@@ -226,13 +227,13 @@ export const DownloadsTab: React.FC = () => {
             disabled={tasks.length === 0}
             className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
               allSelected
-                ? 'bg-purple-600/20 border-purple-500/50 text-purple-200'
-                : 'bg-slate-900/80 border-slate-700/80 text-slate-300 hover:text-white hover:border-purple-500/40'
+                ? 'bg-rose-500/20 border-rose-500/50 text-rose-200'
+                : 'bg-slate-900/80 border-slate-700/80 text-slate-300 hover:text-white hover:border-rose-500/40'
             }`}
             title={allSelected ? 'Unselect all downloads' : `Select all downloads (${tasks.length})`}
           >
             <span className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
-              allSelected ? 'bg-purple-500 border-purple-400' : 'bg-slate-950 border-slate-600'
+              allSelected ? 'bg-rose-600 border-rose-500' : 'bg-slate-950 border-slate-600'
             }`}>
               {allSelected && <Check size={13} className="text-white stroke-[3]" />}
             </span>
@@ -276,12 +277,12 @@ export const DownloadsTab: React.FC = () => {
             <div
               key={task.id}
               className={`glass-card p-4 pl-3 sm:p-5 sm:pl-4 rounded-2xl border space-y-4 shadow-xl flex items-start gap-3 transition-colors ${
-                selected.has(task.id) ? 'border-purple-500/60 bg-purple-950/10' : 'border-slate-800'
+                selected.has(task.id) ? 'border-rose-500/60 bg-rose-950/10' : 'border-slate-800'
               }`}
             >
               <label
                 className={`mt-5 shrink-0 flex items-center justify-center w-5 h-5 rounded-md border cursor-pointer transition-colors select-none ${
-                  selected.has(task.id) ? 'bg-purple-500 border-purple-400' : 'bg-slate-950/80 border-slate-600 hover:border-purple-400'
+                  selected.has(task.id) ? 'bg-rose-600 border-rose-500' : 'bg-slate-950/80 border-slate-600 hover:border-rose-400'
                 }`}
                 title={selected.has(task.id) ? 'Deselect this download' : 'Select this download'}
               >
@@ -296,21 +297,45 @@ export const DownloadsTab: React.FC = () => {
               <div className="flex-1 min-w-0 space-y-4">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 flex-wrap">
                     <h3 className="font-bold text-slate-100 text-base">{task.modelName}</h3>
-                    <span className="bg-purple-950/80 border border-purple-500/40 text-purple-300 text-[10px] font-bold px-2.5 py-0.5 rounded-lg shadow-sm">
+                    <span className="bg-rose-950/80 border border-rose-500/40 text-rose-300 text-[10px] font-bold px-2.5 py-0.5 rounded-lg shadow-sm">
                       {task.versionName}
                     </span>
+                    {task.modelId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const isNsfw = Boolean(task.versionMetadata?.model?.nsfw || task.versionMetadata?.nsfw);
+                          const domain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
+                          const url = `${domain}/models/${task.modelId}${task.modelVersionId ? `?modelVersionId=${task.modelVersionId}` : ''}`;
+                          if (window.civitaiAPI?.openExternal) {
+                            window.civitaiAPI.openExternal(url);
+                          } else {
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        className={`p-1 px-1.5 rounded-md border text-xs flex items-center gap-1 font-semibold transition-all cursor-pointer ${
+                          Boolean(task.versionMetadata?.model?.nsfw || task.versionMetadata?.nsfw)
+                            ? 'bg-red-950/60 border-red-500/40 text-red-300 hover:bg-red-900/60 hover:text-white'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                        title={Boolean(task.versionMetadata?.model?.nsfw || task.versionMetadata?.nsfw) ? 'Visit on CivitAI.red (NSFW)' : 'Visit on CivitAI.com'}
+                      >
+                        <ExternalLink size={11} />
+                        <span className="text-[10px]">{Boolean(task.versionMetadata?.model?.nsfw || task.versionMetadata?.nsfw) ? 'CivitAI.red' : 'CivitAI.com'}</span>
+                      </button>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 font-mono mt-1 truncate">
-                    Target Folder: <span className="text-purple-300 font-semibold">{task.targetFolder}/</span> ({task.fileName})
+                    Target Folder: <span className="text-rose-300 font-semibold">{task.targetFolder}/</span> ({task.fileName})
                   </p>
                 </div>
 
                 {/* Status Badges & Controls */}
                 <div className="flex items-center gap-3">
                   {task.status === 'downloading' && (
-                    <span className="text-xs font-mono font-bold text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl border border-purple-500/30 flex items-center gap-2 glow-purple">
+                    <span className="text-xs font-mono font-bold text-rose-300 bg-rose-500/10 px-3 py-1.5 rounded-xl border border-rose-500/30 flex items-center gap-2 glow-crimson">
                       <RefreshCw className="animate-spin" size={14} />
                       {formatSpeed(task.speedBps)}
                     </span>
@@ -350,7 +375,7 @@ export const DownloadsTab: React.FC = () => {
                       <button
                         onClick={() => handleResume(task.id)}
                         title="Resume Download"
-                        className="p-2 rounded-xl text-purple-400 hover:text-purple-300 hover:bg-purple-500/20 transition-colors"
+                        className="p-2 rounded-xl text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 transition-colors"
                       >
                         <Play size={18} />
                       </button>
@@ -376,7 +401,7 @@ export const DownloadsTab: React.FC = () => {
                         ? 'bg-linear-to-r from-emerald-500 to-teal-400'
                         : task.status === 'failed'
                         ? 'bg-red-500'
-                        : 'bg-linear-to-r from-purple-600 to-indigo-500'
+                        : 'bg-linear-to-r from-rose-600 to-red-600'
                     }`}
                     style={{ width: `${task.progress}%` }}
                   />

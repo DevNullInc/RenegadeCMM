@@ -679,11 +679,20 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
   ): { url: string; label: string; isHf: boolean; isNsfw: boolean } => {
     if (model.customLink) {
       const isHf = model.customLink.includes('huggingface.co');
+      const isNsfw = isModelNsfw(model);
+      let targetUrl = model.customLink;
+      if (isNsfw && targetUrl.includes('civitai.com')) {
+        targetUrl = targetUrl.replace('civitai.com', 'civitai.red');
+      }
       return {
-        url: model.customLink,
-        label: isHf ? `Open on Hugging Face (${model.customLink})` : `Open Model Specifics Link (${model.customLink})`,
+        url: targetUrl,
+        label: isHf
+          ? `Open on Hugging Face (${targetUrl})`
+          : isNsfw
+            ? `Open model on CivitAI.red (NSFW)`
+            : `Open Model Specifics Link (${targetUrl})`,
         isHf,
-        isNsfw: isModelNsfw(model),
+        isNsfw,
       };
     }
 
@@ -903,7 +912,12 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
     setSpecificsCreator(model.civitaiCreator || (model.hfRepoId ? model.hfRepoId.split('/')[0] : ''));
     setSpecificsBaseModel(model.civitaiBaseModel || '');
     setSpecificsModelType(model.modelType || model.civitaiType || 'Checkpoint');
-    const existingLink = model.customLink || (model.hfRepoId ? `https://huggingface.co/${model.hfRepoId}` : model.civitaiModelId ? `https://civitai.com/models/${model.civitaiModelId}` : '');
+    const isNsfw = isModelNsfw(model);
+    const domain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
+    let existingLink = model.customLink || (model.hfRepoId ? `https://huggingface.co/${model.hfRepoId}` : model.civitaiModelId ? `${domain}/models/${model.civitaiModelId}` : '');
+    if (isNsfw && existingLink.includes('civitai.com')) {
+      existingLink = existingLink.replace('civitai.com', 'civitai.red');
+    }
     setSpecificsCustomLink(existingLink);
     setLinkInputUrl(existingLink);
     setSpecificsDescription(model.description || '');
@@ -1353,7 +1367,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             <button
               onClick={startScan}
               title="Scan ComfyUI Folders"
-              className="flex items-center gap-2.5 px-6 py-3 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-sm transition-all shadow-xl shadow-purple-600/30 glow-purple cursor-pointer active:scale-95"
+              className="flex items-center gap-2.5 px-6 py-3 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold rounded-2xl text-sm transition-all shadow-xl shadow-rose-950/40 glow-crimson cursor-pointer active:scale-95"
             >
               <FolderSearch size={20} />
               <span>Scan ComfyUI Folders</span>
@@ -1383,7 +1397,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             onClick={handleCheckAllUpdates}
             disabled={isScanning || checkingUpdates || localModels.length === 0}
             title="Query CivitAI to detect newer releases of matched local models"
-            className="flex items-center gap-2 px-5 py-3 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-purple-500/50 text-slate-200 hover:text-purple-300 font-bold rounded-2xl text-sm transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
+            className="flex items-center gap-2 px-5 py-3 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-rose-500/50 text-slate-200 hover:text-rose-300 font-bold rounded-2xl text-sm transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
           >
             <Sparkles size={18} className={checkingUpdates ? 'text-amber-400 animate-spin' : 'text-amber-400'} />
             <span>{checkingUpdates ? 'Checking Updates...' : 'Check for Updates'}</span>
@@ -1441,10 +1455,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
 
       {/* Hero Scan Progress Bar Banner */}
       {scanProgress && scanProgress.status !== 'idle' && (
-        <div className="p-6 rounded-3xl glass-panel border border-purple-500/40 space-y-3 shadow-2xl glow-purple animate-fadeIn">
+        <div className="p-6 rounded-3xl glass-panel border border-rose-500/40 space-y-3 shadow-2xl glow-crimson animate-fadeIn">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-purple-500/20 text-purple-300">
+              <div className="p-2.5 rounded-2xl bg-rose-500/20 text-rose-300">
                 <RefreshCw className={isScanning ? 'animate-spin' : ''} size={22} />
               </div>
               <div>
@@ -1463,7 +1477,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
 
             <div className="text-right flex items-center gap-4">
               <div>
-                <span className="text-base font-extrabold text-purple-300 font-mono">
+                <span className="text-base font-extrabold text-rose-300 font-mono">
                   {scanProgress.totalFiles > 0
                     ? `${Math.round((scanProgress.scannedFiles / scanProgress.totalFiles) * 100)}%`
                     : '0%'}
@@ -1486,7 +1500,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
 
           <div className="w-full bg-slate-950 rounded-full h-3.5 overflow-hidden border border-slate-800/80 shadow-inner">
             <div
-              className="bg-linear-to-r from-purple-600 via-indigo-500 to-purple-500 h-full transition-all duration-300 rounded-full glow-purple"
+              className="bg-linear-to-r from-rose-600 via-rose-500 to-red-600 h-full transition-all duration-300 rounded-full glow-crimson"
               style={{
                 width: `${scanProgress.totalFiles > 0
                     ? Math.min(100, Math.round((scanProgress.scannedFiles / scanProgress.totalFiles) * 100))
@@ -1544,7 +1558,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             <button
               onClick={handlePullAllMissingModels}
               disabled={pullingAllMissing || isScanning}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
             >
               {pullingAllMissing ? (
                 <>
@@ -1591,7 +1605,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       ? 'bg-linear-to-r from-rose-600 to-amber-600 text-white shadow-md shadow-rose-600/30'
                       : isPickleFilter
                         ? 'bg-linear-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
-                        : 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
+                        : 'bg-linear-to-r from-rose-600 to-red-700 text-white shadow-md shadow-rose-950/40'
                     : isMissingFilter && count > 0
                       ? 'bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-rose-500/40 animate-pulse'
                       : isPickleFilter && count > 0
@@ -1660,7 +1674,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as any)}
-            className="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 focus:outline-none focus:border-purple-500 cursor-pointer"
+            className="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 focus:outline-none focus:border-rose-500 cursor-pointer"
           >
             <option value="all">All Types</option>
             {['Checkpoint', 'LORA', 'LLM', 'LoCon', 'DoRA', 'TextualInversion', 'Hypernetwork', 'VAE', 'Controlnet', 'Upscaler', 'MotionModule', 'AestheticGradient', 'Poses', 'Wildcards', 'Workflows', 'Detection', 'Other'].map((t) => (
@@ -1699,8 +1713,19 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
             placeholder="Filter by filename or path..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="bg-slate-900/90 border border-slate-700/60 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 w-full"
+            className="bg-slate-900/90 border border-slate-700/60 rounded-xl pl-9 pr-9 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-rose-500 w-full"
           />
+          {searchQuery.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              title="Clear search filter"
+              aria-label="Clear search filter"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1715,7 +1740,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
       {/* Model List */}
       {loading && localModels.length === 0 ? (
         <div className="flex items-center justify-center py-24">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 glow-purple"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 glow-crimson"></div>
         </div>
       ) : filteredModels.length === 0 ? (
         <div className="text-center py-28 text-slate-500 text-sm glass-panel rounded-3xl p-8 border border-slate-800 space-y-3">
@@ -1747,7 +1772,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 key={model.id}
                 className={`glass-card p-4.5 rounded-2xl flex flex-col justify-between gap-4 border transition-all shadow-md ${isExpanded
                     ? 'border-amber-500/50 bg-slate-900/90 shadow-xl shadow-amber-950/20'
-                    : 'border-slate-800/80 hover:border-purple-500/30'
+                    : 'border-slate-800/80 hover:border-rose-500/30'
                   }`}
               >
                 {/* Main Card Row */}
@@ -1763,7 +1788,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     {model.previewUrl ? (
                       <div
                         onClick={() => setSelectedModelDetail(model)}
-                        className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-purple-500/30 hover:border-purple-400 shadow-md bg-slate-950 relative group cursor-pointer transition-all hover:scale-105 active:scale-95"
+                        className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-rose-500/30 hover:border-rose-400 shadow-md bg-slate-950 relative group cursor-pointer transition-all hover:scale-105 active:scale-95"
                         title="Click to view model details & trigger words"
                       >
                         <FallbackImage
@@ -1772,7 +1797,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                           isBlurred={shouldBlur}
                           className="w-full h-full object-cover transition-all duration-300"
                           fallbackIcon={
-                            <div className="w-full h-full bg-slate-900 flex items-center justify-center text-purple-400">
+                            <div className="w-full h-full bg-slate-900 flex items-center justify-center text-rose-400">
                               <HardDrive size={20} />
                             </div>
                           }
@@ -1789,7 +1814,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     ) : (
                       <div
                         onClick={() => setSelectedModelDetail(model)}
-                        className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 flex items-center justify-center text-purple-400 shrink-0 shadow-inner cursor-pointer transition-all hover:scale-105 active:scale-95"
+                        className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/50 flex items-center justify-center text-rose-400 shrink-0 shadow-inner cursor-pointer transition-all hover:scale-105 active:scale-95"
                         title="Click to view model details & trigger words"
                       >
                         <HardDrive size={20} />
@@ -1800,7 +1825,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       <div className="flex items-center gap-2 flex-wrap max-w-full">
                         <h3
                           onClick={() => setSelectedModelDetail(model)}
-                          className="font-bold text-slate-100 hover:text-purple-300 text-sm truncate max-w-[15rem] sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl cursor-pointer transition-colors"
+                          className="font-bold text-slate-100 hover:text-rose-300 text-sm truncate max-w-[15rem] sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl cursor-pointer transition-colors"
                           title={model.civitaiName ? `${model.civitaiName} (${model.fileName}) — Click to view details & trigger words` : `${model.fileName} — Click to view details & trigger words`}
                         >
                           {model.civitaiName || model.fileName}
@@ -1819,7 +1844,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                           )
                         )}
                         {(model.modelType || model.civitaiType) && (
-                          <span className="text-[10px] font-bold text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md">
+                          <span className="text-[10px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md">
                             {model.modelType || model.civitaiType}
                           </span>
                         )}
@@ -1939,10 +1964,10 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                               e.stopPropagation();
                               setSelectedModelDetail(model);
                             }}
-                            className="text-[10px] font-semibold text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors"
+                            className="text-[10px] font-semibold text-rose-300 hover:text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors"
                             title="Click to inspect LoRA trigger words and info"
                           >
-                            <Sparkles size={10} className="text-purple-400" />
+                            <Sparkles size={10} className="text-rose-400" />
                             <span>Inspect LoRA Triggers</span>
                           </button>
                         </div>
@@ -2002,7 +2027,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       <button
                         onClick={() => handlePullMissingModel(model)}
                         disabled={pullingModelId === model.id || isScanning}
-                        className="flex items-center gap-1.5 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold px-3.5 py-1.5 rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95 text-xs shadow-md shadow-purple-950/40"
+                        className="flex items-center gap-1.5 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold px-3.5 py-1.5 rounded-xl hover:shadow-lg hover:shadow-rose-950/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95 text-xs shadow-md shadow-rose-950/40"
                         title={
                           model.civitaiVersionId
                             ? `Download ${model.civitaiName || model.fileName} from CivitAI into your models directory`
@@ -2011,12 +2036,12 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       >
                         {pullingModelId === model.id ? (
                           <>
-                            <Loader2 size={13} className="animate-spin text-purple-200" />
+                            <Loader2 size={13} className="animate-spin text-rose-200" />
                             <span>Pulling...</span>
                           </>
                         ) : (
                           <>
-                            <Download size={13} className="text-purple-200" />
+                            <Download size={13} className="text-rose-200" />
                             <span>{model.isMatched ? 'Download Model' : 'Pull (Hash Match)'}</span>
                           </>
                         )}
@@ -2411,7 +2436,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 <p className="text-[11px] text-slate-400 font-mono truncate">{modelToDelete.filePath}</p>
                 <div className="pt-1.5 flex items-center gap-3 text-[11px] text-slate-400 font-medium">
                   <span>Size: <strong className="text-slate-200">{(modelToDelete.fileSize / 1024 / 1024).toFixed(1)} MB</strong></span>
-                  <span>Type: <strong className="text-purple-300">{modelToDelete.modelType || 'Other'}</strong></span>
+                  <span>Type: <strong className="text-rose-300">{modelToDelete.modelType || 'Other'}</strong></span>
                 </div>
               </div>
 
@@ -2694,15 +2719,15 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
           onClick={() => setSelectedModelDetail(null)}
         >
           <div
-            className="w-full max-w-3xl glass-panel bg-slate-900/95 border border-purple-500/40 rounded-3xl overflow-hidden shadow-2xl glow-purple max-h-[90vh] flex flex-col animate-scaleUp"
+            className="w-full max-w-3xl glass-panel bg-slate-900/95 border border-rose-500/40 rounded-3xl overflow-hidden shadow-2xl glow-crimson max-h-[90vh] flex flex-col animate-scaleUp"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-800/80 bg-slate-950/60 flex items-start justify-between gap-4">
               <div className="space-y-1.5 min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-bold text-purple-300 bg-purple-500/15 border border-purple-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-xs">
-                    <Sparkles size={12} className="text-purple-400" />
+                  <span className="text-[11px] font-bold text-rose-300 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1 shadow-xs">
+                    <Sparkles size={12} className="text-rose-400" />
                     <span>{selectedModelDetail.modelType || selectedModelDetail.civitaiType || 'Model'}</span>
                   </span>
                   {selectedModelDetail.civitaiBaseModel && (
@@ -2741,7 +2766,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                 {selectedModelDetail.civitaiCreator && (
                   <p className="text-xs text-slate-400 flex items-center gap-1.5">
                     <span>By</span>
-                    <strong className="text-purple-300">{selectedModelDetail.civitaiCreator}</strong>
+                    <strong className="text-rose-300">{selectedModelDetail.civitaiCreator}</strong>
                   </p>
                 )}
               </div>
@@ -2761,7 +2786,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
               {/* Top Row: Preview Thumbnail & Quick Info */}
               <div className="flex flex-col sm:flex-row gap-5 items-start">
                 {/* Preview Image */}
-                <div className="w-full sm:w-44 h-48 rounded-2xl overflow-hidden shrink-0 border border-purple-500/30 bg-slate-950 relative shadow-lg group">
+                <div className="w-full sm:w-44 h-48 rounded-2xl overflow-hidden shrink-0 border border-rose-500/30 bg-slate-950 relative shadow-lg group">
                   <FallbackImage
                     src={selectedModelDetail.previewUrl}
                     candidateUrls={selectedModelDetail.localPreviewPath ? [`/api/local-image?path=${encodeURIComponent(selectedModelDetail.localPreviewPath)}`] : []}
@@ -2769,7 +2794,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     isBlurred={isModelNsfw(selectedModelDetail) && blurNsfw}
                     className="w-full h-full object-cover"
                     fallbackIcon={
-                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-purple-400 gap-2">
+                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-rose-400 gap-2">
                         <HardDrive size={32} />
                         <span className="text-[10px] text-slate-500 font-mono">No Preview</span>
                       </div>
@@ -2807,7 +2832,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
                       <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">File Format</span>
-                      <span className="font-bold text-purple-300 font-mono mt-0.5 block uppercase">
+                      <span className="font-bold text-rose-300 font-mono mt-0.5 block uppercase">
                         {selectedModelDetail.fileName.split('.').pop() || 'Unknown'}
                       </span>
                     </div>
@@ -2822,7 +2847,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                       <button
                         type="button"
                         onClick={() => handleCopyFilePath(selectedModelDetail.filePath)}
-                        className="text-[10px] font-semibold text-purple-300 hover:text-purple-200 flex items-center gap-1 cursor-pointer"
+                        className="text-[10px] font-semibold text-rose-300 hover:text-rose-200 flex items-center gap-1 cursor-pointer"
                       >
                         {copiedFilePath ? (
                           <>
@@ -3069,13 +3094,13 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
               <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <Hash size={13} className="text-purple-400" /> SHA256 Checksum
+                    <Hash size={13} className="text-rose-400" /> SHA256 Checksum
                   </span>
                   {selectedModelDetail.sha256 && (
                     <button
                       type="button"
                       onClick={() => handleCopySha256(selectedModelDetail.sha256!)}
-                      className="text-[10px] font-semibold text-purple-300 hover:text-purple-200 flex items-center gap-1 cursor-pointer"
+                      className="text-[10px] font-semibold text-rose-300 hover:text-rose-200 flex items-center gap-1 cursor-pointer"
                     >
                       {copiedSha256 ? (
                         <>
@@ -3812,13 +3837,13 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                                   return next;
                                 });
                               }}
-                              className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                              className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col md:flex-row items-start md:items-center justify-between gap-4 overflow-hidden ${
                                 isSelected
                                   ? 'bg-slate-900/90 border-amber-500/50 shadow-md shadow-amber-950/20'
                                   : 'bg-slate-950/60 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700'
                               }`}
                             >
-                              <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                              <div className="flex items-start gap-3.5 flex-1 min-w-0 w-full">
                                 {/* Checkbox */}
                                 <div className="pt-1 shrink-0">
                                   <input
@@ -3849,17 +3874,17 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                                 {/* Model Details */}
                                 <div className="space-y-1 min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <h4 className="font-bold text-slate-100 text-xs truncate max-w-sm" title={item.fileName}>
+                                    <h4 className="font-bold text-slate-100 text-xs truncate max-w-full" title={item.fileName}>
                                       {item.fileName}
                                     </h4>
                                     {item.baseModel && (
-                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-semibold bg-slate-800 border border-slate-700 text-slate-300">
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-semibold bg-slate-800 border border-slate-700 text-slate-300 shrink-0">
                                         {item.baseModel}
                                       </span>
                                     )}
                                   </div>
 
-                                  <p className="text-[11px] text-amber-300 font-medium">
+                                  <p className="text-[11px] text-amber-300 font-medium break-words leading-relaxed">
                                     {item.reason}
                                   </p>
 
@@ -3894,13 +3919,19 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                               </div>
 
                               {/* Relocation Route Indicator & Ignore Button */}
-                              <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
-                                <div className="flex items-center gap-2 text-xs font-bold bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 shadow-inner">
-                                  <span className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/40 text-rose-300 font-mono text-[11px]">
+                              <div className="flex items-center gap-2.5 shrink-0 self-stretch sm:self-end md:self-center justify-between md:justify-end min-w-0 max-w-full">
+                                <div className="flex items-center gap-2 text-xs font-bold bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 shadow-inner min-w-0 max-w-full">
+                                  <span
+                                    title={item.currentFolder}
+                                    className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/40 text-rose-300 font-mono text-[11px] truncate max-w-[140px] sm:max-w-[200px] md:max-w-[240px]"
+                                  >
                                     {item.currentFolder}
                                   </span>
-                                  <ArrowRight size={14} className="text-amber-400" />
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[11px]">
+                                  <ArrowRight size={14} className="text-amber-400 shrink-0" />
+                                  <span
+                                    title={item.targetFolder}
+                                    className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[11px] truncate max-w-[120px] sm:max-w-[160px] md:max-w-[200px]"
+                                  >
                                     {item.targetFolder}
                                   </span>
                                 </div>
@@ -3912,7 +3943,7 @@ export const LibraryTab: React.FC<LibraryTabProps> = ({ onCheckUpdate }) => {
                                     e.stopPropagation();
                                     handleIgnoreSortItem(item);
                                   }}
-                                  className="p-2 px-3 rounded-xl bg-slate-950/80 hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold group"
+                                  className="p-2 px-3 rounded-xl bg-slate-950/80 hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold group shrink-0"
                                 >
                                   <EyeOff size={14} className="group-hover:text-rose-400" />
                                   <span className="inline">Ignore</span>

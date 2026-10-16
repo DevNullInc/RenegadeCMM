@@ -52,19 +52,19 @@ export const EvaluationNagModal: React.FC<EvaluationNagModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
       <div
-        className="relative w-full max-w-xl glass-panel bg-slate-900/95 border border-purple-500/30 rounded-3xl p-6 md:p-8 shadow-2xl shadow-purple-950/40 text-slate-200 space-y-6 overflow-hidden"
+        className="relative w-full max-w-xl glass-panel bg-slate-900/95 border border-rose-500/30 rounded-3xl p-6 md:p-8 shadow-2xl shadow-rose-950/40 text-slate-200 space-y-6 overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="eval-modal-title"
       >
         {/* Glow ambient background accents */}
-        <div className="absolute -top-24 -right-24 w-64 h-64 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-rose-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-red-900/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* Header */}
         <div className="flex items-start justify-between relative z-10">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shadow-inner">
+            <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-rose-500/20 to-red-600/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-inner">
               <Scale size={24} />
             </div>
             <div>
@@ -93,7 +93,7 @@ export const EvaluationNagModal: React.FC<EvaluationNagModalProps> = ({
         {/* Substantive Message */}
         <div className="space-y-3 relative z-10 text-xs text-slate-300 leading-relaxed">
           <p>
-            Thank you for using <strong className="text-purple-300">RenegadeCMM</strong>! You are currently evaluating this software on a single-user basis.
+            Thank you for using <strong className="text-rose-400">RenegadeCMM</strong>! You are currently evaluating this software on a single-user basis.
           </p>
 
           <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
@@ -111,7 +111,7 @@ export const EvaluationNagModal: React.FC<EvaluationNagModalProps> = ({
           </p>
 
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
-            <ShieldCheck size={14} className="text-indigo-400 shrink-0" />
+            <ShieldCheck size={14} className="text-rose-400 shrink-0" />
             <span>Commercial organizations with &gt; 5 employees or contractors require a commercial seat license.</span>
           </div>
         </div>
@@ -136,7 +136,7 @@ export const EvaluationNagModal: React.FC<EvaluationNagModalProps> = ({
             </button>
             <button
               onClick={handleRegisterClick}
-              className="px-4 py-2.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all cursor-pointer flex items-center justify-center gap-2 w-full sm:w-auto"
+              className="px-4 py-2.5 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white text-xs font-bold shadow-lg shadow-rose-950/40 transition-all cursor-pointer flex items-center justify-center gap-2 w-full sm:w-auto"
             >
               <KeyRound size={14} />
               <span>Register License</span>

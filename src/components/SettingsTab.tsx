@@ -46,6 +46,9 @@ import {
   Share2,
   Cpu,
   AlertTriangle,
+  Sun,
+  Moon,
+  Palette,
 } from 'lucide-react';
 import {
   AppConfig,
@@ -62,7 +65,12 @@ import {
 
 import { FolderBrowserModal } from './FolderBrowserModal';
 
-export const SettingsTab: React.FC = () => {
+export interface SettingsTabProps {
+  currentTheme?: 'dark' | 'light';
+  onThemeChange?: (theme: 'dark' | 'light') => void;
+}
+
+export const SettingsTab: React.FC<SettingsTabProps> = ({ currentTheme = 'dark', onThemeChange }) => {
   const [config, setConfig] = useState<AppConfig>({
     comfyui_root: '',
     comfyui_folders: [],
@@ -1032,7 +1040,7 @@ export const SettingsTab: React.FC = () => {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-6 py-3 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-sm transition-all shadow-xl shadow-purple-600/30 glow-purple cursor-pointer active:scale-95 shrink-0"
+          className="flex items-center gap-2 px-6 py-3 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold rounded-2xl text-sm transition-all shadow-xl shadow-rose-950/40 glow-crimson cursor-pointer active:scale-95 shrink-0"
         >
           <Save size={18} />
           <span>{saving ? 'Saving...' : 'Save Settings'}</span>
@@ -1061,6 +1069,73 @@ export const SettingsTab: React.FC = () => {
         </div>
       )}
 
+      {/* 0. Appearance & Theme Selection Card */}
+      <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-slate-100 font-bold text-base">
+            <Palette className="text-rose-400" size={20} />
+            <h2>Appearance & Theme System</h2>
+          </div>
+          <span className="text-xs text-slate-400 font-medium">
+            Active: <span className="text-slate-200 font-semibold">{currentTheme === 'dark' ? 'Dark (Cyberpunk Obsidian)' : 'Light (E-Reader Warm Paper)'}</span>
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Switch between the high-contrast dark cyberpunk workspace and gentle e-reader papery light mode. Your preference is automatically synced across tabs and saved to local storage.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+          {/* Dark Mode Option */}
+          <button
+            type="button"
+            onClick={() => onThemeChange?.('dark')}
+            className={`p-4 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+              currentTheme === 'dark'
+                ? 'bg-slate-900 border-rose-500 shadow-lg shadow-rose-950/40 ring-1 ring-rose-500/50'
+                : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 opacity-70 hover:opacity-100'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-950/80 border border-rose-500/40 flex items-center justify-center text-rose-300">
+                <Moon size={20} />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-100">Dark Mode</h3>
+                <p className="text-[11px] text-slate-400">Cyberpunk Obsidian & Slate</p>
+              </div>
+            </div>
+            {currentTheme === 'dark' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-400 shadow-sm shadow-rose-400/50" />
+            )}
+          </button>
+
+          {/* Light Mode Option */}
+          <button
+            type="button"
+            onClick={() => onThemeChange?.('light')}
+            className={`p-4 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+              currentTheme === 'light'
+                ? 'bg-amber-500/10 border-amber-500 shadow-lg shadow-amber-950/20 ring-1 ring-amber-500/50'
+                : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 opacity-70 hover:opacity-100'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                <Sun size={20} />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-100">Light Mode</h3>
+                <p className="text-[11px] text-slate-400">E-Reader Warm Paper & Soft Ink</p>
+              </div>
+            </div>
+            {currentTheme === 'light' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50" />
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* 1. ComfyUI Installation & Core Program Structure */}
       <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4 shadow-xl">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -1084,7 +1159,7 @@ export const SettingsTab: React.FC = () => {
                   type="button"
                   onClick={handleInstallCmmNode}
                   disabled={isCloningCmmNode}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-linear-to-r from-purple-600/30 to-cyan-600/30 hover:from-purple-600/50 hover:to-cyan-600/50 text-cyan-200 border border-cyan-500/40 shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer group disabled:opacity-50 active:scale-95"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-linear-to-r from-rose-600/30 to-cyan-600/30 hover:from-rose-600/50 hover:to-cyan-600/50 text-cyan-200 border border-cyan-500/40 shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer group disabled:opacity-50 active:scale-95"
                   title="Click to automatically Git clone ComfyUI-Model-Manager into your custom_nodes/ folder. (Currently Untested — please submit a bug report on GitHub if you encounter any issues!)"
                 >
                   {isCloningCmmNode ? (
@@ -1133,7 +1208,7 @@ export const SettingsTab: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed">
-          Specify the root directory of your local ComfyUI installation (where <code className="text-cyan-300 font-mono text-[11px]">main.py</code> and the <code className="text-cyan-300 font-mono text-[11px]">custom_nodes/</code> directory reside). Setting this will automatically configure your primary <code className="text-purple-300 font-mono text-[11px]">models/</code> storage path below and enable companion node features.
+          Specify the root directory of your local ComfyUI installation (where <code className="text-cyan-300 font-mono text-[11px]">main.py</code> and the <code className="text-cyan-300 font-mono text-[11px]">custom_nodes/</code> directory reside). Setting this will automatically configure your primary <code className="text-rose-300 font-mono text-[11px]">models/</code> storage path below and enable companion node features.
         </p>
 
         <div className="space-y-3 pt-1">
@@ -1181,7 +1256,7 @@ export const SettingsTab: React.FC = () => {
                 type="button"
                 onClick={handleInstallCmmNode}
                 disabled={isCloningCmmNode}
-                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-linear-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 border border-cyan-500/40 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-cyan-950/40 cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-linear-to-r from-rose-600 to-cyan-600 hover:from-rose-500 hover:to-cyan-500 border border-cyan-500/40 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-cyan-950/40 cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
                 title="Git clone https://github.com/DevNullInc/ComfyUI-Model-Manager into custom_nodes/ (Currently Untested — please submit a bug report on GitHub if you encounter any issues!)"
               >
                 {isCloningCmmNode ? (
@@ -1525,7 +1600,7 @@ export const SettingsTab: React.FC = () => {
                       type="button"
                       onClick={handleInstallCmmNode}
                       disabled={isCloningCmmNode}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-linear-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-cyan-950/50 cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-950/50 cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
                       title="1-Click Git clone into custom_nodes/. (Currently Untested — please report issues on GitHub if you encounter problems!)"
                     >
                       {isCloningCmmNode ? (
@@ -1587,7 +1662,7 @@ export const SettingsTab: React.FC = () => {
       <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4 shadow-xl">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-slate-100 font-bold text-base">
-            <Folder className="text-purple-400" size={20} />
+            <Folder className="text-rose-400" size={20} />
             <h2>ComfyUI Model Folders</h2>
           </div>
           <div className="flex items-center gap-2">
@@ -1598,7 +1673,7 @@ export const SettingsTab: React.FC = () => {
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
                 config.comfyui_folders.length === 0
                   ? 'bg-slate-900/60 border border-slate-800/80 text-slate-500 cursor-not-allowed opacity-50'
-                  : 'bg-slate-800 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 text-purple-300 hover:text-purple-200 cursor-pointer active:scale-95'
+                  : 'bg-slate-800 hover:bg-rose-950/40 border border-slate-700 hover:border-rose-500/50 text-rose-300 hover:text-rose-200 cursor-pointer active:scale-95'
               }`}
               title={
                 config.comfyui_folders.length === 0
@@ -1607,9 +1682,9 @@ export const SettingsTab: React.FC = () => {
               }
             >
               {isScaffolding ? (
-                <Loader2 size={13} className="animate-spin text-purple-400" />
+                <Loader2 size={13} className="animate-spin text-rose-400" />
               ) : (
-                <Sparkles size={13} className={config.comfyui_folders.length === 0 ? 'text-slate-600' : 'text-purple-400'} />
+                <Sparkles size={13} className={config.comfyui_folders.length === 0 ? 'text-slate-600' : 'text-rose-400'} />
               )}
               <span className={config.comfyui_folders.length === 0 ? 'line-through text-slate-500' : ''}>
                 Build Missing Subfolders
@@ -1622,7 +1697,7 @@ export const SettingsTab: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed">
-          Primary model directory is automatically populated from your ComfyUI base path above (<code className="text-purple-300 font-mono text-[11px]">/models</code>). You can also add secondary model directories (e.g. external SSDs, shared drives, or extra symlinked folders). If any standard model subfolders are missing, CMM automatically builds them based on ComfyUI's model directory layout.
+          Primary model directory is automatically populated from your ComfyUI base path above (<code className="text-rose-300 font-mono text-[11px]">/models</code>). You can also add secondary model directories (e.g. external SSDs, shared drives, or extra symlinked folders). If any standard model subfolders are missing, CMM automatically builds them based on ComfyUI's model directory layout.
         </p>
 
         {/* Scaffolding Feedback Toast */}
@@ -1660,7 +1735,7 @@ export const SettingsTab: React.FC = () => {
             value={newFolderInput}
             onChange={(e) => setNewFolderInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addFolder(); }}
-            className="flex-1 bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500 font-mono"
+            className="flex-1 bg-slate-900/90 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500 font-mono"
           />
           <button
             type="button"
@@ -1673,7 +1748,7 @@ export const SettingsTab: React.FC = () => {
           </button>
           <button
             onClick={addFolder}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
           >
             <FolderPlus size={16} />
             <span>Add Folder</span>
@@ -1701,10 +1776,10 @@ export const SettingsTab: React.FC = () => {
               >
                 <div className="flex items-center gap-2.5 truncate flex-1 mr-3">
                   {idx === 0 ? (
-                    <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 text-[10px] font-bold uppercase tracking-wider shrink-0 flex items-center gap-1">
+                    <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 text-[10px] font-bold uppercase tracking-wider shrink-0 flex items-center gap-1">
                       <span>Primary</span>
                       {config.comfyui_install_dir && folderPath.toLowerCase().startsWith(config.comfyui_install_dir.toLowerCase()) && (
-                        <span className="text-[9px] text-purple-200/80 font-normal">(Auto-Linked)</span>
+                        <span className="text-[9px] text-rose-200/80 font-normal">(Auto-Linked)</span>
                       )}
                     </span>
                   ) : (
@@ -1754,14 +1829,14 @@ export const SettingsTab: React.FC = () => {
           <div className="pt-4 border-t border-slate-800/80 space-y-2 animate-fadeIn">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <HardDrive size={14} className="text-purple-400" />
+                <HardDrive size={14} className="text-rose-400" />
                 <span>Default Download Destination</span>
               </label>
               {config.default_download_folder && (
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, default_download_folder: '' })}
-                  className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 hover:underline cursor-pointer"
+                  className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
                 >
                   Reset (Always Ask)
                 </button>
@@ -1770,7 +1845,7 @@ export const SettingsTab: React.FC = () => {
             <select
               value={config.default_download_folder || ''}
               onChange={(e) => setConfig({ ...config, default_download_folder: e.target.value })}
-              className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500 font-mono cursor-pointer"
+              className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-rose-500 font-mono cursor-pointer"
             >
               <option value="">Always ask when downloading (Prompt if multiple folders)</option>
               {config.comfyui_folders.map((folderPath, i) => (
@@ -1789,21 +1864,21 @@ export const SettingsTab: React.FC = () => {
       </div>
 
       {/* 3. Complete System Backup & Restore (.ZIP) Card */}
-      <div className="glass-panel p-6 rounded-3xl border border-purple-500/40 space-y-4 shadow-xl glow-purple relative overflow-hidden bg-slate-950/70">
+      <div className="glass-panel p-6 rounded-3xl border border-rose-500/40 space-y-4 shadow-xl glow-crimson relative overflow-hidden bg-slate-950/70">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5">
           <div className="flex items-start sm:items-center gap-3.5 flex-1 min-w-0">
-            <div className="p-3 rounded-2xl bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+            <div className="p-3 rounded-2xl bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
               <Archive size={24} />
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-bold text-slate-100">Complete System Backup & Restore (.ZIP)</h2>
-                <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 border border-purple-500/30 px-2 py-0.5 rounded-md">
+                <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 border border-rose-500/30 px-2 py-0.5 rounded-md">
                   Database + Config + History
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Generates a complete <code className="text-purple-300 font-mono text-[11px]">.zip</code> archive containing your entire model catalog database, configuration, download history, and ignore lists. Use it to backup or migrate your entire CMM library to another machine.
+                Generates a complete <code className="text-rose-300 font-mono text-[11px]">.zip</code> archive containing your entire model catalog database, configuration, download history, and ignore lists. Use it to backup or migrate your entire CMM library to another machine.
               </p>
             </div>
           </div>
@@ -1813,7 +1888,7 @@ export const SettingsTab: React.FC = () => {
             <button
               onClick={handleCreateBackupZip}
               disabled={isExportingBackup}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-lg shadow-purple-950/40 cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white text-xs font-bold transition-all shadow-lg shadow-rose-950/40 cursor-pointer disabled:opacity-50"
             >
               <Download size={15} />
               <span>{isExportingBackup ? 'Creating Backup...' : 'Create Backup (.ZIP)'}</span>
@@ -1825,7 +1900,7 @@ export const SettingsTab: React.FC = () => {
               disabled={isImportingBackup}
               className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
             >
-              <Upload size={15} className="text-purple-400" />
+              <Upload size={15} className="text-rose-400" />
               <span>{isImportingBackup ? 'Restoring...' : 'Restore Backup (.ZIP)'}</span>
             </button>
 
@@ -2422,7 +2497,7 @@ export const SettingsTab: React.FC = () => {
               <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-800/40 space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 block">Seeding Models</span>
                 <span className="text-sm font-extrabold text-white flex items-center gap-1.5">
-                  <Package size={14} className="text-purple-400" />
+                  <Package size={14} className="text-rose-400" />
                   {swarmStatus.seeding ?? 0}
                 </span>
                 <span className="text-[10px] text-slate-400 block">Packaged & seeding</span>
@@ -2714,7 +2789,7 @@ export const SettingsTab: React.FC = () => {
               <label className="text-xs font-semibold text-slate-300">
                 NSFW Max Visible Level (1 = Soft, 5 = All)
               </label>
-              <span className="text-xs font-bold text-purple-400">{config.nsfw_max_visible_level}</span>
+              <span className="text-xs font-bold text-rose-400">{config.nsfw_max_visible_level}</span>
             </div>
             <input
               type="range"
@@ -2724,7 +2799,7 @@ export const SettingsTab: React.FC = () => {
               onChange={(e) =>
                 setConfig({ ...config, nsfw_max_visible_level: parseInt(e.target.value, 10) })
               }
-              className="w-full accent-purple-500 cursor-pointer"
+              className="w-full accent-rose-500 cursor-pointer"
             />
           </div>
 
@@ -2733,7 +2808,7 @@ export const SettingsTab: React.FC = () => {
               type="checkbox"
               checked={config.nsfw_blur_enabled}
               onChange={(e) => setConfig({ ...config, nsfw_blur_enabled: e.target.checked })}
-              className="rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4"
+              className="rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4"
             />
             <span>Enable NSFW Blur on model preview cards</span>
           </label>
@@ -2743,7 +2818,7 @@ export const SettingsTab: React.FC = () => {
               type="checkbox"
               checked={config.strict_hash_verification !== false}
               onChange={(e) => setConfig({ ...config, strict_hash_verification: e.target.checked })}
-              className="rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4"
+              className="rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4"
             />
             <span>Strict SHA256 Hash Verification (If unchecked, warns but saves files with invalid CivitAI hashes)</span>
           </label>
@@ -2810,7 +2885,7 @@ export const SettingsTab: React.FC = () => {
                     organize_by: { ...config.organize_by, base_model: e.target.checked },
                   })
                 }
-                className="rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4"
+                className="rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4"
               />
               <span>Separate models into Base Model subfolders</span>
             </label>
@@ -2825,7 +2900,7 @@ export const SettingsTab: React.FC = () => {
                     organize_by: { ...config.organize_by, creator: e.target.checked },
                   })
                 }
-                className="rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4"
+                className="rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4"
               />
               <span>Separate models into Creator subfolders</span>
             </label>
@@ -2858,7 +2933,7 @@ export const SettingsTab: React.FC = () => {
           />
           <button
             onClick={addPatternRule}
-            className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors shadow-md cursor-pointer"
+            className="p-2 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-xl transition-all shadow-md cursor-pointer"
           >
             <Plus size={18} />
           </button>
@@ -2872,7 +2947,7 @@ export const SettingsTab: React.FC = () => {
               className="flex items-center justify-between bg-slate-900/70 p-3 rounded-xl border border-slate-800 text-xs"
             >
               <div className="flex items-center gap-3 font-mono">
-                <span className="text-purple-300 font-semibold">{rule.pattern}</span>
+                <span className="text-rose-300 font-semibold">{rule.pattern}</span>
                 <span className="text-slate-600">→</span>
                 <span className="text-emerald-400 font-bold">{rule.folder}/</span>
               </div>
@@ -2890,10 +2965,10 @@ export const SettingsTab: React.FC = () => {
       {/* Paste JSON Modal */}
       {showPasteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn" onClick={() => setShowPasteModal(false)}>
-          <div className="glass-panel bg-slate-950 border border-purple-500/40 p-6 rounded-3xl max-w-xl w-full space-y-4 shadow-2xl glow-purple" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-panel bg-slate-950 border border-rose-500/40 p-6 rounded-3xl max-w-xl w-full space-y-4 shadow-2xl glow-crimson" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
-                <Code size={18} className="text-purple-400" />
+                <Code size={18} className="text-rose-400" />
                 <span>Paste Settings JSON</span>
               </div>
               <button
@@ -2913,7 +2988,7 @@ export const SettingsTab: React.FC = () => {
               placeholder='{ "settings": { "comfyui_folders": [...] } }'
               value={pastedJsonText}
               onChange={(e) => setPastedJsonText(e.target.value)}
-              className="w-full bg-slate-900/90 border border-slate-700/80 rounded-2xl p-3.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-purple-500"
+              className="w-full bg-slate-900/90 border border-slate-700/80 rounded-2xl p-3.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-rose-500"
             />
 
             <div className="flex items-center justify-end gap-2.5">
@@ -2926,7 +3001,7 @@ export const SettingsTab: React.FC = () => {
               <button
                 onClick={handlePasteImportSubmit}
                 disabled={!pastedJsonText.trim()}
-                className="px-5 py-2 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-purple-600/30 cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-rose-950/40 glow-crimson cursor-pointer"
               >
                 Apply & Save JSON
               </button>

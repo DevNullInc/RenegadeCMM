@@ -45,6 +45,9 @@ export const FOLDER_ALIASES: Record<string, string[]> = {
   gguf: ['gguf', 'llm', 'llms', 'text_models'],
   wildcards: ['wildcards', 'wildcard'],
   workflows: ['workflows', 'workflow'],
+  vae_approx: ['vae_approx', 'taesd', 'taesd3', 'taesdxl'],
+  sams: ['sams', 'sam', 'sam2', 'segment_anything'],
+  model_patches: ['model_patches', 'patches', 'fun'],
 };
 
 export class FolderRouter {
@@ -184,7 +187,26 @@ export class FolderRouter {
       return 'checkpoints';
     }
 
-    // 5. Base model intelligence for Checkpoint / Other / standalone weights
+    // 5. LoRA / Adapter patterns check (must precede generic base model keywords)
+    if (
+      /\b(lora|locon|dora|lycoris)\b/i.test(nameLower) ||
+      /[-_](lora|locon|dora|lycoris)[-_.]/i.test(nameLower) ||
+      /[-_](r\d{1,4}|rank\d{1,4}|dim\d{1,4})[-_.]/i.test(nameLower) ||
+      /\b(turbo_\d+step|\d+step|fl2v|ft2v)\b/i.test(nameLower)
+    ) {
+      return 'loras';
+    }
+
+    // 6. Specialized micro-models: TAESD (vae_approx) and Segment Anything (sams)
+    if (/\b(taesd|taesdxl|taesd3|taef1)\b/i.test(nameLower) || /^taesd/i.test(nameLower)) {
+      return 'vae_approx';
+    }
+
+    if (/\b(sam_vit|sam2|mobile_sam|groundingdino)\b/i.test(nameLower) || /^sam_/i.test(nameLower)) {
+      return 'sams';
+    }
+
+    // 7. Base model intelligence for Checkpoint / Other / standalone weights
     const isDiffusionBase =
       /\b(minimax|h3|ltx|ltxv|ltx-video|anima|krea|flux|wan|wan2|cogvideo|hunyuan|mochi|auraflow|pixart|lumina|chroma|kolors|cosmos|consisid|omnigen|easycontrol|melbandroformer|sd 3|sd 3\.5|sd3)\b/i.test(
         baseLower
@@ -195,8 +217,26 @@ export class FolderRouter {
         baseLower
       );
 
+    if (nameLower.endsWith('.gguf')) {
+      if (
+        isDiffusionBase ||
+        /\b(flux|wan|hunyuan|ltx|ltxv|lumina|sdxl|sd3|mochi|cogvideo)\b/i.test(nameLower) ||
+        /\b(flux|wan|hunyuan|ltx|ltxv|lumina|sdxl|sd3|mochi|cogvideo)\b/i.test(nameWithSpaces)
+      ) {
+        return 'diffusion_models';
+      }
+      if (
+        isLlmBase ||
+        /\b(qwen|quan|llama|mistral|gemma|deepseek|phi|chatglm)\b/i.test(nameLower) ||
+        /\b(qwen|quan|llama|mistral|gemma|deepseek|phi|chatglm)\b/i.test(nameWithSpaces)
+      ) {
+        return 'LLM';
+      }
+      return 'gguf';
+    }
+
     if (isLlmBase) {
-      if (nameLower.endsWith('.gguf') || /\b(gguf|instruct|chat|tokenizer|coder|assistant|text|language)\b/i.test(nameLower) || modelType === 'Other' || /\b(coder|assistant)\b/i.test(nameWithSpaces)) {
+      if (/\b(instruct|chat|tokenizer|coder|assistant|text|language)\b/i.test(nameLower) || modelType === 'Other' || /\b(coder|assistant)\b/i.test(nameWithSpaces)) {
         return 'LLM';
       }
     }
@@ -205,7 +245,7 @@ export class FolderRouter {
       return 'diffusion_models';
     }
 
-    // 6. Filename keyword checks for Checkpoint / Other / standalone weights
+    // 8. Filename keyword checks for Checkpoint / Other / standalone weights
     if (
       /\b(minimax|h3|ltx|ltxv|anima|krea|cogvideo|hunyuan|mochi|lumina|chroma|auraflow|pixart|cosmos|consisid|omnigen|easycontrol|melbandroformer)\b/i.test(nameWithSpaces) ||
       /\b(minimax|h3|ltx|ltxv|anima|krea|cogvideo|hunyuan|mochi|lumina|chroma|auraflow|pixart|cosmos|consisid|omnigen|easycontrol|melbandroformer)\b/i.test(nameLower) ||
@@ -224,18 +264,7 @@ export class FolderRouter {
       return 'LLM';
     }
 
-    // 6. Direct file pattern fallbacks for GGUF, LoRAs, ONNX, Upscalers, Detection, Clip Vision, and Text Encoders
-    if (nameLower.endsWith('.gguf')) {
-      return 'gguf';
-    }
-
-    if (
-      /\b(lora|locon|dora|lycoris)\b/i.test(nameLower) ||
-      /[-_](r\d{1,4}|rank\d{1,4}|dim\d{1,4})[-_.]/i.test(nameLower)
-    ) {
-      return 'loras';
-    }
-
+    // 9. Direct file pattern fallbacks for ONNX, Upscalers, Detection, Clip Vision, and Text Encoders
     if (nameLower.endsWith('.onnx') || /\b(insightface|antelope|buffalo)\b/i.test(nameLower)) {
       return 'insightface';
     }

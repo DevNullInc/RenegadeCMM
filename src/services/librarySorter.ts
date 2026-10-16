@@ -179,6 +179,19 @@ export class LibrarySorterService {
         continue;
       }
 
+      // MANAGED REPOSITORY & CACHE PROTECTION RULE:
+      // Never relocate models residing inside managed Hugging Face cache/hub/snapshot/blob directories.
+      // Moving individual files out of these structures corrupts HF caches, symlinks, and Python repo loaders.
+      if (
+        normPath.includes('/hub/') ||
+        normPath.includes('/snapshots/') ||
+        normPath.includes('/blobs/') ||
+        normPath.includes('/.cache/') ||
+        normPath.includes('/models--')
+      ) {
+        continue;
+      }
+
       const standardFolder = parts[foundSubfolderIdx];
       const canonicalStandardFolder = folderRouter.getCanonicalFolderName(standardFolder);
       const modelsRoot = parts.slice(0, foundSubfolderIdx).join(path.sep);
@@ -205,78 +218,134 @@ export class LibrarySorterService {
         effectiveBaseModel
       );
 
-      const isCurrentFolderSpecialized =
-        specializedStandardFolders.has(standardFolder.toLowerCase()) ||
-        specializedStandardFolders.has(canonicalStandardFolder.toLowerCase());
+      const applyFolderProtections = (candidate: string): string => {
+        const currentLower = canonicalStandardFolder.toLowerCase();
+        const target = candidate;
 
-      // Contextual folder protection: If the file resides in an existing valid specialized folder
-      // do not blindly relocate it to checkpoints or other generic destinations when it is legitimately placed.
-      if (isCurrentFolderSpecialized) {
-        const isExplicitCheckpointName =
-          /\b(aio|all-in-one|all_in_one|full_version|full-version)\b/i.test(fileName) ||
-          /[-_](aio|all-in-one|all_in_one|checkpoint|ckpt)[-_.]/i.test(fileName);
-
-        const isVaeFolder = canonicalStandardFolder.toLowerCase() === 'vae';
-        const isDiffusionFolder = canonicalStandardFolder.toLowerCase() === 'diffusion_models';
-        const isIpAdapterFolder = canonicalStandardFolder.toLowerCase() === 'ipadapter';
-        const isClipVisionFolder = canonicalStandardFolder.toLowerCase() === 'clip_vision';
-        const isControlNetFolder = canonicalStandardFolder.toLowerCase() === 'controlnet';
-
-        const isDiffusionModelFamily =
-          /\b(minimax|h3|ltx|ltxv|anima|krea|flux|wan|cogvideo|hunyuan|mochi|auraflow|pixart|lumina|chroma|cosmos|consisid|omnigen|easycontrol|melbandroformer)\b/i.test(
-            `${fileName} ${effectiveBaseModel || ''}`
-          );
-
-        if (targetFolder === 'checkpoints') {
-          let hasAuthoritativeCheckpointProof = false;
-          if (isVaeFolder) {
-            hasAuthoritativeCheckpointProof = isExplicitCheckpointName && !/vae/i.test(fileName);
-          } else if (isDiffusionFolder && isDiffusionModelFamily) {
-            hasAuthoritativeCheckpointProof = false;
-          } else if (isIpAdapterFolder || isClipVisionFolder) {
-            hasAuthoritativeCheckpointProof = false;
-          } else {
-            hasAuthoritativeCheckpointProof =
-              isExplicitCheckpointName &&
-              ((companionMeta.type && companionMeta.type.toLowerCase() === 'checkpoint') ||
-                (model.isMatched && (model.civitaiType === 'Checkpoint' || model.modelType === 'Checkpoint')));
-          }
-
-          if (!hasAuthoritativeCheckpointProof) {
-            targetFolder = canonicalStandardFolder;
+        // 1. Text Encoders & CLIP folder protection:
+        // Text encoders in ComfyUI include T5, CLIP, and LLM text encoders (LLaMA 3, Qwen, Gemma, etc.).
+        if (currentLower === 'text_encoders' || currentLower === 'clip') {
+          if (target === 'LLM' || target === 'clip_vision' || target === 'clip' || target === 'text_encoders') {
+            return canonicalStandardFolder;
           }
         }
 
-        // Protect ControlNet / inpainting / LLLite adapters in controlnet folder
-        if (isControlNetFolder && targetFolder === 'diffusion_models') {
-          if (/(?:control|lllite|inpaint|adapter|canny|depth|openpose|tile|recolor|lineart|softedge|scribble)/i.test(fileName)) {
-            targetFolder = 'controlnet';
-            resolvedType = 'Controlnet';
+        // 2. LLM & GGUF folder protection:
+        // LLM folder contains text LLMs, Vision-Language Models (Florence-2, Qwen-VL), and GGUFs.
+        if (currentLower === 'llm' || currentLower === 'gguf') {
+          if (target === 'clip_vision' || target === 'text_encoders' || target === 'gguf' || target === 'LLM' || target === 'ipadapter' || target === 'checkpoints') {
+            return canonicalStandardFolder;
           }
         }
 
-        // Protect IP-Adapters in ipadapter folder
-        if (isIpAdapterFolder && (targetFolder === 'controlnet' || targetFolder === 'checkpoints')) {
-          if (/(?:ip[-_]?adapter|faceid|instantid|image[-_]?proj)/i.test(fileName)) {
-            targetFolder = 'ipadapter';
+        // 3. LoRAs folder protection:
+        // LoRAs folder contains all LoRAs, turbo distillation adapters (e.g. 4step, 8step), and motion LoRAs.
+        // Never move files out of loras/ to diffusion_models, text_encoders, upscale_models, or checkpoints.
+        if (currentLower === 'loras') {
+          if (target === 'diffusion_models' || target === 'text_encoders' || target === 'upscale_models' || target === 'checkpoints') {
+            return canonicalStandardFolder;
           }
         }
 
-        // Protect Vision models in clip_vision folder
-        if (isClipVisionFolder && (targetFolder === 'upscale_models' || targetFolder === 'checkpoints')) {
-          if (/(?:clip|vision|vit|dino|siglip|open_clip)/i.test(fileName)) {
-            targetFolder = 'clip_vision';
+        // 4. Checkpoints folder protection:
+        // Standalone DiT models (Anima, Flux, Wan, CogVideo, etc.) sitting in checkpoints
+        // are expected to relocate to diffusion_models so UNETLoader can load them.
+        // Full SD/SDXL/Pony checkpoints with UNet+CLIP+VAE should remain in checkpoints.
+        if (currentLower === 'checkpoints') {
+          const isKnownDit =
+            /\b(minimax|h3|ltx|ltxv|ltx-video|anima|krea|flux|wan|wan2|cogvideo|hunyuan|mochi|auraflow|pixart|lumina|chroma|kolors|cosmos|consisid|omnigen|easycontrol|melbandroformer)\b/i.test(
+              fileName
+            ) ||
+            /\b(minimax|h3|ltx|ltxv|anima|krea|flux|wan|cogvideo|hunyuan|mochi|auraflow|pixart|lumina|chroma|kolors|cosmos|consisid|omnigen)\b/i.test(
+              effectiveBaseModel || ''
+            );
+          if (target === 'diffusion_models' && !isKnownDit) {
+            return 'checkpoints';
           }
         }
 
-        // Protect VAE in vae folder
-        if (isVaeFolder && targetFolder !== 'vae') {
-          if (/(?:vae)/i.test(fileName)) {
-            targetFolder = 'vae';
-            resolvedType = 'VAE';
+        // 5. VAE Approx (TAESD) protection:
+        if (currentLower === 'vae_approx') {
+          if (/taesd|taef1/i.test(fileName) || target === 'upscale_models' || target === 'vae') {
+            return 'vae_approx';
           }
         }
-      }
+
+        // 6. Sams (Segment Anything) protection:
+        if (currentLower === 'sams') {
+          if (/sam/i.test(fileName) || target === 'upscale_models') {
+            return 'sams';
+          }
+        }
+
+        // 7. Model Patches protection:
+        if (currentLower === 'model_patches') {
+          if (/patch|control|tile|union|fun/i.test(fileName) || target === 'controlnet') {
+            return 'model_patches';
+          }
+        }
+
+        // 8. Diffusion Models / UNet protection:
+        // Standalone diffusion models and GGUF unets (LTXV, Lumina, Flux GGUFs loaded via UnetLoaderGGUF)
+        if (currentLower === 'diffusion_models' || currentLower === 'unet') {
+          if (target === 'gguf' || target === 'checkpoints') {
+            return canonicalStandardFolder;
+          }
+        }
+
+        // 9. CLIP Vision protection:
+        if (currentLower === 'clip_vision' || currentLower === 'clipvision') {
+          if (target === 'vae' || target === 'checkpoints' || target === 'upscale_models') {
+            return canonicalStandardFolder;
+          }
+        }
+
+        // 10. Embeddings protection:
+        if (currentLower === 'embeddings') {
+          if (target === 'checkpoints' || /[-_]neg|negative|emb/i.test(fileName)) {
+            return 'embeddings';
+          }
+        }
+
+        // 11. ControlNet protection:
+        if (currentLower === 'controlnet') {
+          if (target === 'diffusion_models' || target === 'checkpoints') {
+            return 'controlnet';
+          }
+        }
+
+        // 12. IP-Adapter protection:
+        if (currentLower === 'ipadapter') {
+          if (target === 'controlnet' || target === 'checkpoints' || target === 'diffusion_models') {
+            return 'ipadapter';
+          }
+        }
+
+        // 13. VAE protection:
+        if (currentLower === 'vae') {
+          if (/autoencoder|vae/i.test(fileName) || target === 'checkpoints') {
+            return 'vae';
+          }
+        }
+
+        // 14. ReActor protection:
+        if (currentLower === 'reactor') {
+          if (target === 'checkpoints') {
+            return canonicalStandardFolder;
+          }
+        }
+
+        // 15. Ultralytics / Detection / YOLO / bbox protection:
+        if (currentLower === 'ultralytics' || currentLower === 'yolo' || currentLower === 'detection' || currentLower === 'bbox') {
+          if (fileName.toLowerCase().endsWith('.pt') || target === 'loras') {
+            return canonicalStandardFolder;
+          }
+        }
+
+        return target;
+      };
+
+      targetFolder = applyFolderProtections(targetFolder);
 
       // Check if current standard folder differs from target folder (accounting for acceptable folder aliases)
       const isInitiallyMisplaced =
@@ -303,8 +372,16 @@ export class LibrarySorterService {
                 effectiveBaseModel = tensorInfo.detectedBaseModel;
               }
             } else {
-              // Tensors authoritatively confirm it belongs in a different folder
-              targetFolder = tensorInfo.targetFolder;
+              // Tensors authoritatively confirm it belongs in a different folder, subject to contextual folder protections
+              const protectedTarget = applyFolderProtections(tensorInfo.targetFolder);
+              if (
+                folderRouter.isFolderEquivalent(standardFolder, protectedTarget) ||
+                folderRouter.isFolderEquivalent(canonicalStandardFolder, protectedTarget)
+              ) {
+                targetFolder = canonicalStandardFolder;
+              } else {
+                targetFolder = protectedTarget;
+              }
               if (tensorInfo.detectedType) resolvedType = tensorInfo.detectedType as any;
               if (tensorInfo.detectedBaseModel && !effectiveBaseModel) {
                 effectiveBaseModel = tensorInfo.detectedBaseModel;

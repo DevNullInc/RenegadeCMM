@@ -97,6 +97,11 @@ export function mapDbRowToLocalModel(r: any): LocalModel {
   const civitaiCreator = info?.model?.creator?.username || info?.creator?.username || undefined;
   const civitaiBaseModel = r.civitai_base_model || info?.baseModel || undefined;
   const previewUrl = companion.localImageUrl || r.preview_url || (info ? libraryScanner.extractPreviewImage(info) : undefined);
+  const isModelNsfw = !!r.nsfw || Boolean(info?.model?.nsfw || (info?.nsfwLevel && info.nsfwLevel > 1));
+  let customLink = r.custom_link || info?.customLink || undefined;
+  if (isModelNsfw && customLink && customLink.includes('civitai.com')) {
+    customLink = customLink.replace('civitai.com', 'civitai.red');
+  }
 
   return {
     id: r.id,
@@ -118,8 +123,8 @@ export function mapDbRowToLocalModel(r: any): LocalModel {
     localPreviewPath: companion.localImagePath,
     companionInfoPath: companion.companionInfoPath,
     modelType: r.model_type || info?.model?.type || info?.type,
-    nsfw: !!r.nsfw || Boolean(info?.model?.nsfw || (info?.nsfwLevel && info.nsfwLevel > 1)),
-    customLink: r.custom_link || info?.customLink || undefined,
+    nsfw: isModelNsfw,
+    customLink,
     isMatched: !!r.civitai_version_id || !!r.hf_repo_id || !!info?.id || !!r.custom_link || !!info?.customLink,
     isMissing: !fs.existsSync(r.file_path),
     hasUpdate: !!r.has_update,

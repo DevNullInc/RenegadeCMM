@@ -246,13 +246,44 @@ export class TensorInspectorService {
       };
     }
 
-    // 4. CLIP Vision / Vision Tower / DINO Detection
+    // Shared architectural key probes
+    const hasTextEncoderKeys = tensorKeys.some((k) =>
+      /(?:text_model\.encoder|transformer\.text_model|encoder\.block\.\d+|shared\.weight|text_projection|cond_stage_model\.transformer)/i.test(k)
+    );
+    const hasDiffusionKeys = tensorKeys.some((k) =>
+      /(?:diffusion_model|double_blocks|single_blocks|joint_blocks|transformer_blocks|input_blocks|out\.2\.weight|time_in\.in_project)/i.test(k)
+    );
+    const hasVaeKeys = tensorKeys.some((k) =>
+      /(?:encoder\.conv_in|decoder\.conv_in|decoder\.mid\.block|post_quant_conv|quant_conv|decoder\.up_blocks|encoder\.down_blocks|decoder\.conv_out)/i.test(k)
+    );
+    const hasLanguageKeys = tensorKeys.some((k) =>
+      /(?:model\.layers\.\d+|lm_head\.weight|model\.embed_tokens|transformer\.h\.\d+|language_model)/i.test(k)
+    );
+
+    // 4. Standalone Text Encoder (T5 / CLIP-L / CLIP-G / BERT) Detection
+    if (hasTextEncoderKeys && !hasDiffusionKeys && !hasVaeKeys) {
+      return {
+        inspected: true,
+        format: 'safetensors',
+        detectedType: 'Other',
+        targetFolder: 'text_encoders',
+        confidence: 'definitive',
+        evidence: `Text Encoder (CLIP/T5) tensor architecture detected without diffusion weights (${tensorCount} tensors)`,
+        tensorCount,
+        metadata,
+      };
+    }
+
+    // 5. CLIP Vision / Vision Tower / DINO Detection
     const hasVisionKeys = tensorKeys.some((k) =>
-      /(?:vision_model|vision_tower|visual\.transformer|vision_model\.encoder|image_encoder|visual_proj|patch_embed|cls_token|pos_embed|dinov?\d?|vit[-_])/i.test(k)
+      /(?:vision_model|vision_tower|visual\.transformer|vision_model\.encoder|image_encoder|visual_proj|dinov?\d?|vit[-_])/i.test(k)
     );
     const hasOnlyVision =
       hasVisionKeys &&
-      !tensorKeys.some((k) => /(?:diffusion_model|double_blocks|joint_blocks|model\.layers|decoder\.conv_in)/i.test(k));
+      !hasLanguageKeys &&
+      !hasTextEncoderKeys &&
+      !hasDiffusionKeys &&
+      !hasVaeKeys;
 
     if (hasOnlyVision) {
       return {
@@ -262,30 +293,6 @@ export class TensorInspectorService {
         targetFolder: 'clip_vision',
         confidence: 'definitive',
         evidence: `CLIP Vision / Image Encoder tensor keys detected (${tensorCount} tensors)`,
-        tensorCount,
-        metadata,
-      };
-    }
-
-    // 5. Standalone Text Encoder (T5 / CLIP-L / CLIP-G / BERT) Detection
-    const hasTextEncoderKeys = tensorKeys.some((k) =>
-      /(?:text_model\.encoder|transformer\.text_model|encoder\.block\.\d+|shared\.weight|text_projection|cond_stage_model\.transformer)/i.test(k)
-    );
-    const hasDiffusionKeys = tensorKeys.some((k) =>
-      /(?:diffusion_model|double_blocks|single_blocks|joint_blocks|transformer_blocks|input_blocks|out\.2\.weight|time_in\.in_project)/i.test(k)
-    );
-    const hasVaeKeys = tensorKeys.some((k) =>
-      /(?:encoder\.conv_in|decoder\.conv_in|decoder\.mid\.block|post_quant_conv|quant_conv|decoder\.up_blocks|encoder\.down_blocks|model\.encoder|model\.decoder)/i.test(k)
-    );
-
-    if (hasTextEncoderKeys && !hasDiffusionKeys && !hasVaeKeys) {
-      return {
-        inspected: true,
-        format: 'safetensors',
-        detectedType: 'Other',
-        targetFolder: 'text_encoders',
-        confidence: 'definitive',
-        evidence: `Text Encoder (CLIP/T5) tensor architecture detected without diffusion weights (${tensorCount} tensors)`,
         tensorCount,
         metadata,
       };
@@ -340,10 +347,7 @@ export class TensorInspectorService {
     }
 
     // 9. LLM / Transformer Language Model Detection
-    const hasLlmKeys = tensorKeys.some((k) =>
-      /(?:model\.layers\.\d+|lm_head\.weight|model\.embed_tokens|transformer\.h\.\d+)/i.test(k)
-    );
-    if (hasLlmKeys && !hasDiffusionKeys) {
+    if (hasLanguageKeys && !hasDiffusionKeys) {
       return {
         inspected: true,
         format: 'safetensors',

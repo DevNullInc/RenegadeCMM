@@ -37,6 +37,8 @@ import {
   RotateCcw,
   Box,
   Heart,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { FallbackImage } from './FallbackImage';
 import { CivitAIModel, CivitAIModelVersion, ModelType, SearchParams } from '../types/civitai';
@@ -103,6 +105,28 @@ export function isModelNsfwOrMature(model: CivitAIModel): boolean {
   return false;
 }
 
+export function isVersionEarlyAccess(version?: Partial<CivitAIModelVersion> | any): boolean {
+  if (!version) return false;
+  if (version.canDownload === false) return true;
+  if (version.availability === 'EarlyAccess' || version.status === 'EarlyAccess') return true;
+  if (version.earlyAccessEndsAt) {
+    const ends = new Date(version.earlyAccessEndsAt).getTime();
+    if (!Number.isNaN(ends) && ends > Date.now()) return true;
+  }
+  if (typeof version.earlyAccessTimeFrame === 'number' && version.earlyAccessTimeFrame > 0 && version.earlyAccessEndsAt) {
+    const ends = new Date(version.earlyAccessEndsAt).getTime();
+    if (!Number.isNaN(ends) && ends > Date.now()) return true;
+  }
+  return false;
+}
+
+export function isModelEarlyAccessOrGated(model: CivitAIModel | any): boolean {
+  if (!model) return false;
+  if (model.earlyAccess === true || model.mode === 'EarlyAccess' || model.availability === 'EarlyAccess') return true;
+  const firstVersion = model.modelVersions?.[0];
+  return isVersionEarlyAccess(firstVersion);
+}
+
 /**
  * Extracts a numeric CivitAI Model ID if the search query is purely digits,
  * prefixed with #, or a full CivitAI model URL (e.g., https://civitai.com/models/123456).
@@ -118,8 +142,8 @@ export function extractCivitaiModelId(raw?: string): number | null {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
-  // URL matching (e.g. https://civitai.com/models/123456 or civitai.com/models/123456/cyberrealistic)
-  const urlMatch = trimmed.match(/(?:civitai\.com\/models\/|models\/)(\d+)/i);
+  // URL matching (e.g. https://civitai.com/models/123456 or civitai.red/models/123456)
+  const urlMatch = trimmed.match(/(?:civitai\.(?:com|red)\/models\/|models\/)(\d+)/i);
   if (urlMatch && urlMatch[1]) {
     const parsed = parseInt(urlMatch[1], 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -210,6 +234,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   const [period, setPeriod] = useState<'AllTime' | 'Year' | 'Month' | 'Week' | 'Day'>('AllTime');
   const [nsfwBlur, setNsfwBlur] = useState<boolean>(true);
   const [includeNsfw, setIncludeNsfw] = useState<boolean>(false);
+  const [hideGated, setHideGated] = useState<boolean>(true);
 
   // Dynamic Base Models with localStorage Cache & Loading State
   const [baseModels, setBaseModels] = useState<string[]>(() => {
@@ -401,7 +426,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       while (collected.length < PAGE_SIZE && iterations < maxIterations) {
         if (fetchSeq !== fetchSeqRef.current) return;
         iterations++;
-        const requestLimit = (!includeNsfw || maxNsfwLevel < 5) ? 100 : PAGE_SIZE;
+        const requestLimit = (!includeNsfw || maxNsfwLevel < 5 || hideGated) ? 100 : PAGE_SIZE;
 
         const params: SearchParams = {
           query: effectiveQuery.trim() || undefined,
@@ -425,8 +450,10 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
         const items: CivitAIModel[] = result?.items || [];
         lastMeta = result?.metadata || lastMeta;
 
-        // Filter items according to NSFW preferences
+        // Filter items according to Early Access / Gated and NSFW preferences
         const passing = items.filter((model) => {
+          if (hideGated && isModelEarlyAccessOrGated(model)) return false;
+
           const isNsfw = isModelNsfwOrMature(model);
           const level = mapCivitaiNsfwLevel(model.nsfwLevel ?? (model.nsfw ? 4 : 1));
 
@@ -562,7 +589,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     setCurrentPage(1);
     setPageCursors({});
     fetchModels(1, '');
-  }, [selectedType, selectedBaseModel, sort, period, includeNsfw, maxNsfwLevel]);
+  }, [selectedType, selectedBaseModel, sort, period, includeNsfw, maxNsfwLevel, hideGated]);
 
   // Models are already filtered and stacked to exactly 48 items in fetchModels
   const displayedModels = models;
@@ -606,8 +633,14 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   // Set of `${modelId}_${versionId}` marked as ignored
   const ignoredSet = React.useMemo(() => {
     const set = new Set<string>();
-    ignoredUpdates.forEach((item) => {
-      set.add(`${item.modelId}_${item.versionId}`);
+    ignoredUpdates.forEach((item: any) => {
+      const mId = item.modelId ?? item.model_id;
+      const vId = item.versionId ?? item.version_id;
+      if (mId !== undefined && vId !== undefined) {
+        set.add(`${mId}_${vId}`);
+        set.add(`${String(mId)}_${String(vId)}`);
+        set.add(`${Number(mId)}_${Number(vId)}`);
+      }
     });
     return set;
   }, [ignoredUpdates]);
@@ -686,6 +719,14 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
   const handleIgnoreVersion = async (modelId: number, versionId: number) => {
     if (!window.civitaiAPI || typeof window.civitaiAPI.ignoreModelUpdate !== 'function') return;
     try {
+      // Optimistic update so UI updates immediately
+      setIgnoredUpdates((prev) => {
+        const next = [...prev];
+        if (!next.some((x: any) => (x.modelId === modelId || x.model_id === modelId) && (x.versionId === versionId || x.version_id === versionId))) {
+          next.push({ modelId, versionId });
+        }
+        return next;
+      });
       await window.civitaiAPI.ignoreModelUpdate(modelId, versionId);
       await fetchLocalLibraryStatus();
     } catch (e) {
@@ -693,9 +734,45 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     }
   };
 
+  const handleIgnoreAllModelUpdates = async (model: CivitAIModel) => {
+    if (!window.civitaiAPI || typeof window.civitaiAPI.ignoreModelUpdate !== 'function') return;
+    try {
+      const versionsToIgnore = (model.modelVersions || []).filter((v) => {
+        const isInst = installedMap.get(model.id)?.has(v.id);
+        const isIgn = ignoredSet.has(`${model.id}_${v.id}`);
+        return !isInst && !isIgn;
+      });
+
+      // Optimistic update
+      setIgnoredUpdates((prev) => {
+        const next = [...prev];
+        for (const v of versionsToIgnore) {
+          if (!next.some((x: any) => (x.modelId === model.id || x.model_id === model.id) && (x.versionId === v.id || x.version_id === v.id))) {
+            next.push({ modelId: model.id, versionId: v.id });
+          }
+        }
+        return next;
+      });
+
+      await Promise.all(
+        versionsToIgnore.map((v) => window.civitaiAPI.ignoreModelUpdate(model.id, v.id))
+      );
+      await fetchLocalLibraryStatus();
+    } catch (e) {
+      console.error('Failed to ignore all updates for model:', e);
+    }
+  };
+
   const handleUnignoreVersion = async (modelId: number, versionId: number) => {
     if (!window.civitaiAPI || typeof window.civitaiAPI.unignoreModelUpdate !== 'function') return;
     try {
+      setIgnoredUpdates((prev) =>
+        prev.filter((x: any) => {
+          const m = x.modelId ?? x.model_id;
+          const v = x.versionId ?? x.version_id;
+          return !(m === modelId && v === versionId);
+        })
+      );
       await window.civitaiAPI.unignoreModelUpdate(modelId, versionId);
       await fetchLocalLibraryStatus();
     } catch (e) {
@@ -711,6 +788,17 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
       setCurrentPage(1);
       setPageCursors({});
       fetchModels(1, '', query);
+    }
+  };
+
+  const handleClearSearch = () => {
+    setQuery('');
+    setCurrentPage(1);
+    setPageCursors({});
+    if (searchSource === 'huggingface') {
+      fetchHfModels('');
+    } else {
+      fetchModels(1, '', '');
     }
   };
 
@@ -739,7 +827,12 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
     setActiveModel(model);
     setDeleteOldOnUpdate(false);
     if (model.modelVersions && model.modelVersions.length > 0) {
-      setSelectedVersion(model.modelVersions[0]);
+      const status = getModelInstallStatus(model);
+      if (status.hasUpdate && status.updateVersion) {
+        setSelectedVersion(status.updateVersion);
+      } else {
+        setSelectedVersion(model.modelVersions[0]);
+      }
     } else {
       setSelectedVersion(null);
     }
@@ -821,7 +914,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
         <div>
           <h1 className="text-3xl font-extrabold text-slate-100 tracking-tight flex items-center gap-2">
             <span>Discover AI Models</span>
-            <Sparkles size={24} className="text-purple-400 animate-pulse" />
+            <Sparkles size={24} className="text-rose-400 animate-pulse" />
           </h1>
           <p className="text-sm text-slate-400 mt-1">
             Search across CivitAI and Hugging Face with direct ComfyUI folder auto-sorting.
@@ -838,7 +931,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 searchSource === 'civitai'
-                  ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  ? 'bg-linear-to-r from-rose-600 to-red-700 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -863,25 +956,36 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
           </div>
 
           <div className="relative flex-1 md:w-80">
-            <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${searchSource === 'huggingface' ? 'text-amber-400' : 'text-purple-400'}`} size={18} />
+            <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${searchSource === 'huggingface' ? 'text-amber-400' : 'text-rose-400'}`} size={18} />
             <input
               type="text"
               placeholder={searchSource === 'huggingface' ? 'Search Hugging Face models (e.g. flux, wan, sdxl)...' : 'Search by name, tags, or Model ID / URL (e.g. 123456)...'}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className={`w-full bg-slate-900/90 border rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all shadow-inner ${
+              className={`w-full bg-slate-900/90 border rounded-xl pl-10 pr-10 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all shadow-inner ${
                 searchSource === 'huggingface'
                   ? 'border-amber-500/40 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20'
-                  : 'border-slate-700/60 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20'
+                  : 'border-slate-700/60 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
               }`}
             />
+            {query.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                title="Clear search text and reset results"
+                aria-label="Clear search text"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={15} />
+              </button>
+            )}
           </div>
           <button
             type="submit"
             className={`px-5 py-2.5 font-semibold text-sm rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer ${
               searchSource === 'huggingface'
                 ? 'bg-linear-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-slate-950 font-bold shadow-amber-600/20'
-                : 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/25'
+                : 'bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white shadow-rose-950/40'
             }`}
           >
             <span>Search</span>
@@ -895,7 +999,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
           <div className="flex flex-wrap gap-3 items-center">
             {/* Model Type */}
             <div className="flex items-center gap-2 bg-slate-900/90 px-3.5 py-2 rounded-xl border border-slate-800 shadow-sm">
-              <Filter size={15} className="text-purple-400" />
+              <Filter size={15} className="text-rose-400" />
               <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Type:</span>
               <select
                 value={selectedType}
@@ -975,6 +1079,21 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               </select>
             </div>
 
+            {/* Unlocked / Gated Models Toggle */}
+            <button
+              type="button"
+              onClick={() => setHideGated(!hideGated)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-all font-semibold cursor-pointer ${
+                hideGated
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+              }`}
+              title={hideGated ? 'Filtering out Early Access and gated models (Click to include gated)' : 'Showing all models including locked Early Access (Click to filter)'}
+            >
+              {hideGated ? <Lock size={13} className="text-emerald-400" /> : <Unlock size={13} className="text-amber-400" />}
+              <span>{hideGated ? 'Unlocked Only' : 'Include Gated'}</span>
+            </button>
+
             {/* NSFW Toggle */}
             <button
               onClick={() => setIncludeNsfw(!includeNsfw)}
@@ -1004,14 +1123,29 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
             <span className="text-base">🤗</span>
             <span>Browsing <strong>Hugging Face Hub</strong> model repositories. Gated models automatically use your configured token.</span>
           </div>
-          <button
-            onClick={() => fetchHfModels(query)}
-            disabled={hfLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-200 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
-          >
-            <RefreshCw size={12} className={hfLoading ? 'animate-spin text-amber-400' : ''} />
-            <span>Refresh</span>
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setHideGated(!hideGated)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-all font-semibold cursor-pointer ${
+                hideGated
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+              }`}
+              title={hideGated ? 'Filtering out gated repositories (Click to include gated)' : 'Showing all repositories including gated (Click to filter)'}
+            >
+              {hideGated ? <Lock size={13} className="text-emerald-400" /> : <Unlock size={13} className="text-amber-400" />}
+              <span>{hideGated ? 'Unlocked Only' : 'Include Gated'}</span>
+            </button>
+            <button
+              onClick={() => fetchHfModels(query)}
+              disabled={hfLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-200 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+            >
+              <RefreshCw size={12} className={hfLoading ? 'animate-spin text-amber-400' : ''} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -1026,13 +1160,20 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
           <div className="p-5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-3">
             <span>{hfError}</span>
           </div>
-        ) : hfModels.length === 0 ? (
-          <div className="text-center py-28 text-slate-500 text-sm glass-panel rounded-2xl">
-            No Hugging Face models found matching "{query}". Try searching for popular models like "flux", "wan", "sdxl", or "qwen".
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {hfModels.map((hf) => {
+        ) : (() => {
+          const displayedHfModels = hideGated ? hfModels.filter((m) => !m.gated) : hfModels;
+          if (displayedHfModels.length === 0) {
+            return (
+              <div className="text-center py-28 text-slate-500 text-sm glass-panel rounded-2xl">
+                {hideGated && hfModels.length > 0
+                  ? 'All matching Hugging Face models are gated repos. Toggle "Include Gated" to view them.'
+                  : `No Hugging Face models found matching "${query}". Try searching for popular models like "flux", "wan", "sdxl", or "qwen".`}
+              </div>
+            );
+          }
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {displayedHfModels.map((hf) => {
               const parts = (hf.id || '').split('/');
               const author = parts.length > 1 ? parts[0] : (hf.author || 'community');
               const repoTitle = parts.length > 1 ? parts[1] : hf.id;
@@ -1057,7 +1198,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                           </span>
                         )}
                         {hf.pipelineTag && (
-                          <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-purple-500/15 border border-purple-500/30 text-purple-300">
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-rose-500/15 border border-rose-500/30 text-rose-300">
                             {hf.pipelineTag}
                           </span>
                         )}
@@ -1103,11 +1244,12 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               );
             })}
           </div>
-        )
+        );
+      })()
       ) : (
         loading ? (
           <div className="flex flex-col items-center justify-center py-28 space-y-3">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 glow-purple"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 glow-crimson"></div>
             <span className="text-xs text-slate-400 font-medium">Fetching model catalog...</span>
           </div>
         ) : error ? (
@@ -1131,13 +1273,14 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                 });
               });
               const isNsfw = isModelNsfwOrMature(model);
+              const isEarlyAccess = isVersionEarlyAccess(firstVersion) || isModelEarlyAccessOrGated(model);
               const installStatus = getModelInstallStatus(model);
 
               return (
                 <div
                   key={model.id}
                   onClick={() => openModelDetails(model)}
-                  className="glass-card rounded-2xl overflow-hidden cursor-pointer flex flex-col group border border-slate-800/80 hover:border-purple-500/40 relative"
+                  className="glass-card rounded-2xl overflow-hidden cursor-pointer flex flex-col group border border-slate-800/80 hover:border-rose-500/40 relative"
                 >
                   {/* Image Preview Container */}
                   <div className="relative aspect-[4/3] bg-slate-950 overflow-hidden">
@@ -1150,11 +1293,17 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
                     />
 
-                    {/* Top-Left: Type, NSFW, & Installed Badges */}
+                    {/* Top-Left: Type, Early Access, NSFW, & Installed Badges */}
                     <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10 flex-wrap">
-                      <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-950/85 border border-purple-500/40 text-purple-300 backdrop-blur-md shadow-md">
+                      <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-950/85 border border-rose-500/40 text-rose-300 backdrop-blur-md shadow-md">
                         {resolveEffectiveModelType(model.type, model.name, model.modelVersions)}
                       </span>
+                      {isEarlyAccess && (
+                        <span className="px-2 py-0.5 rounded-lg text-[9px] font-bold bg-amber-950/90 text-amber-300 border border-amber-500/50 flex items-center gap-1 shadow-md backdrop-blur-md" title="Early Access / Gated Model">
+                          <Lock size={10} className="text-amber-400" />
+                          <span>Early Access</span>
+                        </span>
+                      )}
                       {isNsfw && (
                         <span className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-red-950/90 border border-red-500/40 text-red-400 backdrop-blur-md shadow-md">
                           NSFW
@@ -1168,48 +1317,104 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       )}
                     </div>
 
-                    {/* Top-Right: Star / Rating */}
-                    {model.stats?.rating !== undefined && model.stats.rating > 0 && (
-                      <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-950/85 border border-slate-700/60 text-amber-300 text-[10px] font-bold backdrop-blur-md shadow-md z-10">
-                        <Star size={11} className="fill-amber-400 text-amber-400" />
-                        <span>{model.stats.rating.toFixed(1)}</span>
-                      </div>
-                    )}
+                    {/* Top-Right: Star / Rating & Visit External Button */}
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+                      {model.stats?.rating !== undefined && model.stats.rating > 0 && (
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-950/85 border border-slate-700/60 text-amber-300 text-[10px] font-bold backdrop-blur-md shadow-md">
+                          <Star size={11} className="fill-amber-400 text-amber-400" />
+                          <span>{model.stats.rating.toFixed(1)}</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const targetDomain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
+                          const url = `${targetDomain}/models/${model.id}`;
+                          if (window.civitaiAPI?.openExternal) {
+                            window.civitaiAPI.openExternal(url);
+                          } else {
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        className={`p-1 rounded-lg backdrop-blur-md shadow-md border transition-all cursor-pointer ${
+                          isNsfw
+                            ? 'bg-red-950/85 border-red-500/50 text-red-300 hover:text-white hover:bg-red-900/90'
+                            : 'bg-slate-950/85 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
+                        title={isNsfw ? 'Visit on CivitAI.red (NSFW)' : 'Visit on CivitAI.com'}
+                        aria-label={`Visit ${model.name} on ${isNsfw ? 'CivitAI.red' : 'CivitAI.com'}`}
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    </div>
 
                     {/* Bottom-Right: Quick Action Flags (Quick Update in Amber & Quick Download in Green) */}
                     <div className="absolute bottom-2.5 right-2.5 z-20 flex items-center gap-1.5">
-                      {installStatus.hasUpdate && installStatus.updateVersion && (
-                        <button
-                          type="button"
-                          disabled={queuingVersionIds.has(installStatus.updateVersion.id)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickUpdate(model, installStatus.updateVersion!, installStatus.targetInstalledModel);
-                          }}
-                          title={`Quick Update to ${installStatus.updateVersion.name}`}
-                          aria-label={`Quick Update ${model.name} to ${installStatus.updateVersion.name}`}
-                          className="px-2.5 py-1.5 rounded-xl bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 border border-amber-300 shadow-lg shadow-amber-950/70 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-black text-[11px] group/up glow-amber animate-pulse disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-                        >
-                          <Sparkles size={13} className="group-hover/up:rotate-12 transition-transform text-slate-950 shrink-0" />
-                          <span>{queuingVersionIds.has(installStatus.updateVersion.id) ? 'Queuing...' : 'Quick Update'}</span>
-                        </button>
-                      )}
-
-                      {firstVersion && (
-                        <button
-                          type="button"
-                          disabled={queuingVersionIds.has(firstVersion.id)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickDownload(model, firstVersion);
-                          }}
-                          title={`Quick Download (${firstVersion.name})`}
-                          aria-label={`Quick Download ${model.name}`}
-                          className="px-2.5 py-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-400/60 shadow-lg shadow-emerald-950/60 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-bold text-[11px] group/dl glow-emerald disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-                        >
-                          <Download size={13} className="group-hover/dl:animate-bounce text-white shrink-0" />
-                          <span>{queuingVersionIds.has(firstVersion.id) ? 'Queuing...' : installStatus.hasUpdate ? 'Download' : 'Quick Download'}</span>
-                        </button>
+                      {installStatus.isInstalled ? (
+                        installStatus.hasUpdate && installStatus.updateVersion && (
+                          <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-xl backdrop-blur-md border border-amber-500/30 shadow-lg shadow-amber-950/50">
+                            <button
+                              type="button"
+                              disabled={queuingVersionIds.has(installStatus.updateVersion.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleQuickUpdate(model, installStatus.updateVersion!, installStatus.targetInstalledModel);
+                              }}
+                              title={`Quick Update to ${installStatus.updateVersion.name}`}
+                              aria-label={`Quick Update ${model.name} to ${installStatus.updateVersion.name}`}
+                              className="px-2.5 py-1.5 rounded-lg bg-linear-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-md font-black text-[11px] group/up glow-amber animate-pulse disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Sparkles size={13} className="group-hover/up:rotate-12 transition-transform text-slate-950 shrink-0" />
+                              <span>{queuingVersionIds.has(installStatus.updateVersion.id) ? 'Queuing...' : 'Quick Update'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleIgnoreAllModelUpdates(model);
+                              }}
+                              title="Ignore update (dismiss notification)"
+                              aria-label={`Ignore updates for ${model.name}`}
+                              className="p-1.5 rounded-lg bg-slate-900/80 hover:bg-rose-950/80 hover:text-rose-300 text-slate-400 border border-slate-700/60 hover:border-rose-500/50 transition-all cursor-pointer flex items-center justify-center"
+                            >
+                              <EyeOff size={13} />
+                            </button>
+                          </div>
+                        )
+                      ) : (
+                        isEarlyAccess ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openModelDetails(model);
+                            }}
+                            title="Early Access - Model is locked by creator on CivitAI"
+                            aria-label={`Early Access ${model.name}`}
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 shadow-lg shadow-amber-950/60 backdrop-blur-md transition-all flex items-center gap-1.5 cursor-pointer font-bold text-[11px]"
+                          >
+                            <Lock size={13} className="text-amber-400 shrink-0" />
+                            <span>Early Access</span>
+                          </button>
+                        ) : (
+                          firstVersion && (
+                            <button
+                              type="button"
+                              disabled={queuingVersionIds.has(firstVersion.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleQuickDownload(model, firstVersion);
+                              }}
+                              title={`Quick Download (${firstVersion.name})`}
+                              aria-label={`Quick Download ${model.name}`}
+                              className="px-2.5 py-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white border border-emerald-400/60 shadow-lg shadow-emerald-950/60 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 cursor-pointer font-bold text-[11px] group/dl glow-emerald disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                            >
+                              <Download size={13} className="group-hover/dl:animate-bounce text-white shrink-0" />
+                              <span>{queuingVersionIds.has(firstVersion.id) ? 'Queuing...' : 'Quick Download'}</span>
+                            </button>
+                          )
+                        )
                       )}
                     </div>
                   </div>
@@ -1217,12 +1422,12 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                   {/* Body Content */}
                   <div className="p-4 flex flex-col justify-between flex-1 space-y-3">
                     <div>
-                      <h3 className="font-bold text-slate-100 text-sm line-clamp-1 group-hover:text-purple-300 transition-colors">
+                      <h3 className="font-bold text-slate-100 text-sm line-clamp-1 group-hover:text-rose-300 transition-colors">
                         {model.name}
                       </h3>
                       {model.creator && (
                         <p className="text-slate-400 text-xs flex items-center gap-1 mt-1 font-medium">
-                          <User size={12} className="text-purple-400" />
+                          <User size={12} className="text-rose-400" />
                           <span className="line-clamp-1">{model.creator.username}</span>
                         </p>
                       )}
@@ -1230,14 +1435,38 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
 
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-3 border-t border-slate-800/80">
                       <span className="flex items-center gap-1 text-slate-300 font-semibold">
-                        <Download size={13} className="text-purple-400" />
+                        <Download size={13} className="text-rose-400" />
                         {formatCount(model.stats?.downloadCount)}
                       </span>
-                      {firstVersion?.baseModel && (
-                        <span className="bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-md text-[10px] text-slate-300 font-medium">
-                          {firstVersion.baseModel}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {firstVersion?.baseModel && (
+                          <span className="bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-medium">
+                            {firstVersion.baseModel}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const targetDomain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
+                            const url = `${targetDomain}/models/${model.id}`;
+                            if (window.civitaiAPI?.openExternal) {
+                              window.civitaiAPI.openExternal(url);
+                            } else {
+                              window.open(url, '_blank', 'noopener,noreferrer');
+                            }
+                          }}
+                          className={`text-[10px] px-2 py-0.5 rounded-md border flex items-center gap-1 font-semibold transition-all cursor-pointer ${
+                            isNsfw
+                              ? 'bg-red-950/60 border-red-500/40 text-red-300 hover:bg-red-900/60 hover:text-white'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                          }`}
+                          title={isNsfw ? 'Visit model on CivitAI.red (NSFW)' : 'Visit model on CivitAI.com'}
+                        >
+                          <span>Visit</span>
+                          <ExternalLink size={10} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1253,7 +1482,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
           {/* Left: Info / Total Count */}
           <div className="text-slate-400 font-medium flex items-center gap-2">
             <span>
-              Page <strong className="text-purple-300 font-bold">{currentPage}</strong>
+              Page <strong className="text-rose-300 font-bold">{currentPage}</strong>
               {metadata.totalPages ? ` of ${metadata.totalPages}` : ''}
             </span>
             <span className="text-slate-600">•</span>
@@ -1283,7 +1512,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               className={`px-3.5 py-2 rounded-xl border flex items-center gap-1.5 transition-all ${
                 currentPage <= 1
                   ? 'bg-slate-950/40 border-slate-900 text-slate-600 cursor-not-allowed'
-                  : 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-purple-500/40 cursor-pointer shadow-sm'
+                  : 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/40 cursor-pointer shadow-sm'
               }`}
             >
               <ChevronLeft size={15} />
@@ -1291,7 +1520,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
             </button>
 
             {/* Page Indicator Pill */}
-            <div className="px-3.5 py-2 bg-linear-to-r from-purple-600/20 to-indigo-600/20 border border-purple-500/30 text-purple-200 font-bold rounded-xl shadow-inner flex items-center gap-1">
+            <div className="px-3.5 py-2 bg-linear-to-r from-rose-600/20 to-red-700/20 border border-rose-500/30 text-rose-200 font-bold rounded-xl shadow-inner flex items-center gap-1">
               <span>Page</span>
               <span className="text-white font-extrabold">{currentPage}</span>
               {metadata.totalPages ? (
@@ -1306,7 +1535,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               className={`px-4 py-2 rounded-xl border flex items-center gap-1.5 transition-all ${
                 !metadata.nextPage && !metadata.nextCursor && !pageCursors[currentPage + 1] && displayedModels.length < PAGE_SIZE
                   ? 'bg-slate-950/40 border-slate-900 text-slate-600 cursor-not-allowed'
-                  : 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold border-transparent shadow-lg shadow-purple-600/25 cursor-pointer glow-purple'
+                  : 'bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold border-transparent shadow-lg shadow-rose-950/40 cursor-pointer glow-crimson'
               }`}
             >
               <span>Next</span>
@@ -1328,7 +1557,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               <div>
                 <h2 className="text-xl font-bold text-slate-100">{activeModel.name}</h2>
                 <p className="text-xs text-slate-400 flex items-center gap-3 mt-1 font-medium">
-                  <span>Type: <strong className="text-purple-400">{resolveEffectiveModelType(activeModel.type, activeModel.name, activeModel.modelVersions)}</strong></span>
+                  <span>Type: <strong className="text-rose-400">{resolveEffectiveModelType(activeModel.type, activeModel.name, activeModel.modelVersions)}</strong></span>
                   {activeModel.creator && <span>Creator: <strong className="text-slate-300">{activeModel.creator.username}</strong></span>}
                 </p>
               </div>
@@ -1383,7 +1612,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                     const ver = activeModel.modelVersions.find((v) => v.id === parseInt(e.target.value, 10));
                     if (ver) setSelectedVersion(ver);
                   }}
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3 text-sm text-slate-100 focus:border-purple-500 focus:outline-none font-medium cursor-pointer"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3 text-sm text-slate-100 focus:border-rose-500 focus:outline-none font-medium cursor-pointer"
                 >
                   {(() => {
                     const activeInstalled = installedMap.get(activeModel.id);
@@ -1424,6 +1653,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       if (isInstalled) tag = ' ✓ [Installed]';
                       else if (isIgnored) tag = ' ⊘ [Ignored Update]';
                       else if (isUpdate) tag = ' ✦ [Update]';
+                      else if (isVersionEarlyAccess(v)) tag = ' 🔒 [Early Access]';
 
                       return (
                         <option key={v.id} value={v.id} className="bg-slate-900">
@@ -1433,6 +1663,26 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                     });
                   })()}
                 </select>
+
+                {/* Early Access Alert Banner */}
+                {selectedVersion && isVersionEarlyAccess(selectedVersion) && (
+                  <div className="flex items-start gap-3 p-3.5 bg-amber-950/40 border border-amber-500/40 rounded-2xl animate-fadeIn text-amber-200 text-xs shadow-lg shadow-amber-950/20">
+                    <Lock size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-amber-300">Early Access / Locked Model Version</span>
+                        {selectedVersion.earlyAccessEndsAt && (
+                          <span className="text-[10px] bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30 text-amber-200">
+                            Unlocks {new Date(selectedVersion.earlyAccessEndsAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-amber-200/80 leading-normal">
+                        This version is locked behind CivitAI Early Access. Direct API download is restricted by the creator until unlocked or acquired with Buzz/supporter status.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Selective Update Ignore / Notice Card */}
                 {selectedVersion && !installedMap.get(activeModel.id)?.has(selectedVersion.id) && (installedMap.get(activeModel.id)?.size || 0) > 0 && (
@@ -1453,7 +1703,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                       </p>
                     </div>
 
-                    <div>
+                    <div className="flex items-center gap-2 flex-wrap">
                       {ignoredSet.has(`${activeModel.id}_${selectedVersion.id}`) ? (
                         <button
                           type="button"
@@ -1463,15 +1713,25 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                           Unignore Version
                         </button>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleIgnoreVersion(activeModel.id, selectedVersion.id)}
-                          className="px-3.5 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-xs text-amber-300 font-semibold transition-all cursor-pointer flex items-center gap-1.5"
-                          title="Ignore this version from triggering update notices"
-                        >
-                          <EyeOff size={13} />
-                          <span>Ignore This Update</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleIgnoreVersion(activeModel.id, selectedVersion.id)}
+                            className="px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-xs text-amber-300 font-semibold transition-all cursor-pointer flex items-center gap-1.5"
+                            title="Ignore only this specific version from triggering update notices"
+                          >
+                            <EyeOff size={13} />
+                            <span>Ignore This Version</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleIgnoreAllModelUpdates(activeModel)}
+                            className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-xs text-slate-300 font-semibold transition-all cursor-pointer flex items-center gap-1.5"
+                            title="Ignore all uninstalled versions of this model from triggering update notices"
+                          >
+                            <span>Ignore All Updates</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -1485,7 +1745,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                         type="checkbox"
                         checked={deleteOldOnUpdate}
                         onChange={(e) => setDeleteOldOnUpdate(e.target.checked)}
-                        className="mt-0.5 rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                        className="mt-0.5 rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
                       />
                       <div className="space-y-0.5 flex-1">
                         <span className="font-semibold text-slate-200">
@@ -1527,7 +1787,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                     </div>
                     <div>
                       <span className="text-slate-400 block font-medium">SHA256 Checksum:</span>
-                      <span className="font-mono text-[10px] text-purple-300 truncate block mt-0.5">
+                      <span className="font-mono text-[10px] text-rose-300 truncate block mt-0.5">
                         {pf?.hashes?.SHA256 || 'Not available'}
                       </span>
                     </div>
@@ -1561,30 +1821,69 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
 
             {/* Modal Actions Footer */}
             <div className="p-5 border-t border-slate-800/80 flex items-center justify-between bg-slate-900/50">
-              <a
-                href={`https://civitai.com/models/${activeModel.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium"
-              >
-                <span>View on CivitAI.com</span>
-                <ExternalLink size={13} />
-              </a>
+              {(() => {
+                const isNsfw = isModelNsfwOrMature(activeModel);
+                const domain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
+                const url = `${domain}/models/${activeModel.id}${selectedVersion ? `?modelVersionId=${selectedVersion.id}` : ''}`;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.civitaiAPI?.openExternal) {
+                        window.civitaiAPI.openExternal(url);
+                      } else {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 text-xs transition-colors font-medium cursor-pointer ${
+                      isNsfw
+                        ? 'text-rose-400 hover:text-rose-300'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title={isNsfw ? 'View on CivitAI.red (NSFW)' : 'View on CivitAI.com'}
+                  >
+                    <span>{isNsfw ? 'View on CivitAI.red (NSFW)' : 'View on CivitAI.com'}</span>
+                    <ExternalLink size={13} />
+                  </button>
+                );
+              })()}
 
               {selectedVersion && (
-                <button
-                  onClick={() => triggerDownload(selectedVersion)}
-                  className="flex items-center gap-2.5 px-6 py-3 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-sm transition-all shadow-xl shadow-purple-600/30 glow-purple cursor-pointer"
-                >
-                  <Download size={18} />
-                  <span>
-                    {installedMap.get(activeModel.id)?.has(selectedVersion.id)
-                      ? 'Re-download Version'
-                      : (installedMap.get(activeModel.id)?.size || 0) > 0
-                      ? 'Update to This Version'
-                      : 'Download to ComfyUI'}
-                  </span>
-                </button>
+                isVersionEarlyAccess(selectedVersion) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const isNsfw = isModelNsfwOrMature(activeModel);
+                      const domain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
+                      const url = `${domain}/models/${activeModel.id}?modelVersionId=${selectedVersion.id}`;
+                      if (window.civitaiAPI?.openExternal) {
+                        window.civitaiAPI.openExternal(url);
+                      } else {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                      }
+                    }}
+                    className="flex items-center gap-2 px-5 py-3 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-2xl text-sm transition-all shadow-xl shadow-amber-950/40 cursor-pointer"
+                    title={isModelNsfwOrMature(activeModel) ? 'Open on CivitAI.red to unlock Early Access' : 'Open on CivitAI.com to unlock Early Access'}
+                  >
+                    <Lock size={16} className="text-slate-950" />
+                    <span>Unlock on CivitAI</span>
+                    <ExternalLink size={14} className="text-slate-950 ml-1" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => triggerDownload(selectedVersion)}
+                    className="flex items-center gap-2.5 px-6 py-3 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold rounded-2xl text-sm transition-all shadow-xl shadow-rose-950/40 glow-crimson cursor-pointer"
+                  >
+                    <Download size={18} />
+                    <span>
+                      {installedMap.get(activeModel.id)?.has(selectedVersion.id)
+                        ? 'Re-download Version'
+                        : (installedMap.get(activeModel.id)?.size || 0) > 0
+                        ? 'Update to This Version'
+                        : 'Download to ComfyUI'}
+                    </span>
+                  </button>
+                )
               )}
             </div>
           </div>
@@ -1614,7 +1913,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                   <p className="text-xs text-slate-400 mt-0.5 font-medium flex items-center gap-3">
                     <span>Author: <strong className="text-amber-300">{activeHfModel.author || 'Hugging Face'}</strong></span>
                     {activeHfModel.pipelineTag && (
-                      <span>Pipeline: <strong className="text-purple-300">{activeHfModel.pipelineTag}</strong></span>
+                      <span>Pipeline: <strong className="text-rose-300">{activeHfModel.pipelineTag}</strong></span>
                     )}
                   </p>
                 </div>
@@ -1693,7 +1992,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                               <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 font-mono">
                                 {sizeStr && <span>{sizeStr}</span>}
                                 {quantMatch && (
-                                  <span className="text-purple-400 font-semibold">• {quantMatch[1].toUpperCase()}</span>
+                                  <span className="text-rose-400 font-semibold">• {quantMatch[1].toUpperCase()}</span>
                                 )}
                               </div>
                             </div>
@@ -1763,7 +2062,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
               </span>
             )}
             {debugInfo.resultCount !== undefined && (
-              <span className="text-xs font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded-lg">
+              <span className="text-xs font-mono text-rose-300 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
                 {debugInfo.resultCount} models
               </span>
             )}
@@ -1805,7 +2104,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                     setCopiedUrl(true);
                     setTimeout(() => setCopiedUrl(false), 2000);
                   }}
-                  className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300 transition-colors"
+                  className="flex items-center gap-1 text-[11px] text-rose-400 hover:text-rose-300 transition-colors"
                 >
                   {copiedUrl ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
                   <span>{copiedUrl ? 'Copied URL' : 'Copy URL'}</span>
@@ -1848,7 +2147,7 @@ export const BrowseTab: React.FC<BrowseTabProps> = ({ onQueueDownload, initialQu
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Returned Count:</span>
-                    <span className="text-purple-300 font-bold">{debugInfo.resultCount ?? 0} models</span>
+                    <span className="text-rose-300 font-bold">{debugInfo.resultCount ?? 0} models</span>
                   </div>
                 </div>
               </div>

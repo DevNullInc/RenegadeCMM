@@ -1022,7 +1022,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
         <div className={`glass-panel ${isCompact ? 'p-4 rounded-2xl' : 'p-6 rounded-3xl'} border border-slate-800 space-y-4 shadow-xl`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-slate-100 font-bold text-sm md:text-base">
-              <HardDrive className="text-purple-400" size={isCompact ? 16 : 20} />
+              <HardDrive className="text-rose-400" size={isCompact ? 16 : 20} />
               <h2>Model Dependencies ({totalModelsCount})</h2>
             </div>
             <span className="text-[11px] text-slate-400">
@@ -1086,7 +1086,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                                   .replace(/[-_]/g, ' ');
                                 onSearchModel(cleanSearchTerm);
                               }}
-                              className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition-all shadow cursor-pointer active:scale-95 shrink-0"
+                              className="flex items-center gap-1.5 px-2.5 py-1 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-lg text-xs font-bold transition-all shadow cursor-pointer active:scale-95 shrink-0"
                             >
                               <Search size={12} />
                               <span>Search CivitAI</span>
@@ -1373,7 +1373,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/20 transition-all cursor-pointer"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold text-xs shadow-lg shadow-rose-950/40 transition-all cursor-pointer"
                   >
                     <Upload size={15} />
                     <span>Upload JSON / PNG / ZIP</span>
@@ -1424,7 +1424,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                   <div className="glass-panel p-4 rounded-3xl border border-slate-800/90 shadow-xl bg-slate-900/50 backdrop-blur-md space-y-2.5">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                        <div className="p-2 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-500/30 flex items-center justify-center">
                           <Workflow size={16} />
                         </div>
                         <div>
@@ -1432,12 +1432,12 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                             <h3 className="text-xs font-bold text-slate-100">
                               Select Existing ComfyUI Workflow
                             </h3>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                               {savedWorkflows.length} {savedWorkflows.length === 1 ? 'workflow' : 'workflows'} found
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            Workflows automatically detected in your ComfyUI directory (<code className="text-purple-300 text-[10px]">workflows/</code>, <code className="text-purple-300 text-[10px]">user/default/workflows/</code>)
+                            Workflows automatically detected in your ComfyUI directory (<code className="text-rose-300 text-[10px]">workflows/</code>, <code className="text-rose-300 text-[10px]">user/default/workflows/</code>)
                           </p>
                         </div>
                       </div>
@@ -1449,10 +1449,10 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                           if (active) resolveWorkflowNodes(active, true);
                         }}
                         disabled={isLoadingWorkflows}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 text-slate-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-rose-900/30 border border-slate-700 hover:border-rose-500/50 text-slate-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
                         title="Rescan ComfyUI directories for newly downloaded or modified workflows"
                       >
-                        <RefreshCw size={12} className={isLoadingWorkflows ? 'animate-spin text-purple-400' : ''} />
+                        <RefreshCw size={12} className={isLoadingWorkflows ? 'animate-spin text-rose-400' : ''} />
                         <span>Refresh List</span>
                       </button>
                     </div>
@@ -1462,7 +1462,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                       <select
                         value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
                         onChange={(e) => handleSelectFromDropdown(e.target.value)}
-                        className="w-full bg-slate-950/80 border border-slate-700/80 hover:border-purple-500/60 focus:border-purple-400 rounded-2xl px-4 py-2.5 text-xs md:text-sm text-slate-100 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer pr-10"
+                        className="w-full bg-slate-950/80 border border-slate-700/80 hover:border-rose-500/60 focus:border-rose-400 rounded-2xl px-4 py-2.5 text-xs md:text-sm text-slate-100 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all cursor-pointer pr-10"
                       >
                         <option value="" disabled>
                           {savedWorkflows.length > 0
@@ -1525,7 +1525,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                       : dropState === 'drag-over-invalid'
                         ? 'border-rose-500 bg-rose-950/40 shadow-xl shadow-rose-500/20 scale-[1.01]'
                         : dropState === 'processing'
-                          ? 'border-purple-400 bg-purple-950/30'
+                          ? 'border-rose-400 bg-rose-950/30'
                           : 'border-slate-800/80 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
                       }`}
                   >
@@ -1535,7 +1535,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         : dropState === 'drag-over-invalid'
                           ? 'bg-rose-500/20 text-rose-300'
                           : dropState === 'processing'
-                            ? 'bg-purple-500/20 text-purple-300 animate-spin'
+                            ? 'bg-rose-500/20 text-rose-300 animate-spin'
                             : 'bg-slate-800/80 text-cyan-400'
                         }`}
                     >
@@ -1574,7 +1574,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                      <Layers size={14} className="text-purple-400" />
+                      <Layers size={14} className="text-rose-400" />
                       <span>Loaded Workflows ({workflows.length})</span>
                     </span>
 
@@ -1606,7 +1606,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                                   comfySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                 }, 50);
                               }}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${viewMode === 'split'
+                              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${viewMode === 'split'
                                 ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50'
                                 : 'text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40'
                                 }`}
@@ -1620,7 +1620,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         <button
                           onClick={() => setViewMode('both')}
                           className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${viewMode === 'both'
-                            ? 'bg-purple-600 text-white shadow'
+                            ? 'bg-linear-to-r from-rose-600 to-red-700 text-white shadow'
                             : 'text-slate-400 hover:text-slate-200'
                             }`}
                           title="Preview LiteGraph map and dependency matrix"
@@ -1630,7 +1630,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         <button
                           onClick={() => setViewMode('map')}
                           className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${viewMode === 'map'
-                            ? 'bg-purple-600 text-white shadow'
+                            ? 'bg-linear-to-r from-rose-600 to-red-700 text-white shadow'
                             : 'text-slate-400 hover:text-slate-200'
                             }`}
                           title="Read-only visual node map"
@@ -1640,7 +1640,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         <button
                           onClick={() => setViewMode('matrix')}
                           className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${viewMode === 'matrix'
-                            ? 'bg-purple-600 text-white shadow'
+                            ? 'bg-linear-to-r from-rose-600 to-red-700 text-white shadow'
                             : 'text-slate-400 hover:text-slate-200'
                             }`}
                           title="Missing nodes and model resolver cards"
@@ -1654,7 +1654,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                           <button
                             onClick={() => handleInjectWorkflowIntoComfyUI(activeWorkflow)}
                             disabled={isInjecting || !activeWorkflow}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold text-xs shadow-md shadow-rose-950/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                             title="Push active workflow into running ComfyUI canvas"
                           >
                             <Send size={13} className={isInjecting ? 'animate-bounce' : ''} />
@@ -1663,7 +1663,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
                           <button
                             onClick={() => handleToggleFullscreen(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
                             title="Maximize ComfyUI workspace to fit between header and footer"
                           >
                             <Maximize2 size={13} />
@@ -1682,14 +1682,14 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                           <button
                             onClick={() => handleSelectWorkflow(idx)}
                             className={`flex items-center gap-2.5 pl-4 pr-8 py-3 rounded-2xl border transition-all cursor-pointer text-left ${isSelected
-                              ? 'bg-linear-to-r from-purple-950/60 to-indigo-950/60 border-purple-500/60 shadow-lg shadow-purple-900/30'
+                              ? 'bg-linear-to-r from-rose-950/60 to-red-950/60 border-rose-500/60 shadow-lg shadow-rose-950/40'
                               : 'bg-slate-900/70 border-slate-800 hover:border-slate-700 text-slate-300'
                               }`}
                           >
                             {wf.fileType === 'png' ? (
                               <ImageIcon size={18} className="text-emerald-400 shrink-0" />
                             ) : (
-                              <FileJson size={18} className="text-purple-400 shrink-0" />
+                              <FileJson size={18} className="text-rose-400 shrink-0" />
                             )}
                             <div>
                               <p className="text-xs font-bold text-slate-100 truncate max-w-[180px]">
@@ -1800,7 +1800,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                 {isComfyFullscreen ? (
                   <div className="flex items-center justify-between px-6 py-2.5 bg-slate-900/95 border-b border-slate-800 shadow-2xl backdrop-blur-xl gap-4 shrink-0">
                     <div className="flex items-center gap-3">
-                      <div className="p-1.5 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                      <div className="p-1.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center">
                         <Workflow size={18} />
                       </div>
                       <span className="font-black text-sm text-slate-100 hidden md:inline">
@@ -1847,7 +1847,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                           <select
                             value={activeWorkflow?.filePath || activeWorkflow?.fileName || ''}
                             onChange={(e) => handleSelectFromDropdown(e.target.value)}
-                            className="flex-1 bg-slate-950 border border-slate-700/80 hover:border-purple-500/60 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-medium truncate focus:outline-none cursor-pointer"
+                            className="flex-1 bg-slate-950 border border-slate-700/80 hover:border-rose-500/60 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-medium truncate focus:outline-none cursor-pointer"
                           >
                             <option value="" disabled>
                               {hasWorkflows
@@ -1867,7 +1867,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         <button
                           onClick={() => handleInjectWorkflowIntoComfyUI(activeWorkflow)}
                           disabled={isInjecting}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold text-xs shadow-md transition-all cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
                           title="Push this workflow to the live canvas"
                         >
                           <Send size={12} className={isInjecting ? 'animate-bounce' : ''} />
@@ -1881,7 +1881,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                       <button
                         onClick={() => setShowFullscreenNodeDrawer((prev) => !prev)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${showFullscreenNodeDrawer
-                          ? 'bg-purple-600 text-white border-purple-500 shadow-md'
+                          ? 'bg-linear-to-r from-rose-600 to-red-700 text-white border-rose-500 shadow-md'
                           : missingCustomNodesCount > 0
                             ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/50'
                             : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
@@ -1910,7 +1910,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
                       <button
                         onClick={() => handleToggleFullscreen(false)}
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-900/40 border border-purple-400/40 transition-all cursor-pointer active:scale-95"
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold text-xs shadow-lg shadow-rose-950/40 border border-rose-400/40 transition-all cursor-pointer active:scale-95"
                         title="Minimize ComfyUI / Return to Workflows Tab (Esc)"
                       >
                         <Minimize2 size={13} className="stroke-[2.5]" />
@@ -1961,7 +1961,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                         <button
                           onClick={() => handleInjectWorkflowIntoComfyUI(activeWorkflow)}
                           disabled={isInjecting}
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold text-xs shadow-md shadow-rose-950/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                           title={`Push "${activeWorkflow.fileName}" into active ComfyUI canvas`}
                         >
                           <Send size={13} className={isInjecting ? 'animate-bounce' : ''} />
@@ -1985,7 +1985,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
 
                       <button
                         onClick={() => handleToggleFullscreen(true)}
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-white border border-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95"
                         title="Maximize ComfyUI workspace to fit between header and footer"
                       >
                         <Maximize2 size={13} />
@@ -2061,7 +2061,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                           </button>
                           <button
                             onClick={() => setViewMode('both')}
-                            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                            className="px-4 py-2 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
                           >
                             Switch to Preview Map
                           </button>
@@ -2075,7 +2075,7 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
                     <div className="w-[460px] bg-slate-950/95 border-l border-slate-800 p-6 overflow-y-auto z-20 custom-scrollbar shadow-2xl backdrop-blur-xl animate-slideLeft">
                       <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
                         <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                          <SlidersHorizontal size={16} className="text-purple-400" />
+                          <SlidersHorizontal size={16} className="text-rose-400" />
                           <span>Node & Model Dependencies</span>
                         </h3>
                         <button

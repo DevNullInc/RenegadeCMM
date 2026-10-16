@@ -55,19 +55,19 @@ export const ScanStatusBar: React.FC<ScanStatusBarProps> = ({
       role="status"
       aria-live="polite"
       aria-label="Background Folder Scan Progress"
-      className="w-full bg-slate-950/95 border-t border-purple-500/40 backdrop-blur-xl px-6 py-2.5 shadow-2xl shrink-0 z-40 animate-fadeIn select-none"
+      className="w-full bg-slate-950/95 border-t border-rose-500/40 backdrop-blur-xl px-6 py-2.5 shadow-2xl shrink-0 z-40 animate-fadeIn select-none"
     >
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         {/* Left: Progress info & animation */}
         <div className="flex items-center gap-3 min-w-0 flex-1 w-full sm:w-auto">
-          <div className="p-1.5 rounded-xl bg-purple-500/20 text-purple-300 shrink-0">
+          <div className="p-1.5 rounded-xl bg-rose-500/20 text-rose-300 shrink-0">
             <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
           </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-slate-100">{getStatusLabel()}</span>
-              <span className="text-purple-300 font-mono font-bold">{percent}%</span>
+              <span className="text-rose-300 font-mono font-bold">{percent}%</span>
               {total > 0 && (
                 <span className="text-slate-400 font-mono text-[11px]">
                   ({scanned} / {total} files)
@@ -83,7 +83,7 @@ export const ScanStatusBar: React.FC<ScanStatusBarProps> = ({
         {/* Center Progress Bar */}
         <div className="w-full sm:w-64 bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800 shrink-0 shadow-inner">
           <div
-            className="bg-linear-to-r from-purple-600 via-indigo-500 to-purple-400 h-full transition-all duration-300 rounded-full glow-purple"
+            className="bg-linear-to-r from-rose-600 via-rose-500 to-red-600 h-full transition-all duration-300 rounded-full glow-crimson"
             style={{ width: `${percent}%` }}
           />
         </div>
@@ -94,7 +94,7 @@ export const ScanStatusBar: React.FC<ScanStatusBarProps> = ({
             <button
               onClick={onNavigateToLibrary}
               title="View in Library tab"
-              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-purple-300 border border-slate-800 hover:border-purple-500/40 text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <span>Library Tab</span>
               <ArrowRight size={12} />

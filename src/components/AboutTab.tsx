@@ -258,12 +258,12 @@ export function AboutTab() {
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-8 animate-fade-in pb-24">
       {/* Hero Header Section */}
       <div className="glass-panel p-8 rounded-3xl border border-slate-800/80 shadow-2xl relative overflow-hidden">
-        <div className="absolute -right-16 -top-16 w-80 h-80 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -left-16 -bottom-16 w-80 h-80 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -right-16 -top-16 w-80 h-80 bg-rose-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -left-16 -bottom-16 w-80 h-80 bg-red-900/15 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
-            <div className="w-16 h-16 rounded-3xl overflow-hidden shadow-xl shadow-purple-600/30 flex items-center justify-center shrink-0 border border-purple-500/30 bg-slate-900/90 p-1">
+            <div className="w-16 h-16 rounded-3xl overflow-hidden shadow-xl shadow-rose-600/30 flex items-center justify-center shrink-0 border border-rose-500/30 bg-slate-900/90 p-1">
               <img src="./icon.svg" alt="RenegadeCMM" className="w-full h-full object-contain" />
             </div>
             <div>
@@ -271,7 +271,7 @@ export function AboutTab() {
                 <h1 className="text-2xl font-black text-slate-100 tracking-tight">
                   Renegade Core Model Manager
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono">
                   v{sysInfo.version || APP_VERSION}
                 </span>
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
@@ -319,7 +319,7 @@ export function AboutTab() {
                   title="Check GitHub for newer updates or releases"
                   className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60 hover:border-slate-500 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <RefreshCw size={11} className={updateStatus === 'checking' ? 'animate-spin text-purple-400' : 'text-slate-400'} />
+                  <RefreshCw size={11} className={updateStatus === 'checking' ? 'animate-spin text-rose-400' : 'text-slate-400'} />
                   <span>{updateStatus === 'checking' ? 'Checking...' : 'Check Updates'}</span>
                 </button>
               </div>
@@ -332,9 +332,9 @@ export function AboutTab() {
           <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={() => openLink('https://github.com/DevNullInc/RenegadeCMM')}
-              className="px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700/70 hover:border-purple-500/50 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-lg"
+              className="px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700/70 hover:border-rose-500/50 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-lg"
             >
-              <Github size={15} className="text-purple-400" />
+              <Github size={15} className="text-rose-400" />
               <span>GitHub Repository</span>
               <ExternalLink size={12} className="text-slate-500" />
             </button>
@@ -380,7 +380,7 @@ export function AboutTab() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <h2 className="text-base font-bold text-slate-100 flex items-center gap-2.5">
-              <Power size={20} className="text-purple-400" />
+              <Power size={20} className="text-rose-400" />
               <span>Application Control</span>
             </h2>
             <p className="text-xs text-slate-400">
@@ -413,7 +413,7 @@ export function AboutTab() {
         {/* Creator & Credits Card */}
         <div className="glass-panel p-6 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-4">
           <div className="space-y-3">
-            <div className="flex items-center gap-2.5 text-purple-400 font-bold text-sm">
+            <div className="flex items-center gap-2.5 text-rose-400 font-bold text-sm">
               <User size={18} />
               <span>Creator & Credits</span>
             </div>
@@ -423,7 +423,7 @@ export function AboutTab() {
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Author / Creator:</span>
-                <span className="font-bold text-purple-300">TheStygianRenegade</span>
+                <span className="font-bold text-rose-300">TheStygianRenegade</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Organization:</span>
@@ -487,7 +487,7 @@ export function AboutTab() {
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Conversion:</span>
-                <span className="text-purple-300 font-medium">GPL-3.0 after 4 years</span>
+                <span className="text-rose-300 font-medium">GPL-3.0 after 4 years</span>
               </div>
             </div>
           </div>
@@ -523,7 +523,7 @@ export function AboutTab() {
             <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Application Version:</span>
-                <span className="font-semibold text-purple-300">
+                <span className="font-semibold text-rose-300">
                   v{sysInfo.version || APP_VERSION} ({isFullRelease ? 'Stable Release' : 'Development Build'})
                 </span>
               </div>
@@ -553,12 +553,12 @@ export function AboutTab() {
 
       {/* Software Registration & Cryptographic License Area */}
       <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800/80 shadow-2xl space-y-6 relative overflow-hidden">
-        <div className="absolute -right-20 -top-20 w-72 h-72 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -left-20 -bottom-20 w-72 h-72 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -right-20 -top-20 w-72 h-72 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -left-20 -bottom-20 w-72 h-72 bg-red-900/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="p-3 rounded-2xl bg-purple-500/15 text-purple-400 border border-purple-500/30">
+            <div className="p-3 rounded-2xl bg-rose-500/15 text-rose-400 border border-rose-500/30">
               <KeyRound size={22} />
             </div>
             <div>
@@ -616,14 +616,14 @@ export function AboutTab() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-200">Your Machine Public Key</span>
-                <span className="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                <span className="text-[10px] font-mono text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
                   Ed25519
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 Provide this public key when registering or requesting a license token. It uniquely and securely pairs the license to your installation without transmitting private keys.
               </p>
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-purple-300 break-all select-all flex items-center justify-between gap-2">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-rose-300 break-all select-all flex items-center justify-between gap-2">
                 <span className="truncate">{userPublicKey || 'Generating machine keypair...'}</span>
                 <button
                   onClick={handleCopyPubKey}
@@ -638,7 +638,7 @@ export function AboutTab() {
               {/* Cryptographic Privacy Guarantee */}
               <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-800/80 space-y-1.5 text-[11px]">
                 <div className="flex items-center gap-1.5 text-slate-200 font-semibold text-[11px]">
-                  <ShieldCheck size={14} className="text-purple-400 shrink-0" />
+                  <ShieldCheck size={14} className="text-rose-400 shrink-0" />
                   <span>Non-Reversible Cryptographic Guarantee</span>
                 </div>
                 <p className="text-slate-400 leading-relaxed text-[10.5px]">
@@ -674,7 +674,7 @@ export function AboutTab() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">License Type:</span>
-                    <span className="font-semibold text-purple-300 uppercase">{licenseStatus.license.type}</span>
+                    <span className="font-semibold text-rose-300 uppercase">{licenseStatus.license.type}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Authorized Seats:</span>
@@ -696,7 +696,7 @@ export function AboutTab() {
               <div className="space-y-3">
                 <span className="text-xs font-bold text-slate-200 block">Enter License Token</span>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Paste the <code className="text-purple-300 bg-purple-500/10 px-1 py-0.5 rounded font-mono">CMM1...</code> license string provided upon registration:
+                  Paste the <code className="text-rose-300 bg-rose-500/10 px-1 py-0.5 rounded font-mono">CMM1...</code> license string provided upon registration:
                 </p>
                 <div className="flex items-center gap-2">
                   <input
@@ -704,12 +704,12 @@ export function AboutTab() {
                     value={licenseInputKey}
                     onChange={(e) => setLicenseInputKey(e.target.value)}
                     placeholder="CMM1.eyJsaWNlbnNlZSI6..."
-                    className="flex-1 bg-slate-900 border border-slate-800 focus:border-purple-500 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-hidden transition-colors"
+                    className="flex-1 bg-slate-900 border border-slate-800 focus:border-rose-500 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-hidden transition-colors"
                   />
                   <button
                     onClick={handleActivateLicense}
                     disabled={isActivatingLicense || !licenseInputKey.trim()}
-                    className="px-4 py-2 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow-lg shadow-purple-600/30 glow-purple"
+                    className="px-4 py-2 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow-lg shadow-rose-950/40 glow-crimson"
                   >
                     {isActivatingLicense ? 'Verifying...' : 'Activate'}
                   </button>
@@ -735,7 +735,7 @@ export function AboutTab() {
       <div className="glass-panel p-6 rounded-3xl border border-slate-800/80 shadow-2xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
               <Terminal size={20} />
             </div>
             <div>
@@ -791,7 +791,7 @@ export function AboutTab() {
               onClick={handleCopyReport}
               className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg ${copied
                 ? 'bg-emerald-600 text-white shadow-emerald-600/30 glow-emerald'
-                : 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/30 glow-purple'
+                : 'bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white shadow-rose-950/40 glow-crimson'
                 }`}
             >
               {copied ? (

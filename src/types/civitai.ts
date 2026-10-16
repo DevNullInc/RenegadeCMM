@@ -84,6 +84,12 @@ export interface CivitAIModelVersion {
   images?: CivitAIImage[];
   type?: ModelType;
   trainedWords?: string[];
+  earlyAccessEndsAt?: string | null;
+  earlyAccessTimeFrame?: number;
+  earlyAccessConfig?: Record<string, any> | null;
+  canDownload?: boolean;
+  availability?: 'EarlyAccess' | 'Public' | 'Private' | string;
+  status?: string;
   model?: {
     name?: string;
     type?: ModelType;
@@ -114,6 +120,9 @@ export interface CivitAIModel {
   type: ModelType;
   nsfw: boolean;
   nsfwLevel?: number; // 1-31 scale
+  earlyAccess?: boolean;
+  mode?: string;
+  availability?: string;
   tags?: string[];
   trainedWords?: string[];
   creator?: CivitAICreator;

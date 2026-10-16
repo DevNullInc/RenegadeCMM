@@ -109,7 +109,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
             <div
               className={`p-2.5 rounded-2xl border ${
                 isApiWorkflow
-                  ? 'bg-purple-600/20 text-purple-400 border-purple-500/30'
+                  ? 'bg-rose-600/20 text-rose-400 border-rose-500/30'
                   : 'bg-cyan-600/20 text-cyan-400 border-cyan-500/30'
               }`}
             >
@@ -132,7 +132,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
                 <span
                   className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full border ${
                     isApiWorkflow
-                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                      ? 'bg-rose-500/20 border-rose-500/40 text-rose-300'
                       : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                   }`}
                 >
@@ -161,7 +161,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
           {/* Dependency & Graph Summary Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="glass-panel p-3.5 rounded-2xl border border-slate-800 bg-slate-950/50 space-y-1">
-              <div className="flex items-center gap-2 text-purple-400 text-xs font-semibold">
+              <div className="flex items-center gap-2 text-rose-400 text-xs font-semibold">
                 <Cpu size={14} />
                 <span>Node Types</span>
               </div>
@@ -202,19 +202,19 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
 
           {/* Exported API Workflow Detection & User Confirmation Notice */}
           {isApiWorkflow && (
-            <div className="p-4 rounded-2xl bg-purple-950/30 border border-purple-500/40 text-purple-200 space-y-3 animate-fadeIn shadow-lg">
+            <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/40 text-rose-200 space-y-3 animate-fadeIn shadow-lg">
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0 mt-0.5">
+                <div className="p-2 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0 mt-0.5">
                   <Code2 size={18} />
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-purple-100">Exported API Workflow Detected</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                    <span className="font-bold text-sm text-rose-100">Exported API Workflow Detected</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase">
                       Dev API Format
                     </span>
                   </div>
-                  <p className="text-xs text-purple-200/90 leading-relaxed">
+                  <p className="text-xs text-rose-200/90 leading-relaxed">
                     This file is an <strong>API prompt execution dictionary</strong> (exported via ComfyUI <em>"Save (API format)"</em>) rather than a full visual canvas workflow.
                   </p>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -223,7 +223,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-purple-800/40 flex items-center justify-between gap-3 flex-wrap">
+              <div className="pt-2 border-t border-rose-800/40 flex items-center justify-between gap-3 flex-wrap">
                 <label className="flex items-center gap-2.5 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -232,13 +232,13 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
                       setHasConfirmedApiNotice(e.target.checked);
                       setErrorMsg(null);
                     }}
-                    className="w-4 h-4 rounded text-purple-500 bg-slate-900 border-slate-700 focus:ring-purple-400"
+                    className="w-4 h-4 rounded text-rose-500 bg-slate-900 border-slate-700 focus:ring-rose-400"
                   />
-                  <span className="text-xs font-semibold text-purple-100">
+                  <span className="text-xs font-semibold text-rose-100">
                     I understand and want to import this API-specific workflow
                   </span>
                 </label>
-                <span className="text-[10px] text-purple-300/70 italic">
+                <span className="text-[10px] text-rose-300/70 italic">
                   Tip: In ComfyUI, use standard "Save" for full visual canvas files.
                 </span>
               </div>
@@ -319,7 +319,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
                     key={nodeType}
                     className="inline-flex items-center gap-1 text-[11px] font-mono px-2.5 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
                     {nodeType}
                   </span>
                 ))}
@@ -377,7 +377,7 @@ export const WorkflowImportModal: React.FC<WorkflowImportModalProps> = ({
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all cursor-pointer ${
                 canSubmit
                   ? isApiWorkflow
-                    ? 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/25 active:scale-95'
+                    ? 'bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white shadow-rose-950/40 active:scale-95'
                     : 'bg-linear-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-cyan-600/25 active:scale-95'
                   : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
               }`}

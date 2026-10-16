@@ -25,6 +25,8 @@ import {
   Heart,
   WifiOff,
   Radio,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { BrowseTab } from './components/BrowseTab';
 import { LibraryTab } from './components/LibraryTab';
@@ -80,6 +82,28 @@ function MainApp() {
   // Cryptographic Evaluation / Nag Modal State
   const [showEvaluationNag, setShowEvaluationNag] = useState<boolean>(false);
   const [licenseStatus, setLicenseStatus] = useState<LicenseValidationResult | null>(null);
+
+  // Appearance & Theme State (Dark / Light Mode)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const stored = localStorage.getItem('cmm_theme');
+      if (stored === 'light' || stored === 'dark') return stored;
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('cmm_theme', theme);
+    } catch {}
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   const mainRef = useRef<HTMLDivElement>(null);
   const swarmRemainingChecksRef = useRef<number>(5);
@@ -382,6 +406,16 @@ function MainApp() {
             ? (model as any).trainedWords
             : undefined);
 
+    const isNsfw = Boolean(
+      model.nsfw ||
+      (typeof (model as any).nsfwLevel === 'number' && (model as any).nsfwLevel >= 4) ||
+      version.images?.some((img: any) => img.nsfw || (typeof img.nsfwLevel === 'number' && img.nsfwLevel >= 4))
+    );
+    let resolvedDownloadUrl = primaryFile?.downloadUrl || version.downloadUrl || `https://${isNsfw ? 'civitai.red' : 'civitai.com'}/api/download/models/${version.id}`;
+    if (isNsfw && resolvedDownloadUrl.includes('civitai.com')) {
+      resolvedDownloadUrl = resolvedDownloadUrl.replace('civitai.com', 'civitai.red');
+    }
+
     const taskParams = {
       modelVersionId: version.id,
       modelId: model.id,
@@ -391,7 +425,7 @@ function MainApp() {
       baseModel: version.baseModel,
       creator: model.creator?.username,
       fileName,
-      downloadUrl: primaryFile?.downloadUrl || version.downloadUrl || `https://civitai.com/api/download/models/${version.id}`,
+      downloadUrl: resolvedDownloadUrl,
       sizeKB: primaryFile?.sizeKB || 0,
       sha256: primaryFile?.hashes?.SHA256,
       previewUrl,
@@ -402,10 +436,11 @@ function MainApp() {
         model: {
           name: model.name,
           type: model.type,
-          nsfw: model.nsfw,
+          nsfw: isNsfw,
           creator: model.creator,
           tags: model.tags,
           trainedWords: version.trainedWords,
+          customLink: `https://${isNsfw ? 'civitai.red' : 'civitai.com'}/models/${model.id}?modelVersionId=${version.id}`,
         },
       },
       deleteOldVersionFile: options?.deleteOldVersionFile,
@@ -507,7 +542,7 @@ function MainApp() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#07090e] text-slate-100 overflow-hidden select-none">
+    <div className="flex flex-col h-screen w-screen bg-[var(--bg-app)] text-slate-100 overflow-hidden select-none">
       {/* Development Update Notice Banner */}
       <DevelopmentUpdateBanner />
 
@@ -515,7 +550,7 @@ function MainApp() {
       <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80 backdrop-blur-xl px-6 py-3 shadow-2xl flex items-center justify-between gap-6 w-full shrink-0">
         {/* Left: Brand Logo & Title */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 rounded-xl overflow-hidden shadow-lg shadow-purple-600/30 flex items-center justify-center shrink-0 border border-purple-500/30 bg-slate-900/90 p-0.5">
+          <div className="w-9 h-9 rounded-xl overflow-hidden shadow-lg shadow-rose-600/30 flex items-center justify-center shrink-0 border border-rose-500/30 bg-slate-900/90 p-0.5">
             <img src="./icon.svg" alt="RenegadeCMM" className="w-full h-full object-contain" />
           </div>
           <div>
@@ -534,11 +569,11 @@ function MainApp() {
             onClick={() => setActiveTab('browse')}
             className={`flex-1 min-w-[110px] max-w-[160px] py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer whitespace-nowrap ${
               activeTab === 'browse'
-                ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 scale-105 glow-purple'
+                ? 'bg-linear-to-r from-rose-600 via-rose-700 to-red-700 text-white shadow-lg shadow-rose-950/40 scale-105 glow-crimson'
                 : 'bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 border border-slate-800/80'
             }`}
           >
-            <Compass size={16} className={activeTab === 'browse' ? 'text-white' : 'text-purple-400'} />
+            <Compass size={16} className={activeTab === 'browse' ? 'text-white' : 'text-rose-400'} />
             <span>Browse</span>
           </button>
 
@@ -546,7 +581,7 @@ function MainApp() {
             onClick={() => setActiveTab('library')}
             className={`flex-1 min-w-[100px] max-w-[140px] py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer whitespace-nowrap ${
               activeTab === 'library'
-                ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 scale-105 glow-purple'
+                ? 'bg-linear-to-r from-rose-600 via-rose-700 to-red-700 text-white shadow-lg shadow-rose-950/40 scale-105 glow-crimson'
                 : 'bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 border border-slate-800/80'
             }`}
           >
@@ -558,7 +593,7 @@ function MainApp() {
             onClick={() => setActiveTab('workflows')}
             className={`flex-1 min-w-[100px] max-w-[140px] py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer whitespace-nowrap relative ${
               activeTab === 'workflows'
-                ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 scale-105 glow-purple'
+                ? 'bg-linear-to-r from-rose-600 via-rose-700 to-red-700 text-white shadow-lg shadow-rose-950/40 scale-105 glow-crimson'
                 : 'bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 border border-slate-800/80'
             }`}
           >
@@ -576,7 +611,7 @@ function MainApp() {
             onClick={() => setActiveTab('downloads')}
             className={`flex-1 min-w-[100px] max-w-[140px] py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer relative whitespace-nowrap ${
               activeTab === 'downloads'
-                ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 scale-105 glow-purple'
+                ? 'bg-linear-to-r from-rose-600 via-rose-700 to-red-700 text-white shadow-lg shadow-rose-950/40 scale-105 glow-crimson'
                 : 'bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 border border-slate-800/80'
             }`}
           >
@@ -594,7 +629,7 @@ function MainApp() {
             onClick={() => setActiveTab('settings')}
             className={`flex-1 min-w-[110px] max-w-[160px] py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer whitespace-nowrap ${
               activeTab === 'settings'
-                ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 scale-105 glow-purple'
+                ? 'bg-linear-to-r from-rose-600 via-rose-700 to-red-700 text-white shadow-lg shadow-rose-950/40 scale-105 glow-crimson'
                 : 'bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 border border-slate-800/80'
             }`}
           >
@@ -606,17 +641,38 @@ function MainApp() {
             onClick={() => setActiveTab('about')}
             className={`flex-1 min-w-[110px] max-w-[160px] py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-sm cursor-pointer whitespace-nowrap ${
               activeTab === 'about'
-                ? 'bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 scale-105 glow-purple'
+                ? 'bg-linear-to-r from-rose-600 via-rose-700 to-red-700 text-white shadow-lg shadow-rose-950/40 scale-105 glow-crimson'
                 : 'bg-slate-900/60 text-slate-400 hover:text-slate-100 hover:bg-slate-800/80 border border-slate-800/80'
             }`}
           >
-            <InfoIcon size={16} className={activeTab === 'about' ? 'text-white' : 'text-indigo-400'} />
+            <InfoIcon size={16} className={activeTab === 'about' ? 'text-white' : 'text-rose-400'} />
             <span>About</span>
           </button>
         </nav>
 
-        {/* Right Status Indicators (Swarm Sister App + CMM Dynamic Badge) */}
+        {/* Right Status Indicators (Theme Toggle + Swarm Sister App + CMM Dynamic Badge) */}
         <div className="flex items-center gap-2.5 shrink-0">
+          {/* Quick Theme Toggle (Dark / Light Mode) */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-slate-900/60 border border-slate-800 text-slate-300 hover:text-amber-300 hover:border-amber-500/40 hover:bg-slate-800/80 transition-all cursor-pointer shadow-sm active:scale-95 group"
+            title={theme === 'dark' ? 'Switch to Light Mode (E-Reader Warm Paper)' : 'Switch to Dark Mode (Cyberpunk Obsidian)'}
+            aria-label="Toggle Theme"
+          >
+            {theme === 'dark' ? (
+              <>
+                <Sun size={14} className="text-amber-400 group-hover:rotate-45 transition-transform duration-300" />
+                <span className="hidden xl:inline text-slate-400 group-hover:text-amber-300">Light</span>
+              </>
+            ) : (
+              <>
+                <Moon size={14} className="text-indigo-400 group-hover:-rotate-12 transition-transform duration-300" />
+                <span className="hidden xl:inline text-slate-400 group-hover:text-indigo-300">Dark</span>
+              </>
+            )}
+          </button>
+
           {/* RenegadeSwarm Sister Application Status Badge */}
           <button
             onClick={handleFocusOrOpenSwarm}
@@ -708,10 +764,10 @@ function MainApp() {
               return (
                 <button
                   onClick={() => setActiveTab('downloads')}
-                  className="flex items-center gap-2 shrink-0 bg-purple-500/15 border border-purple-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-purple-300 hover:bg-purple-500/25 transition-all cursor-pointer shadow-sm glow-purple"
+                  className="flex items-center gap-2 shrink-0 bg-rose-500/15 border border-rose-500/30 px-3.5 py-1.5 rounded-xl text-[11px] font-semibold text-rose-300 hover:bg-rose-500/25 transition-all cursor-pointer shadow-sm glow-crimson"
                   title={`${activeDownloadsCount} download(s) in progress. Click to view Downloads.`}
                 >
-                  <Download size={14} className="text-purple-400 animate-bounce" />
+                  <Download size={14} className="text-rose-400 animate-bounce" />
                   <span>
                     {activeDownloadsCount} {activeDownloadsCount === 1 ? 'Download' : 'Downloads'} Active
                   </span>
@@ -753,15 +809,15 @@ function MainApp() {
       {/* Scrollable Container */}
       <main
         ref={mainRef}
-        className={`flex-1 bg-[#07090e] relative scroll-smooth ${
+        className={`flex-1 bg-[var(--bg-app)] relative scroll-smooth ${
           activeTab === 'workflows' && isComfyFullscreen
             ? 'overflow-hidden flex flex-col min-h-0'
             : 'overflow-y-auto'
         }`}
       >
         {/* Background Radial Glow Accents */}
-        <div className="absolute top-10 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-10 left-1/3 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-10 right-1/4 w-96 h-96 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-10 left-1/3 w-96 h-96 bg-red-900/10 rounded-full blur-3xl pointer-events-none" />
 
         <div
           className={`relative z-10 ${
@@ -802,7 +858,7 @@ function MainApp() {
               <DownloadsTab />
             </div>
             <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
-              <SettingsTab />
+              <SettingsTab currentTheme={theme} onThemeChange={setTheme} />
             </div>
             <div style={{ display: activeTab === 'about' ? 'block' : 'none' }}>
               <AboutTab />
@@ -834,7 +890,7 @@ function MainApp() {
           <button
             onClick={scrollToTop}
             title="Return to Top"
-            className="fixed bottom-14 right-8 z-[100] p-3.5 rounded-2xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-2xl shadow-purple-600/50 hover:scale-110 active:scale-95 transition-all duration-200 border border-purple-400/40 glow-purple flex items-center justify-center cursor-pointer"
+            className="fixed bottom-14 right-8 z-[100] p-3.5 rounded-2xl bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white shadow-2xl shadow-rose-950/50 hover:scale-110 active:scale-95 transition-all duration-200 border border-rose-400/40 glow-crimson flex items-center justify-center cursor-pointer"
           >
             <ChevronUp size={20} className="stroke-[3]" />
           </button>
@@ -849,7 +905,7 @@ function MainApp() {
         <div className="flex items-center gap-2">
           <span className="font-semibold text-slate-300">Renegade Core Model Manager</span>
           <span className="text-slate-600">•</span>
-          <span className="text-purple-400 font-medium">RenegadeCMM</span>
+          <span className="text-rose-400 font-medium">RenegadeCMM</span>
           <span className="text-slate-600">•</span>
           <span className="px-1.5 py-0.2 rounded bg-slate-800/80 text-[10px] text-slate-400 border border-slate-700/50 font-mono">BSL-1.1</span>
         </div>
@@ -858,7 +914,7 @@ function MainApp() {
           <span>Crafted with</span>
           <Heart size={12} className="text-rose-500 fill-rose-500 inline" />
           <span>by</span>
-          <span className="font-bold text-purple-300">TheStygianRenegade</span>
+          <span className="font-bold text-rose-300">TheStygianRenegade</span>
           <span className="text-slate-500">/</span>
           <span className="font-semibold text-slate-300">/dev/null Inc</span>
         </div>
@@ -866,11 +922,11 @@ function MainApp() {
         <button
           onClick={openRepo}
           title="Open GitHub Repository (DevNullInc/RenegadeCMM)"
-          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-purple-300 border border-slate-800 hover:border-purple-500/40 transition-all cursor-pointer font-medium text-xs group shadow-sm"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 transition-all cursor-pointer font-medium text-xs group shadow-sm"
         >
-          <Github size={13} className="text-purple-400 group-hover:scale-110 transition-transform" />
+          <Github size={13} className="text-rose-400 group-hover:scale-110 transition-transform" />
           <span>GitHub</span>
-          <ExternalLink size={10} className="text-slate-500 group-hover:text-purple-400" />
+          <ExternalLink size={10} className="text-slate-500 group-hover:text-rose-400" />
         </button>
       </footer>
     </div>

@@ -133,19 +133,47 @@ export class CivitAIClient {
 
   async fetchModel(id: number): Promise<CivitAIModel> {
     return this.rateLimiter.executeWithRetry(async () => {
-      const res = await this.axiosInstance.get(`/models/${id}`, {
-        headers: this.getHeaders(),
-      });
-      return res.data;
+      try {
+        const res = await this.axiosInstance.get(`/models/${id}`, {
+          headers: this.getHeaders(),
+        });
+        return res.data;
+      } catch (err: any) {
+        if (err?.response?.status === 404 && !this.baseUrl.includes('civitai.red')) {
+          try {
+            const mirrorUrl = 'https://civitai.red/api/v1';
+            const mirrorRes = await axios.get(`${mirrorUrl}/models/${id}`, {
+              headers: this.getHeaders(),
+              timeout: 10000,
+            });
+            if (mirrorRes.data) return mirrorRes.data;
+          } catch {}
+        }
+        throw err;
+      }
     });
   }
 
   async fetchModelVersion(id: number): Promise<CivitAIModelVersion> {
     return this.rateLimiter.executeWithRetry(async () => {
-      const res = await this.axiosInstance.get(`/model-versions/${id}`, {
-        headers: this.getHeaders(),
-      });
-      return res.data;
+      try {
+        const res = await this.axiosInstance.get(`/model-versions/${id}`, {
+          headers: this.getHeaders(),
+        });
+        return res.data;
+      } catch (err: any) {
+        if (err?.response?.status === 404 && !this.baseUrl.includes('civitai.red')) {
+          try {
+            const mirrorUrl = 'https://civitai.red/api/v1';
+            const mirrorRes = await axios.get(`${mirrorUrl}/model-versions/${id}`, {
+              headers: this.getHeaders(),
+              timeout: 10000,
+            });
+            if (mirrorRes.data) return mirrorRes.data;
+          } catch {}
+        }
+        throw err;
+      }
     });
   }
 

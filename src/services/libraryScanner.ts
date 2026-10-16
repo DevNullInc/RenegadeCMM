@@ -1266,6 +1266,8 @@ export class LibraryScanner {
         const vData = await civitaiClient.fetchModelVersion(versionId);
         if (vData) {
           const previewUrl = vData.images && vData.images.length > 0 ? vData.images[0].url : undefined;
+          const isNsfw = Boolean(vData.model?.nsfw || (vData.images && vData.images.some((i: any) => i.nsfw || (i.nsfwLevel && i.nsfwLevel > 1))));
+          const domain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
           return {
             success: true,
             data: {
@@ -1276,12 +1278,12 @@ export class LibraryScanner {
               civitaiModelId: vData.modelId,
               civitaiVersionId: vData.id,
               modelType: vData.model?.type,
-              customLink: `https://civitai.com/models/${vData.modelId}?modelVersionId=${vData.id}`,
+              customLink: `${domain}/models/${vData.modelId}?modelVersionId=${vData.id}`,
               description: vData.description || (vData.model as any)?.description,
               tags: (vData.model as any)?.tags || [],
               trainedWords: vData.trainedWords || [],
               previewUrl,
-              nsfw: Boolean(vData.model?.nsfw || (vData.images && vData.images.some((i: any) => i.nsfw || (i.nsfwLevel && i.nsfwLevel > 1)))),
+              nsfw: isNsfw,
             },
           };
         }
@@ -1293,6 +1295,8 @@ export class LibraryScanner {
         if (mData) {
           const firstVersion = mData.modelVersions && mData.modelVersions.length > 0 ? mData.modelVersions[0] : undefined;
           const previewUrl = firstVersion?.images && firstVersion.images.length > 0 ? firstVersion.images[0].url : undefined;
+          const isNsfw = Boolean(mData.nsfw || (mData.nsfwLevel && mData.nsfwLevel > 1) || (mData.modelVersions && mData.modelVersions.some((v: any) => v.images && v.images.some((i: any) => i.nsfw || (i.nsfwLevel && i.nsfwLevel > 1)))));
+          const domain = isNsfw ? 'https://civitai.red' : 'https://civitai.com';
           return {
             success: true,
             data: {
@@ -1303,12 +1307,12 @@ export class LibraryScanner {
               civitaiModelId: mData.id,
               civitaiVersionId: firstVersion?.id,
               modelType: mData.type,
-              customLink: `https://civitai.com/models/${mData.id}`,
+              customLink: `${domain}/models/${mData.id}`,
               description: mData.description,
               tags: mData.tags || [],
               trainedWords: firstVersion?.trainedWords || [],
               previewUrl,
-              nsfw: Boolean(mData.nsfw || (mData.nsfwLevel && mData.nsfwLevel > 1)),
+              nsfw: isNsfw,
             },
           };
         }

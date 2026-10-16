@@ -218,7 +218,7 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
                   {packName}
                 </h3>
                 {resolution?.managerMatch?.author && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800/90 text-purple-300 border border-slate-700/80 font-mono shrink-0">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800/90 text-rose-300 border border-slate-700/80 font-mono shrink-0">
                     by {resolution.managerMatch.author}
                   </span>
                 )}
@@ -272,7 +272,7 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
                   handleCloneRepo(primaryGitUrl);
                 }}
                 disabled={isCloning === primaryGitUrl}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95 shrink-0"
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white rounded-xl font-bold text-xs shadow-md shadow-rose-950/40 transition-all cursor-pointer disabled:opacity-50 active:scale-95 shrink-0"
                 title="1-click Git clone this custom node extension into ComfyUI custom_nodes folder"
               >
                 {isCloning === primaryGitUrl ? (
@@ -320,7 +320,7 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
         <div className="pt-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
-              <Layers size={12} className="text-purple-400" />
+              <Layers size={12} className="text-rose-400" />
               <span>Linked Nodes ({linkedNodes.length}):</span>
             </span>
             {linkedNodes.slice(0, 6).map((nt) => (
@@ -353,10 +353,10 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
         <div className="space-y-4 pt-3 border-t border-slate-800/80 animate-fadeIn">
           {/* Registry Match Details */}
           {resolution?.managerMatch && (
-            <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-800/40 text-xs space-y-2">
+            <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-800/40 text-xs space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-purple-300 flex items-center gap-1.5">
-                  <Sparkles size={14} className="text-purple-400" />
+                <span className="font-semibold text-rose-300 flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-rose-400" />
                   <span>Registry Package: {resolution.managerMatch.title}</span>
                 </span>
                 {resolution.managerMatch.gitUrl && (

@@ -79,7 +79,7 @@ export const DevelopmentUpdateBanner: React.FC = () => {
   };
 
   return (
-    <aside aria-label="Development Build Update Notice" className="w-full bg-linear-to-r from-amber-950/80 via-slate-900/90 to-purple-950/80 border-b border-amber-500/40 px-4 py-2 text-xs text-amber-100 flex flex-wrap items-center justify-between gap-3 shadow-lg shadow-amber-950/20 backdrop-blur-md z-[60] shrink-0 animate-fadeIn select-text">
+    <aside aria-label="Development Build Update Notice" className="w-full bg-linear-to-r from-amber-950/80 via-slate-900/90 to-rose-950/80 border-b border-amber-500/40 px-4 py-2 text-xs text-amber-100 flex flex-wrap items-center justify-between gap-3 shadow-lg shadow-amber-950/20 backdrop-blur-md z-[60] shrink-0 animate-fadeIn select-text">
       {/* Left: Indicator & Message */}
       <div className="flex items-center gap-2.5 flex-wrap min-w-0 flex-1">
         <span className="flex items-center gap-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold px-2.5 py-0.5 rounded-full text-[10px] tracking-wider uppercase glow-amber shrink-0">

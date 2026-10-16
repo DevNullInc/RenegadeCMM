@@ -82,13 +82,13 @@ export const DownloadFolderPromptModal: React.FC<DownloadFolderPromptModalProps>
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-purple-500/20 text-purple-300">
+            <div className="p-2.5 rounded-2xl bg-rose-500/20 text-rose-300">
               <Folder size={22} />
             </div>
             <div>
               <h2 className="text-base font-extrabold text-slate-100">Select Download Destination</h2>
               <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
-                {modelName} <span className="text-purple-400">({versionName})</span>
+                {modelName} <span className="text-rose-400">({versionName})</span>
               </p>
             </div>
           </div>
@@ -134,7 +134,7 @@ export const DownloadFolderPromptModal: React.FC<DownloadFolderPromptModalProps>
                     isSelected
                       ? isLocked
                         ? 'bg-rose-950/40 border-rose-500/60 shadow-lg shadow-rose-950/30'
-                        : 'bg-purple-950/40 border-purple-500/60 shadow-lg shadow-purple-950/30'
+                        : 'bg-rose-950/40 border-rose-500/60 shadow-lg shadow-rose-950/30'
                       : isLocked
                       ? 'bg-slate-950/60 border-rose-900/40 hover:border-rose-700/60'
                       : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
@@ -146,7 +146,7 @@ export const DownloadFolderPromptModal: React.FC<DownloadFolderPromptModalProps>
                       name="destination_folder"
                       checked={isSelected}
                       onChange={() => setSelectedFolder(folder)}
-                      className="w-4 h-4 text-purple-600 bg-slate-900 border-slate-700 focus:ring-purple-500 cursor-pointer"
+                      className="w-4 h-4 text-rose-600 bg-slate-900 border-slate-700 focus:ring-rose-500 cursor-pointer"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -176,7 +176,7 @@ export const DownloadFolderPromptModal: React.FC<DownloadFolderPromptModalProps>
                     </div>
                   </div>
                   {isSelected && (
-                    <span className={`p-1 rounded-full ${isLocked ? 'bg-rose-500/20 text-rose-300' : 'bg-purple-500/20 text-purple-300'}`}>
+                    <span className="p-1 rounded-full bg-rose-500/20 text-rose-300">
                       <Check size={14} />
                     </span>
                   )}
@@ -192,7 +192,7 @@ export const DownloadFolderPromptModal: React.FC<DownloadFolderPromptModalProps>
                 type="checkbox"
                 checked={rememberChoice}
                 onChange={(e) => setRememberChoice(e.target.checked)}
-                className="mt-0.5 rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                className="mt-0.5 rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
               />
               <div className="space-y-0.5">
                 <span className="font-semibold text-slate-200">Always use this folder for future downloads</span>
@@ -218,7 +218,7 @@ export const DownloadFolderPromptModal: React.FC<DownloadFolderPromptModalProps>
               className={`px-5 py-2.5 font-bold rounded-xl text-xs transition-all shadow-lg flex items-center gap-2 cursor-pointer disabled:opacity-50 ${
                 selectedAccess && !selectedAccess.writable
                   ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30'
-                  : 'bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/30'
+                  : 'bg-linear-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white shadow-rose-950/40 glow-crimson'
               }`}
             >
               <Download size={14} />
