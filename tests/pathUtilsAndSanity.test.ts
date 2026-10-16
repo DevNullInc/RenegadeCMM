@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { testFolderWritable, sanitizeFileName, normalizePath } from '../src/utils/pathUtils';
+import { testFolderWritable } from '../src/utils/pathUtils';
 import { DownloadManager } from '../src/services/downloadManager';
 
 describe('Folder Writeability Sanity Check & Download Pre-flight', () => {

@@ -14,7 +14,6 @@ import fs from 'fs';
 import { ModelType, FileType } from '../types/civitai';
 import {
   FolderConfig,
-  FilenamePatternRule,
   DEFAULT_FOLDER_MAP,
   DEFAULT_FILENAME_PATTERNS,
   COMFYUI_STANDARD_MODEL_SUBFOLDERS,

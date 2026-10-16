@@ -84,8 +84,8 @@ def extract_tensors(obj, prefix="", visited=None):
                 elif hasattr(v, "state_dict") and callable(v.state_dict):
                     try:
                         tensors.update(extract_tensors(v.state_dict(), prefix=sub_prefix, visited=visited))
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        sys.stderr.write(f"Warning: Failed extracting state_dict for {sub_prefix}: {err}\n")
         return tensors
 
     if isinstance(obj, (list, tuple)):
@@ -97,14 +97,14 @@ def extract_tensors(obj, prefix="", visited=None):
     if hasattr(obj, "state_dict") and callable(obj.state_dict):
         try:
             return extract_tensors(obj.state_dict(), prefix=prefix, visited=visited)
-        except Exception:
-            pass
+        except Exception as err:
+            sys.stderr.write(f"Warning: Failed extracting state_dict for {prefix}: {err}\n")
 
     if hasattr(obj, "__dict__"):
         try:
             return extract_tensors(obj.__dict__, prefix=prefix, visited=visited)
-        except Exception:
-            pass
+        except Exception as err:
+            sys.stderr.write(f"Warning: Failed extracting __dict__ for {prefix}: {err}\n")
 
     return tensors
 

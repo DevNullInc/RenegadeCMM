@@ -13,31 +13,21 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Workflow,
   Upload,
-  FolderSearch,
   CheckCircle2,
   AlertCircle,
   Download,
-  GitBranch,
-  Sparkles,
   Layers,
   Search,
   RefreshCw,
-  Eye,
-  LayoutGrid,
   FileJson,
   Image as ImageIcon,
   HardDrive,
-  ExternalLink,
-  ChevronRight,
   Package,
-  Activity,
-  ArrowRight,
   ChevronDown,
   X,
   Radio,
   Maximize2,
   Minimize2,
-  Play,
   Send,
   Columns,
   MonitorPlay,
@@ -46,7 +36,6 @@ import {
 import {
   WorkflowInfo,
   WorkflowModelReference,
-  CanvasGraph,
   CanvasNode,
   NodeResolutionResult,
   DownloadTask,
@@ -651,48 +640,6 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({
       webview.removeEventListener('console-message', handleConsoleMessage);
     };
   }, [hasMountedComfyUI, handleGuestGraphLoaded]);
-
-  // Automatically save valid uploaded workflow to ComfyUI user workflows directory
-  // and pass-through to live ComfyUI instance if online
-  const handleValidWorkflowLoaded = async (
-    parsedWorkflowInfo: WorkflowInfo,
-    rawPayload: any,
-    ext: string,
-    fileName: string
-  ) => {
-    // 1. Cross-app auto-save to ComfyUI user workflows directory
-    if (window.civitaiAPI?.saveWorkflowToComfyUI) {
-      try {
-        const saveRes = await window.civitaiAPI.saveWorkflowToComfyUI(fileName, rawPayload, ext);
-        if (saveRes && saveRes.success) {
-          parsedWorkflowInfo.filePath = saveRes.filePath || parsedWorkflowInfo.filePath;
-          parsedWorkflowInfo.fileName = saveRes.fileName || parsedWorkflowInfo.fileName;
-          setSavedWorkflows((prev) => {
-            if (prev.some((w) => w.fileName === parsedWorkflowInfo.fileName)) return prev;
-            return [parsedWorkflowInfo, ...prev];
-          });
-          setScanFeedback({
-            success: true,
-            message: `Auto-saved "${parsedWorkflowInfo.fileName}" to ComfyUI workflows directory`,
-          });
-        }
-      } catch (saveErr) {
-        console.warn('Auto-save to ComfyUI directory failed:', saveErr);
-      }
-    }
-
-    const updated = [parsedWorkflowInfo, ...workflows];
-    setWorkflows(updated);
-    setSelectedWorkflowIndex(0);
-    resolveWorkflowNodes(parsedWorkflowInfo);
-
-    // 2. Drag-and-drop passthrough: if ComfyUI is online or if currently in Live/Split/Fullscreen view, inject immediately
-    if (comfyStatus?.online || viewMode === 'live' || viewMode === 'split' || isComfyFullscreen) {
-      setTimeout(() => {
-        handleInjectWorkflowIntoComfyUI(parsedWorkflowInfo);
-      }, 150);
-    }
-  };
 
   // Handle confirmation from WorkflowImportModal
   const handleConfirmWorkflowImport = async (targetName: string, overwrite: boolean) => {

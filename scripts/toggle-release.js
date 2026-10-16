@@ -15,19 +15,22 @@ const fs = require('fs');
 const path = require('path');
 
 const versionFilePath = path.join(__dirname, '..', 'src', 'version.ts');
-if (!fs.existsSync(versionFilePath)) {
-  console.error(`Error: Could not locate ${versionFilePath}`);
+let content;
+try {
+  content = fs.readFileSync(versionFilePath, 'utf8');
+} catch (err) {
+  console.error(`Error: Could not read ${versionFilePath}:`, err.message);
   process.exit(1);
 }
 
 const arg = (process.argv[2] || '').toLowerCase().trim();
-let content = fs.readFileSync(versionFilePath, 'utf8');
 const isCurrentlyDev = /IS_DEV_BUILD:\s*true/.test(content);
+let shouldWrite = false;
 
 if (arg === 'release' || arg === 'prod' || arg === 'production' || arg === 'stable') {
   content = content.replace(/IS_DEV_BUILD:\s*(true|false)/, 'IS_DEV_BUILD: false');
   content = content.replace(/RELEASE_CHANNEL:\s*['"][^'"]+['"]/, "RELEASE_CHANNEL: 'stable'");
-  fs.writeFileSync(versionFilePath, content, 'utf8');
+  shouldWrite = true;
   console.log('\n🔒 [RELEASE MODE ACTIVATED]');
   console.log('   - IS_DEV_BUILD set to: false');
   console.log('   - RELEASE_CHANNEL set to: "stable"');
@@ -35,7 +38,7 @@ if (arg === 'release' || arg === 'prod' || arg === 'production' || arg === 'stab
 } else if (arg === 'dev' || arg === 'development') {
   content = content.replace(/IS_DEV_BUILD:\s*(true|false)/, 'IS_DEV_BUILD: true');
   content = content.replace(/RELEASE_CHANNEL:\s*['"][^'"]+['"]/, "RELEASE_CHANNEL: 'development'");
-  fs.writeFileSync(versionFilePath, content, 'utf8');
+  shouldWrite = true;
   console.log('\n⚡ [DEVELOPMENT MODE ACTIVATED]');
   console.log('   - IS_DEV_BUILD set to: true');
   console.log('   - RELEASE_CHANNEL set to: "development"');
@@ -47,7 +50,7 @@ if (arg === 'release' || arg === 'prod' || arg === 'production' || arg === 'stab
     /RELEASE_CHANNEL:\s*['"][^'"]+['"]/,
     nextDev ? "RELEASE_CHANNEL: 'development'" : "RELEASE_CHANNEL: 'stable'"
   );
-  fs.writeFileSync(versionFilePath, content, 'utf8');
+  shouldWrite = true;
   console.log(`\n🔄 [BUILD MODE TOGGLED] => ${nextDev ? 'DEVELOPMENT (IS_DEV_BUILD = true)' : 'RELEASE (IS_DEV_BUILD = false)'}\n`);
 } else {
   console.log('\n======================================================');
@@ -59,4 +62,8 @@ if (arg === 'release' || arg === 'prod' || arg === 'production' || arg === 'stab
   console.log('  npm run mode:release  -> Switch to Release mode (disables dev update banners)');
   console.log('  npm run mode:dev      -> Switch to Development mode (enables dev update alerts)');
   console.log('  npm run mode:status   -> Show current build mode status\n');
+}
+
+if (shouldWrite) {
+  fs.writeFileSync(versionFilePath, content, 'utf8');
 }

@@ -159,8 +159,16 @@ export class CivitAIClient {
   }
 
   async lookupByHash(hash: string): Promise<CivitAIModelVersion | null> {
-    const cleanHash = encodeURIComponent(String(hash || '').trim().replace(/[^a-fA-F0-9]/g, ''));
-    if (!cleanHash) return null;
+    if (!hash || typeof hash !== 'string') return null;
+    const trimmed = hash.trim().toLowerCase();
+    if (trimmed.length < 10 || trimmed.length > 64) return null;
+    const hex = '0123456789abcdef';
+    let cleanHash = '';
+    for (let i = 0; i < trimmed.length; i++) {
+      const idx = hex.indexOf(trimmed[i]);
+      if (idx === -1) return null;
+      cleanHash += hex[idx];
+    }
     return this.rateLimiter.executeWithRetry(async () => {
       try {
         const res = await this.axiosInstance.get(`/model-versions/by-hash/${cleanHash}`, {

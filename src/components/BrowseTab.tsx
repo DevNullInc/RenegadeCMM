@@ -23,17 +23,14 @@ import {
   X,
   CheckCircle2,
   Sparkles,
-  Layers,
   Calendar,
   RefreshCw,
   Terminal,
-  Code2,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight,
   Copy,
   Check,
   AlertTriangle,
@@ -45,8 +42,6 @@ import { FallbackImage } from './FallbackImage';
 import { CivitAIModel, CivitAIModelVersion, ModelType, SearchParams } from '../types/civitai';
 import { LocalModel } from '../types/app';
 import {
-  normalizeBaseModel,
-  isArchitectureMatch,
   extractModelFlavor,
   isFlavorMatch,
   resolveEffectiveModelType,

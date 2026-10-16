@@ -20,6 +20,25 @@ import { logger } from '../utils/logger';
 
 const execFileAsync = promisify(execFile);
 
+function sanitizePythonExecutable(binPath?: string | null): string | null {
+  if (!binPath || typeof binPath !== 'string') return null;
+  const trimmed = path.normalize(binPath.trim());
+  if (/[;&|`$<>\r\n]/.test(trimmed)) return null;
+
+  const base = path.basename(trimmed).toLowerCase();
+  const allowedBases = new Set(['python.exe', 'python', 'python3', 'python3.exe']);
+  if (!allowedBases.has(base)) return null;
+
+  if (trimmed === 'python' || trimmed === 'python3' || trimmed === 'python.exe') {
+    return trimmed;
+  }
+
+  if (path.isAbsolute(trimmed) && fs.existsSync(trimmed)) {
+    return path.resolve(trimmed);
+  }
+  return null;
+}
+
 export class ModelConverterService {
   private cachedEnv: { env: PythonEnvironmentStatus; timestamp: number; key: string } | null = null;
 
@@ -77,15 +96,15 @@ export class ModelConverterService {
     candidates.push({ path: 'python', source: 'system' });
 
     for (const c of candidates) {
-      // If it's a file path that doesn't exist on disk, skip probing
-      if ((c.path.includes('/') || c.path.includes('\\')) && !fs.existsSync(c.path)) {
+      const safeBin = sanitizePythonExecutable(c.path);
+      if (!safeBin) {
         continue;
       }
 
       try {
         // Probe version and packages in one fast subcall
         const { stdout } = await execFileAsync(
-          c.path,
+          safeBin,
           [
             '-c',
             `import sys, json
@@ -180,11 +199,16 @@ print(json.dumps({
 
     const scriptPath = path.join(process.cwd(), 'scripts', 'scan_pickle_safety.py');
     const env = await this.getPythonEnvironment(options?.customPythonPath, options?.comfyuiInstallDir);
+    const rawPython = env.available && env.pythonPath ? env.pythonPath : '';
     const pythonBin =
-      env.available && env.pythonPath ? env.pythonPath : process.platform === 'win32' ? 'python.exe' : 'python3';
+      sanitizePythonExecutable(rawPython) || (process.platform === 'win32' ? 'python.exe' : 'python3');
+    const safeSource = path.resolve(sourcePath);
+    if (/[;&|`$<>\r\n]/.test(safeSource)) {
+      throw new Error('Invalid characters in source file path');
+    }
 
     try {
-      const { stdout } = await execFileAsync(pythonBin, [scriptPath, sourcePath], { timeout: 30000 });
+      const { stdout } = await execFileAsync(pythonBin, ['--', scriptPath, safeSource], { timeout: 30000 });
       const parsed: PickleScanResult = JSON.parse(stdout.trim());
       if (parsed.isSafe && (parsed.isYolo || parsed.recommendation === 'preserve_yolo_pt')) {
         try {
@@ -329,13 +353,22 @@ print(json.dumps({
       };
     }
 
-    const originalStat = fs.statSync(sourcePath);
-    logger.info(`Starting conversion of ${sourcePath} -> ${targetPath} using ${env.pythonPath}...`);
+    const rawPython = env.available && env.pythonPath ? env.pythonPath : '';
+    const safePython =
+      sanitizePythonExecutable(rawPython) || (process.platform === 'win32' ? 'python.exe' : 'python3');
+    const safeSource = path.resolve(sourcePath);
+    const safeTarget = path.resolve(targetPath);
+    if (/[;&|`$<>\r\n]/.test(safeSource) || /[;&|`$<>\r\n]/.test(safeTarget)) {
+      throw new Error('Invalid characters in model conversion paths');
+    }
+
+    const originalStat = fs.statSync(safeSource);
+    logger.info(`Starting conversion of ${safeSource} -> ${safeTarget} using ${safePython}...`);
 
     try {
       const { stdout, stderr } = await execFileAsync(
-        env.pythonPath,
-        [scriptPath, sourcePath, targetPath],
+        safePython,
+        ['--', scriptPath, safeSource, safeTarget],
         { timeout: 600000 } // 10 minutes max for massive 10GB+ checkpoints
       );
 

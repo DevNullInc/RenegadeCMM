@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   CheckCircle2,
   X,
-  Sparkles,
 } from 'lucide-react';
 import { LicenseValidationResult } from '../types/license';
 

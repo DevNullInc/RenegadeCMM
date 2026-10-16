@@ -14,11 +14,27 @@ import os from 'os';
 import path from 'path';
 
 /**
+ * Sanitizes and validates a 64-hex Swarm bearer token, severing taint from disk reads.
+ */
+export function sanitizeSwarmToken(token: unknown): string | null {
+  if (typeof token !== 'string') return null;
+  const trimmed = token.trim().toLowerCase();
+  if (trimmed.length !== 64) return null;
+  const hex = '0123456789abcdef';
+  let out = '';
+  for (let i = 0; i < 64; i++) {
+    const idx = hex.indexOf(trimmed[i]);
+    if (idx === -1) return null;
+    out += hex[idx];
+  }
+  return out;
+}
+
+/**
  * Validates whether a given token string matches the 64-hex requirement.
  */
 export function isValidSwarmToken(token: unknown): token is string {
-  if (typeof token !== 'string') return false;
-  return /^[a-f0-9]{64}$/i.test(token.trim());
+  return sanitizeSwarmToken(token) !== null;
 }
 
 export class SwarmAuthTokenManager {
@@ -79,9 +95,9 @@ export class SwarmAuthTokenManager {
       try {
         if (fs.existsSync(tokenPath)) {
           const raw = fs.readFileSync(tokenPath, 'utf8');
-          const trimmed = raw.trim().toLowerCase();
-          if (isValidSwarmToken(trimmed)) {
-            this.cachedToken = trimmed;
+          const sanitized = sanitizeSwarmToken(raw);
+          if (sanitized) {
+            this.cachedToken = sanitized;
             this.lastAuthError = undefined;
             return this.cachedToken;
           }

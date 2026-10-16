@@ -26,7 +26,6 @@ import {
   FolderSearch,
   Search,
   ChevronDown,
-  ChevronUp,
   MapPin,
   Layers,
 } from 'lucide-react';
@@ -83,21 +82,6 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
       return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`;
     }
     return String(count);
-  };
-
-  const formatRelativeTime = (dateStr: string): string => {
-    if (!dateStr) return '';
-    try {
-      const diffMs = Date.now() - new Date(dateStr).getTime();
-      const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      if (days === 0) return 'Updated today';
-      if (days === 1) return 'Updated yesterday';
-      if (days < 30) return `Updated ${days} days ago`;
-      const months = Math.floor(days / 30);
-      return `Updated ${months} month${months > 1 ? 's' : ''} ago`;
-    } catch {
-      return '';
-    }
   };
 
   const handleCloneRepo = async (gitUrl: string) => {
@@ -406,8 +390,6 @@ export const NodeResolutionCard: React.FC<NodeResolutionCardProps> = ({
             </span>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {linkedNodes.map((nt) => {
-                const isPickerOpen = manualPickerOpenForNode === nt;
-
                 return (
                   <div
                     key={nt}

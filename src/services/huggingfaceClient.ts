@@ -13,7 +13,6 @@ import axios, { AxiosInstance } from 'axios';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
-import fs from 'fs';
 import { logger } from '../utils/logger';
 
 const execFileAsync = promisify(execFile);

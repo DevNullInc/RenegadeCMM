@@ -342,7 +342,6 @@ describe('LicenseService Cryptographic Verification Engine', () => {
   });
 
   it('should successfully verify default licensor master public key format and valid tokens', async () => {
-    const defaultService = new LicenseService();
     expect(DEFAULT_LICENSOR_MASTER_PUBLIC_KEY).toBe(
       'MCowBQYDK2VwAyEAn8MKXhX4ZSwUroJOks4QCwD0kqXj5d0+jyip0skvWe4='
     );

@@ -18,17 +18,14 @@ import {
   Plus,
   Trash2,
   DownloadCloud,
-  UploadCloud,
   CheckCircle,
   CheckCircle2,
   XCircle,
   AlertCircle,
   ShieldCheck,
   FolderPlus,
-  Star,
   RefreshCw,
   Power,
-  FileJson,
   Archive,
   Copy,
   Check,
@@ -54,7 +51,6 @@ import {
 import {
   AppConfig,
   ConflictStrategy,
-  FilenamePatternRule,
   ComfyUIInstallInfo,
   ComfyUIStatus,
   SwarmStatus,
@@ -65,7 +61,6 @@ import {
   DEFAULT_FILENAME_PATTERNS,
 } from '../types/app';
 
-import { NodeResolutionCard } from './NodeResolutionCard';
 import { FolderBrowserModal } from './FolderBrowserModal';
 
 export const SettingsTab: React.FC = () => {
@@ -131,7 +126,6 @@ export const SettingsTab: React.FC = () => {
   const [testingWebhook, setTestingWebhook] = useState<'dl' | 'up' | null>(null);
   const [webhookStatus, setWebhookStatus] = useState<{ type: string; success?: boolean; message?: string } | null>(null);
   const [installInfo, setInstallInfo] = useState<ComfyUIInstallInfo | null>(null);
-  const [inspectingInstall, setInspectingInstall] = useState(false);
   const [isCloningCmmNode, setIsCloningCmmNode] = useState(false);
   const [isAutoDetecting, setIsAutoDetecting] = useState(false);
   const [autoDetectFeedback, setAutoDetectFeedback] = useState<{ success: boolean; message: string; path?: string } | null>(null);
@@ -323,7 +317,6 @@ export const SettingsTab: React.FC = () => {
 
   const checkInstallDir = async (customPath?: string) => {
     if (window.civitaiAPI?.inspectComfyUIInstall) {
-      setInspectingInstall(true);
       try {
         const res = await window.civitaiAPI.inspectComfyUIInstall(customPath);
         setInstallInfo(res);
@@ -341,8 +334,6 @@ export const SettingsTab: React.FC = () => {
         }
       } catch {
         setInstallInfo(null);
-      } finally {
-        setInspectingInstall(false);
       }
     }
   };

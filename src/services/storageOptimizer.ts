@@ -348,7 +348,10 @@ export class StorageOptimizerService {
       // 1. Check or create .sha256 companion
       const shaFile = `${baseWithoutExt}.sha256`;
       let sha256Hash: string | null = null;
-      if (!fs.existsSync(shaFile)) {
+      try {
+        sha256Hash = fs.readFileSync(shaFile, 'utf8').trim();
+      } catch (err: any) {
+        if (err?.code !== 'ENOENT') throw err;
         // Check if DB already has hash (matching both normalized and native slash paths)
         const altPath = resolvedPath.includes('\\') ? resolvedPath.replace(/\\/g, '/') : resolvedPath.replace(/\//g, '\\');
         const row = await dbManager.get(
@@ -362,8 +365,6 @@ export class StorageOptimizerService {
         }
         fs.writeFileSync(shaFile, sha256Hash.trim(), 'utf8');
         sha256Created = true;
-      } else {
-        sha256Hash = fs.readFileSync(shaFile, 'utf8').trim();
       }
 
       // 2. Check or create .info companion

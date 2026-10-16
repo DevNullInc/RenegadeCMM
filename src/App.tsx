@@ -16,7 +16,6 @@ import {
   Download,
   Settings as SettingsIcon,
   Layers,
-  Sparkles,
   ChevronUp,
   Activity,
   Info as InfoIcon,

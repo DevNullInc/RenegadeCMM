@@ -44,22 +44,6 @@ export interface WorkflowParseResult {
   workflowFormat?: WorkflowFormat;
 }
 
-const MODEL_NODE_KEYS: Record<string, string[]> = {
-  ckpt_name: ['CheckpointLoaderSimple', 'CheckpointLoader', 'Efficient Loader', 'ImpactCheckpointLoader', 'CMMDownloadModel'],
-  unet_name: ['UNETLoader', 'DiffusionModelLoader', 'CMMDownloadModel'],
-  lora_name: ['LoraLoader', 'LoraLoaderModelOnly', 'LoraLoader|pysssss', 'ImpactLoraLoader', 'CMMDownloadModel'],
-  vae_name: ['VAELoader', 'ImpactVAELoader', 'CMMDownloadModel'],
-  control_net_name: ['ControlNetLoader', 'ControlNetLoaderAdvanced', 'CMMDownloadModel'],
-  clip_name: ['CLIPVisionLoader', 'CLIPLoader'],
-  clip_name1: ['DualCLIPLoader'],
-  clip_name2: ['DualCLIPLoader', 'TripleCLIPLoader'],
-  clip_name3: ['TripleCLIPLoader'],
-  model_name: ['UpscaleModelLoader', 'CMMDownloadModel', 'CMMCheckHuggingFace'],
-  ipadapter_file: ['IPAdapterModelLoader', 'IPAdapterUnifiedLoader', 'CMMDownloadModel'],
-  photomaker_model_name: ['PhotoMakerLoader'],
-  gligen_name: ['GLIGENLoader'],
-};
-
 export class WorkflowScanner {
   async scanWorkflows(folderPaths: string | string[]): Promise<WorkflowInfo[]> {
     const paths = Array.isArray(folderPaths) ? folderPaths : [folderPaths];
@@ -794,14 +778,28 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
       throw err;
     }
 
-    if (!fs.existsSync(filePath)) {
-      const err = new Error(`File not found: ${filePath}`);
-      (err as any).code = 'FILE_NOT_FOUND';
-      throw err;
+    let fd: number;
+    try {
+      fd = fs.openSync(filePath, 'r');
+    } catch (e: any) {
+      if (e?.code === 'ENOENT') {
+        const err = new Error(`File not found: ${filePath}`);
+        (err as any).code = 'FILE_NOT_FOUND';
+        throw err;
+      }
+      throw e;
     }
 
-    const stat = fs.statSync(filePath);
+    let stat: fs.Stats;
+    try {
+      stat = fs.fstatSync(fd);
+    } catch (e) {
+      fs.closeSync(fd);
+      throw e;
+    }
+
     if (!stat.isFile()) {
+      fs.closeSync(fd);
       const err = new Error(`Target path is not a file: ${filePath}`);
       (err as any).code = 'NOT_A_FILE';
       throw err;
@@ -810,16 +808,21 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
     // Size limit: 50MB max file size
     const MAX_FILE_SIZE = 50 * 1024 * 1024;
     if (stat.size > MAX_FILE_SIZE) {
+      fs.closeSync(fd);
       const err = new Error(`File exceeds maximum allowed size of 50MB (${(stat.size / 1024 / 1024).toFixed(1)}MB)`);
       (err as any).code = 'FILE_TOO_LARGE';
       throw err;
     }
 
-    // Read first 16 bytes for magic byte verification
-    const fd = fs.openSync(filePath, 'r');
-    const headerBuffer = Buffer.alloc(Math.min(16, stat.size));
-    fs.readSync(fd, headerBuffer, 0, headerBuffer.length, 0);
-    fs.closeSync(fd);
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = fs.readFileSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    // Header buffer for magic verification
+    const headerBuffer = fileBuffer.subarray(0, Math.min(16, fileBuffer.length));
 
     // PNG signature: 89 50 4E 47 0D 0A 1A 0A
     const isPngMagic =
@@ -869,18 +872,10 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
       throw err;
     }
 
-
-
-
-
-
-
-
     const fileName = path.basename(filePath);
     let parsedWorkflowInfo: WorkflowInfo;
 
     if (isPngMagic) {
-      const fileBuffer = fs.readFileSync(filePath);
       const extracted = this.extractPngWorkflowFromBuffer(fileBuffer);
       if (!extracted) {
         const err = new Error(`No ComfyUI workflow metadata found embedded in PNG file "${fileName}".`);
@@ -890,7 +885,7 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
       parsedWorkflowInfo = await this.parseWorkflow(extracted, fileName);
     } else if (isZipMagic) {
       try {
-        const zip = new AdmZip(filePath);
+        const zip = new AdmZip(fileBuffer);
         const entries = zip.getEntries();
         let extractedWorkflow: any = null;
         for (const entry of entries) {
@@ -927,7 +922,7 @@ const promptNodes = normalized.prompt ? normalized.prompt : normalized;
         throw err;
       }
     } else {
-      const rawText = fs.readFileSync(filePath, 'utf-8');
+      const rawText = fileBuffer.toString('utf-8');
       if (rawText.length > 10 * 1024 * 1024) {
         const err = new Error('JSON workflow payload exceeds 10MB text limit');
         (err as any).code = 'FILE_TOO_LARGE';

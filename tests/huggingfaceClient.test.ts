@@ -11,7 +11,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { HuggingFaceClient } from '../src/services/huggingfaceClient';
-import axios from 'axios';
 
 vi.mock('axios', () => {
   const mockAxiosInstance = {

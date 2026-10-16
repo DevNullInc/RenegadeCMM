@@ -11,7 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { ModelUsageInfo, OrphanScanResult, WorkflowInfo } from '../types/app';
+import { ModelUsageInfo, OrphanScanResult } from '../types/app';
 import { WorkflowScanner } from './workflowScanner';
 import { dbManager } from '../db/db';
 import { formatBytes } from './precisionInspector';

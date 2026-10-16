@@ -14,10 +14,9 @@ import fs from 'fs';
 import path from 'path';
 import { DownloadTask, ConflictStrategy } from '../types/app';
 import { computeFileSHA256 } from '../utils/hash';
-import { sanitizeFileName, testFolderWritable } from '../utils/pathUtils';
+import { testFolderWritable } from '../utils/pathUtils';
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';
-import { webhookService } from './webhookService';
 import { civitaiClient } from './civitaiClient';
 import { huggingfaceClient } from './huggingfaceClient';
 import { imageCacheService } from './imageCacheService';
@@ -100,7 +99,7 @@ export function isHuggingFaceUrl(url?: string): boolean {
 export class DownloadManager {
   private tasks: Map<string, DownloadTask> = new Map();
   private activeDownloads: Map<string, { cancel: () => void; cleanup: () => void }> = new Map();
-  private maxConcurrent: number = 2;
+  private maxConcurrent: number;
   private defaultConflictStrategy: ConflictStrategy = 'rename';
   private strictHashVerification: boolean = true;
   private persistenceTimer: NodeJS.Timeout | null = null;

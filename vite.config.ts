@@ -16,8 +16,6 @@ import path from 'path';
 import fs from 'fs';
 import { dbManager } from './src/db/db';
 import { civitaiClient } from './src/services/civitaiClient';
-import { folderRouter } from './src/services/folderRouter';
-import { downloadManager } from './src/services/downloadManager';
 import { libraryScanner } from './src/services/libraryScanner';
 import { storageOptimizer } from './src/services/storageOptimizer';
 import { precisionInspector } from './src/services/precisionInspector';
@@ -26,7 +24,7 @@ import { modelConverter } from './src/services/modelConverter';
 import { hardwareScanner } from './src/services/hardwareScanner';
 import { swarmBridge } from './src/services/swarmBridge';
 import { licenseService } from './src/services/licenseService';
-import { encryptKey, decryptKey } from './src/utils/secureStorage';
+import { encryptKey } from './src/utils/secureStorage';
 
 let currentConfig: any = {
   comfyui_root: '',
@@ -391,16 +389,6 @@ function apiServerPlugin(): Plugin {
             } catch (e: any) {
               res.statusCode = 500;
               res.end(JSON.stringify({ success: false, error: e?.message }));
-            }
-          } else if (pathname === '/api/license/verify' && req.method === 'POST') {
-            try {
-              const body = await getBody();
-              const token = body?.licenseToken || body?.token || '';
-              const result = await licenseService.verifyLicense(token);
-              res.end(JSON.stringify(result));
-            } catch (e: any) {
-              res.statusCode = 500;
-              res.end(JSON.stringify({ isValid: false, status: 'malformed', error: e?.message }));
             }
           } else if (pathname === '/api/license/sign-challenge' && req.method === 'POST') {
             try {

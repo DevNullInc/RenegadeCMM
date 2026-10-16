@@ -10,7 +10,6 @@
  * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
-import path from 'path';
 import AdmZip from 'adm-zip';
 import { dbManager } from '../db/db';
 import { logger } from '../utils/logger';

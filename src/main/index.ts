@@ -46,11 +46,9 @@ import { testFolderWritable } from '../utils/pathUtils';
 import {
   isAllowedOriginOrReferer,
   isPathWithinAllowedRoots,
-  isSafeModelPath,
   isSafeNetworkUrl,
   parseSanitizedDeepLink,
   sanitizePathString,
-  ALLOWED_IMAGE_EXTENSIONS,
 } from '../utils/securityValidator';
 import { AppConfig, AppUpdateCheckResult, LocalModel } from '../types/app';
 import { APP_VERSION, BUILD_CONFIG } from '../version';
@@ -833,7 +831,7 @@ function resolveCustomNodesDir(config: AppConfig, explicitCustomNodesDir?: strin
     return path.join(config.comfyui_install_dir.trim(), 'custom_nodes');
   }
   const inferred = inspectComfyUIInstall();
-  return inferred && inferred.customNodesDir ? inferred.customNodesDir : '';
+  return inferred.customNodesDir || '';
 }
 
 /** Deletes resolution-cache rows that were written against a now-stale custom_nodes dir. */
@@ -1107,7 +1105,7 @@ async function checkDevelopmentGitUpdate(): Promise<AppUpdateCheckResult> {
         latestReleaseTag: remoteTag || undefined,
         remoteCommitMessage: releaseMsg,
         remoteCommitDate: releaseDate,
-        githubUrl: releasesUrl,
+        githubUrl: releaseHtmlUrl,
         isPackaged,
       };
     } catch (releaseErr: any) {
@@ -1903,60 +1901,6 @@ function startHttpBridgeServer() {
         const success = await downloadManager.forceCompleteTask(body.id);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success }));
-function mapDbRowToLocalModel(r: any): LocalModel {
-  const companion = discoverCompanionFiles(r.file_path);
-  const info = companion.companionInfo;
-  const trainedWords = Array.isArray(info?.trainedWords) && info.trainedWords.length > 0
-    ? info.trainedWords
-    : (Array.isArray(info?.model?.trainedWords) && info.model.trainedWords.length > 0 ? info.model.trainedWords : undefined);
-  const civitaiCreator = info?.model?.creator?.username || info?.creator?.username || undefined;
-  const civitaiBaseModel = r.civitai_base_model || info?.baseModel || undefined;
-  const previewUrl = companion.localImageUrl || r.preview_url || (info ? libraryScanner.extractPreviewImage(info) : undefined);
-
-  return {
-    id: r.id,
-    source: r.source || (r.hf_repo_id ? 'huggingface' : 'civitai'),
-    hfRepoId: r.hf_repo_id || undefined,
-    hfCommitSha: r.hf_commit_sha || undefined,
-    quantization: r.quantization || undefined,
-    filePath: r.file_path,
-    fileName: r.file_name,
-    fileSize: r.file_size,
-    modifiedAt: r.modified_at,
-    sha256: r.sha256 || companion.companionHash,
-    civitaiModelId: r.civitai_model_id || info?.modelId || info?.model?.id,
-    civitaiVersionId: r.civitai_version_id || info?.id,
-    civitaiName: r.civitai_name || info?.model?.name || info?.name || undefined,
-    civitaiBaseModel,
-    civitaiCreator,
-    previewUrl,
-    localPreviewPath: companion.localImagePath,
-    companionInfoPath: companion.companionInfoPath,
-    modelType: r.model_type || info?.model?.type || info?.type,
-    nsfw: !!r.nsfw || Boolean(info?.model?.nsfw || (info?.nsfwLevel && info.nsfwLevel > 1)),
-    customLink: r.custom_link || info?.customLink || undefined,
-    isMatched: !!r.civitai_version_id || !!r.hf_repo_id || !!info?.id || !!r.custom_link || !!info?.customLink,
-    isMissing: !fs.existsSync(r.file_path),
-    hasUpdate: !!r.has_update,
-    updateVersionId: r.update_version_id,
-    updateVersionName: r.update_version_name,
-    updateDownloadUrl: r.update_download_url,
-    ignoredVersionId: r.ignored_version_id,
-    isDuplicate: !!r.is_duplicate,
-    updateCheckedAt: r.update_checked_at,
-    pickleScanStatus: r.pickle_scan_status || undefined,
-    pickleScannedSha256: r.pickle_scanned_sha256 || undefined,
-    pickleScannedAt: r.pickle_scanned_at || undefined,
-    isMultiPart: !!r.is_multi_part || !!info?.isMultiPart,
-    totalParts: r.total_parts || info?.totalParts || undefined,
-    availableParts: r.available_parts || info?.availableParts || undefined,
-    shards: r.shards_json ? (() => { try { return JSON.parse(r.shards_json); } catch { return undefined; } })() : (info?.shards || undefined),
-    trainedWords,
-    description: typeof info?.description === 'string' ? info.description : (typeof info?.model?.description === 'string' ? info.model.description : undefined),
-    tags: Array.isArray(info?.tags) ? info.tags : (Array.isArray(info?.model?.tags) ? info.model.tags : undefined),
-  };
-}
-
       } else if (url === '/api/local-models' && req.method === 'GET') {
         // Flags persist across scans/loads, but self-clear once the flagged update
         // version is actually installed locally.
@@ -2109,10 +2053,6 @@ function mapDbRowToLocalModel(r: any): LocalModel {
         const body = req.method === 'POST' ? await getBody() : {};
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(listDirectoryEntries(body?.dirPath)));
-      } else if (url === '/api/cancel-scan' && req.method === 'POST') {
-        libraryScanner.cancelScan();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
       } else if (url === '/api/get-scan-status' && req.method === 'GET') {
         const status = libraryScanner.getScanStatus();
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2741,11 +2681,6 @@ function mapDbRowToLocalModel(r: any): LocalModel {
         res.end(JSON.stringify(result));
       } else if (url === '/api/license/deactivate' && req.method === 'POST') {
         const result = await licenseService.deactivateLicense();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      } else if (url === '/api/license/verify' && req.method === 'POST') {
-        const body = await getBody();
-        const result = await licenseService.verifyLicense(body.licenseKey || body.key || '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } else if (url === '/api/license/sign-challenge' && req.method === 'POST') {
@@ -3961,21 +3896,36 @@ function performFullShutdown() {
   if (process.platform === 'win32') {
     for (const pid of pidsToKill) {
       try {
-        child_process.execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+        child_process.execFileSync('taskkill.exe', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
       } catch (e) { }
     }
     // Clean up node/electron processes associated with this project or listening on 5173/5174
     try {
-      const rootEscaped = process.cwd().replace(/'/g, "''");
-      child_process.execSync(
-        `powershell -NoProfile -Command "$prot = @('firefox','chrome','brave','opera','msedge','safari','zen','waterfox','tor'); $pids = @(); Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $pids += [int]$_ }; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { ($_.Name -match 'node|electron') -and ($_.CommandLine -like '*${rootEscaped}*' -or $_.CommandLine -like '*renegadecmm*') } | ForEach-Object { $pids += [int]$_.ProcessId }; $pids | Select-Object -Unique | ForEach-Object { if ($_ -gt 4 -and $_ -ne ${process.pid}) { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p -and -not ($prot -contains $p.ProcessName.ToLower())) { & taskkill.exe /F /T /PID $_ 2>&1; Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } } }"`,
-        { stdio: 'ignore' }
+      child_process.execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          "$prot = @('firefox','chrome','brave','opera','msedge','safari','zen','waterfox','tor'); $targetDir = $env:CMM_ROOT_DIR; $ownPid = [int]$env:CMM_OWN_PID; $pids = @(); Get-NetTCPConnection -LocalPort 5173,5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $pids += [int]$_ }; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { ($_.Name -match 'node|electron') -and (($targetDir -and $_.CommandLine -like ('*' + $targetDir + '*')) -or $_.CommandLine -like '*renegadecmm*') } | ForEach-Object { $pids += [int]$_.ProcessId }; $pids | Select-Object -Unique | ForEach-Object { if ($_ -gt 4 -and $_ -ne $ownPid) { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p -and -not ($prot -contains $p.ProcessName.ToLower())) { & taskkill.exe /F /T /PID $_ 2>&1; Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } } }",
+        ],
+        {
+          env: {
+            ...process.env,
+            CMM_ROOT_DIR: process.cwd(),
+            CMM_OWN_PID: String(process.pid),
+          },
+          stdio: 'ignore',
+        }
       );
     } catch (e) { }
   } else {
     for (const pid of pidsToKill) {
       try {
-        const comm = child_process.execSync(`ps -p ${pid} -o comm= 2>/dev/null`, { encoding: 'utf8' }).trim().toLowerCase();
+        const comm = child_process
+          .execFileSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' })
+          .trim()
+          .toLowerCase();
         const isBrowser = /firefox|chrome|chromium|brave|opera|edge|safari|zen|tor|waterfox|librewolf/.test(comm);
         if (!isBrowser && (comm.includes('node') || comm.includes('electron') || comm.includes('vite'))) {
           process.kill(pid, 'SIGTERM');

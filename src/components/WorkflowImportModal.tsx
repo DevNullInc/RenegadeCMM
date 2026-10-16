@@ -20,7 +20,6 @@ import {
   ArrowRight,
   Cpu,
   Code2,
-  CheckCircle2,
 } from 'lucide-react';
 import { WorkflowInfo } from '../types/app';
 import { WorkflowParseResult } from '../services/workflowScanner';

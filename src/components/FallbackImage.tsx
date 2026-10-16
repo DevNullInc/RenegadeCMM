@@ -34,6 +34,15 @@ function getCacheProxyUrl(url: string, type: 'library' | 'browse'): string {
   return `${apiBase}/cached-image?url=${encodeURIComponent(url)}&type=${type}`;
 }
 
+function sanitizeImageUrl(raw?: string | null): string {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (/^(javascript|vbscript|data:(?!image\/)):/i.test(trimmed)) {
+    return '';
+  }
+  return trimmed;
+}
+
 export const FallbackImage: React.FC<FallbackImageProps> = ({
   candidateUrls = [],
   src,
@@ -50,15 +59,14 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
   // Build a distinct list of valid candidate URLs with local bridge caching
   const urls: string[] = React.useMemo(() => {
     const rawList: string[] = [];
-    if (src && typeof src === 'string' && src.trim()) {
-      rawList.push(src.trim());
+    const cleanSrc = sanitizeImageUrl(src);
+    if (cleanSrc) {
+      rawList.push(cleanSrc);
     }
     (candidateUrls || []).forEach((item) => {
-      if (item && typeof item === 'string') {
-        const trimmed = item.trim();
-        if (trimmed && !rawList.includes(trimmed)) {
-          rawList.push(trimmed);
-        }
+      const cleanItem = sanitizeImageUrl(item);
+      if (cleanItem && !rawList.includes(cleanItem)) {
+        rawList.push(cleanItem);
       }
     });
 
@@ -123,7 +131,16 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
     );
   }
 
-  const currentUrl = urls[currentIndex];
+  const currentUrl = sanitizeImageUrl(urls[currentIndex]);
+
+  if (!currentUrl) {
+    return (
+      <div className={`w-full h-full flex flex-col items-center justify-center text-slate-700 font-mono text-[11px] gap-1 bg-slate-900/50 select-none ${className}`}>
+        {fallbackIcon || <Layers size={22} className="text-slate-700 stroke-[1.5]" />}
+        <span>{fallbackText}</span>
+      </div>
+    );
+  }
 
   return (
     <img

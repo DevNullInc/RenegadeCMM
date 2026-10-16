@@ -1236,16 +1236,7 @@ export function setupWebBridgeIfNeeded() {
       },
 
       verifyLicense: async (licenseKey: string) => {
-        try {
-          const res = await fetch(`${getApiBase()}/license/verify`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey }),
-          });
-          return await res.json();
-        } catch (e: any) {
-          return { isValid: false, status: 'malformed', error: e.message };
-        }
+        return (window as any).civitaiAPI.activateLicense(licenseKey);
       },
 
       signLicenseChallenge: async (challenge: string) => {

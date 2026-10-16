@@ -20,8 +20,6 @@ import {
   isSafeNetworkUrl,
   parseSanitizedDeepLink,
   sanitizePathString,
-  ALLOWED_IMAGE_EXTENSIONS,
-  ALLOWED_MODEL_EXTENSIONS,
 } from '../src/utils/securityValidator';
 import { webhookService } from '../src/services/webhookService';
 import { storageOptimizer } from '../src/services/storageOptimizer';

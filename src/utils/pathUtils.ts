@@ -11,6 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 export function normalizePath(filePath: string): string {
   if (!filePath) return '';
@@ -82,14 +83,12 @@ export function testFolderWritable(folderPath: string): FolderAccessCheck {
     // Verify write permissions with a temporary probe file
     const probeFile = path.join(
       cleanPath,
-      `.cmm_write_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.tmp`
+      `.cmm_write_test_${Date.now()}_${crypto.randomBytes(8).toString('hex')}.tmp`
     );
-    fs.writeFileSync(probeFile, 'cmm_write_ok', 'utf8');
-    if (fs.existsSync(probeFile)) {
-      try {
-        fs.unlinkSync(probeFile);
-      } catch {}
-    }
+    fs.writeFileSync(probeFile, 'cmm_write_ok', { mode: 0o600, flag: 'wx' });
+    try {
+      fs.unlinkSync(probeFile);
+    } catch {}
     return { writable: true, exists: true };
   } catch (err: any) {
     let msg = err.message || 'Write permission denied or drive is locked';

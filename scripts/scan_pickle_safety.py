@@ -179,10 +179,10 @@ def extract_pickle_streams_from_file(file_path):
                         try:
                             data = zf.read(name)
                             streams.append((name, data))
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                        except Exception as e:
+                            sys.stderr.write(f"Warning reading archive member {name}: {e}\n")
+        except Exception as e:
+            sys.stderr.write(f"Warning processing zip archive {file_path}: {e}\n")
 
     # 2. If not a zip or no pkl entries found in zip, treat as raw file stream
     if not streams:
@@ -190,8 +190,8 @@ def extract_pickle_streams_from_file(file_path):
             with open(file_path, "rb") as f:
                 header = f.read(1024 * 1024 * 32) # Read up to first 32MB for opcode scanning
                 streams.append((os.path.basename(file_path), header))
-        except Exception:
-            pass
+        except Exception as e:
+            sys.stderr.write(f"Warning reading raw stream for {file_path}: {e}\n")
 
     return streams
 

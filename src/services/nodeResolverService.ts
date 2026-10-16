@@ -29,8 +29,6 @@ const execFileAsync = promisify(execFile);
 // URLs for ComfyUI-Manager curated node databases
 const MANAGER_NODE_MAP_URL =
   'https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/extension-node-map.json';
-const MANAGER_NODE_LIST_URL =
-  'https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json';
 
 const REGISTRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 Hours
 
@@ -420,8 +418,7 @@ export class NodeResolverService {
   private extractAssignmentBraces(content: string, name: string): string[] {
     const blocks: string[] = [];
     const re = new RegExp(`\\b${name}\\s*=\\s*\\{`, 'g');
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(content)) !== null) {
+    while (re.exec(content) !== null) {
       let depth = 1;
       let i = re.lastIndex;
       while (i < content.length && depth > 0) {
@@ -682,7 +679,7 @@ export class NodeResolverService {
           resolve([]);
         } catch (err: any) {
           const message = err?.message || String(err);
-          if (/^HTTP 403|rate limit/i.test(message)) {
+          if (/^(?:HTTP 403|rate limit)/i.test(message)) {
             // Trip the circuit breaker and stay quiet: every subsequent search in
             // the cooldown window would only fan the flames.
             this.onGitHubRateLimited();
@@ -1083,7 +1080,7 @@ export class NodeResolverService {
       if (customNodesDir && !fs.existsSync(path.join(customNodesDir, row.folder_name))) {
         await dbManager.run(
           'DELETE FROM manual_node_mappings WHERE node_type = ? AND custom_nodes_dir = ?;',
-          [nodeType, customNodesDir || '']
+          [nodeType, customNodesDir]
         );
         return null;
       }
@@ -1230,7 +1227,7 @@ export class NodeResolverService {
       fs.mkdirSync(resolvedNodesDir, { recursive: true });
     }
 
-    const trimmedUrl = (gitUrl || '').trim();
+    const trimmedUrl = gitUrl.trim();
     // Validate gitUrl strictly against allowed Git/HTTPS URL formats
     const isHttpsGit = /^https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&=/]*)$/i.test(trimmedUrl);
     const isSshGit = /^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9._/-]+(\.git)?$/i.test(trimmedUrl);

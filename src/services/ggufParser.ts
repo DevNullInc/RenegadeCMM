@@ -106,30 +106,25 @@ export class GGUFParser {
 
     if (typeof source === 'string') {
       fileName = path.basename(source);
-      if (!fs.existsSync(source)) {
-        return { valid: false, error: `File not found: ${source}` };
-      }
       const lowerName = fileName.toLowerCase();
-      if (!lowerName.endsWith('.gguf') && !lowerName.endsWith('.gguf.part') && !lowerName.endsWith('.bin')) {
-        return { valid: false, error: `Unsupported file extension for GGUF inspection: ${fileName}` };
-      }
-      try {
-        const stat = fs.statSync(source);
-        if (!stat.isFile()) {
-          return { valid: false, error: `Target path is not a regular file: ${source}` };
-        }
-      } catch (statErr: any) {
-        return { valid: false, error: `Cannot inspect file attributes: ${statErr.message}` };
-      }
-
       let fd: number | null = null;
       try {
         fd = fs.openSync(source, 'r');
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile()) {
+          return { valid: false, error: `Target path is not a regular file: ${source}` };
+        }
+        if (!lowerName.endsWith('.gguf') && !lowerName.endsWith('.gguf.part') && !lowerName.endsWith('.bin')) {
+          return { valid: false, error: `Unsupported file extension for GGUF inspection: ${fileName}` };
+        }
         // Read up to 128KB which comfortably encompasses GGUF key-value metadata
         buffer = Buffer.alloc(131072);
         const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
         buffer = buffer.subarray(0, bytesRead);
       } catch (err: any) {
+        if (err.code === 'ENOENT') {
+          return { valid: false, error: `File not found: ${source}` };
+        }
         return { valid: false, error: `Failed to read file: ${err.message}` };
       } finally {
         if (fd !== null) {
@@ -256,7 +251,6 @@ export class GGUFParser {
             break;
           default:
             // Unknown type: cannot reliably determine remaining offsets
-            offset = buffer.length;
             break kvLoop;
         }
 

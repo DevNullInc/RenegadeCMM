@@ -10,7 +10,7 @@
  * See LICENSE for full terms and conditions.
  */
 import React, { useState, useEffect } from 'react';
-import { GitBranch, ExternalLink, X, Sparkles, Terminal } from 'lucide-react';
+import { GitBranch, ExternalLink, X } from 'lucide-react';
 import { AppUpdateCheckResult } from '../types/app';
 import { BUILD_CONFIG } from '../version';
 

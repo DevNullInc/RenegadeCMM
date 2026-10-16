@@ -11,7 +11,6 @@
  * See LICENSE for full terms and conditions.
  */
 import fs from 'fs';
-import path from 'path';
 import { dbManager } from '../db/db';
 import { civitaiClient } from '../services/civitaiClient';
 import { libraryScanner } from '../services/libraryScanner';
@@ -22,7 +21,6 @@ import { backupService } from '../services/backupService';
 import { huggingfaceClient } from '../services/huggingfaceClient';
 import { workflowScanner } from '../services/workflowScanner';
 import { decryptKey, encryptKey, isLegacyEncrypted } from '../utils/secureStorage';
-import { logger } from '../utils/logger';
 import { APP_VERSION } from '../version';
 
 function printBanner() {

@@ -17,7 +17,6 @@ import {
   XCircle,
   CheckCircle2,
   AlertTriangle,
-  HardDrive,
   RefreshCw,
   Activity,
   ArrowDownCircle,
